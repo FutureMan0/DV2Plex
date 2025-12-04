@@ -1,0 +1,57 @@
+{
+  "version": "1.0",
+  "paths": {
+    "plex_movies_root": "D:\\Plex\\Movies",
+    "dv_import_root": "DV_Import",
+    "ffmpeg_path": "bin/ffmpeg.exe",
+    "realesrgan_path": "bin/realesrgan/inference_realesrgan_video.py"
+  },
+  "device": {
+    "dshow_video_device": "JVC GR-D245"
+  },
+  "upscaling": {
+    "default_profile": "realesrgan_4x_hq",
+    "profiles": {
+      "realesrgan_4x_hq": {
+        "backend": "realesrgan",
+        "scale_factor": 4,
+        "model": "RealESRGAN_x4plus",
+        "face_enhance": false,
+        "encoder": "libx264rgb",
+        "encoder_options": {
+          "crf": 17,
+          "preset": "veryslow",
+          "tune": "film"
+        }
+      },
+      "realesrgan_4x_fast": {
+        "backend": "realesrgan",
+        "scale_factor": 4,
+        "model": "RealESRGAN_x4plus",
+        "face_enhance": false,
+        "encoder": "libx264",
+        "encoder_options": {
+          "crf": 20,
+          "preset": "medium",
+          "tune": "film"
+        }
+      }
+    }
+  },
+  "capture": {
+    "auto_merge": true,
+    "auto_upscale": true,
+    "auto_export": false
+  },
+  "ui": {
+    "window_width": 1280,
+    "window_height": 720,
+    "preview_fps": 5
+  },
+  "logging": {
+    "level": "INFO",
+    "log_directory": "logs",
+    "max_log_files": 10
+  }
+}
+

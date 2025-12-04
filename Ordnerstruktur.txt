@@ -1,0 +1,55 @@
+DV2Plex/
+│
+├── dv2plex/                          # Hauptprogramm-Paket
+│   │
+│   ├── __init__.py                   # Paket-Initialisierung
+│   ├── app.py                        # Hauptprogramm (GUI + Orchestrierung)
+│   ├── config.py                     # Konfigurations-Management
+│   ├── capture.py                    # Capture-Engine (ffmpeg-Wrapper)
+│   ├── merge.py                      # Merge-Engine (ffmpeg concat)
+│   ├── upscale.py                    # Upscale-Engine (Video2X-Wrapper)
+│   ├── plex_export.py                # Plex-Exporter
+│   │
+│   ├── bin/                          # Externe Programme
+│   │   ├── ffmpeg.exe
+│   │   └── video2x/                  # Kompletter Video2X-Ordner
+│   │       ├── video2x.exe
+│   │       ├── (alle DLLs)
+│   │       ├── (Models-Ordner)
+│   │       └── (Configs)
+│   │
+│   ├── resources/                    # Ressourcen
+│   │   ├── icons/
+│   │   └── styles/
+│   │
+│   ├── config/                       # Konfigurationsdateien
+│   │   └── settings.json
+│   │
+│   ├── logs/                         # Log-Dateien
+│   │   └── dv2plex_YYYY-MM-DD.log
+│   │
+│   ├── DV_Import/                    # Arbeitsordner für Tapes
+│   │   └── [Filmname (Jahr)]/
+│   │       ├── LowRes/
+│   │       │   ├── part_001.avi
+│   │       │   ├── part_002.avi
+│   │       │   ├── list.txt
+│   │       │   └── movie_merged.avi
+│   │       └── HighRes/
+│   │           └── [Filmname (Jahr)]_4k.mp4
+│   │
+│   └── PlexMovies/                   # Optionaler Standard-Plex-Root
+│       └── [Filmname (Jahr)]/
+│           └── [Filmname (Jahr)].mp4
+│
+├── venv/                             # Python Virtual Environment (optional)
+│   ├── Scripts/
+│   ├── Lib/
+│   └── pyvenv.cfg
+│
+├── run.bat                           # Start-Skript (optional)
+├── README.md                         # Projekt-Dokumentation
+├── Lastenheft.md                    # Dieses Blueprint-Dokument
+├── Konfiguration_Beispiel.json       # Beispiel-Konfiguration
+└── Ordnerstruktur.txt                # Diese Datei
+

@@ -1,0 +1,134 @@
+# Windows / general
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+*.lnk
+*.DS_Store
+*.tmp
+*.log
+~$*
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg-info/
+*.egg
+.Python
+build/
+dist/
+.venv/
+venv/
+ENV/
+env/
+.pytest_cache/
+.coverage
+.mypy_cache/
+
+# VSCode / IDE
+.vscode/
+.idea/
+*.code-workspace
+.cursor/
+
+# Visual Studio / MSBuild
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+*.VC.db
+*.VC.opendb
+*.tlog
+*.ipch
+*.pdb
+*.idb
+*.ilk
+*.obj
+*.pch
+*.res
+*.exp
+*.lib
+*.log
+*.cache
+*.aps
+*.ncb
+*.sbr
+*.tlh
+*.tli
+*.vspscc
+*.vssscc
+*.opensdf
+*.sdf
+*.opendb
+.vs/
+
+# DirectShow BaseClasses / WinDV build outputs
+dv2plex/bin/windv/Debug/
+dv2plex/bin/windv/Release/
+dv2plex/bin/windv/WinDVCaptureBridge/Debug/
+dv2plex/bin/windv/WinDVCaptureBridge/Release/
+dv2plex/bin/windv/windv_build.log
+
+# Third-party binaries (ffmpeg, realesrgan weights, etc.)
+dv2plex/bin/ffmpeg/bin/
+dv2plex/bin/ffmpeg/lib/
+dv2plex/bin/realesrgan/weights/
+
+# Captured media / generated videos
+DV/
+dv2plex/DV_Import/
+dv2plex/PlexMovies/
+
+# Logs
+dv2plex/logs/
+
+# Misc
+*.avi
+*.mp4
+*.bak
+*.old
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+.venv
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Logs
+*.log
+dv2plex/logs/
+
+# Konfiguration (kann angepasst werden)
+# dv2plex/config/settings.json
+
+# Arbeitsordner
+dv2plex/DV_Import/
+dv2plex/PlexMovies/
+
+# Externe Tools (nicht versionieren)
+dv2plex/bin/ffmpeg.exe
+dv2plex/bin/video2x/
+
+# Build
+build/
+dist/
+*.egg-info/
+*.exe
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+

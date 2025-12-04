@@ -1,0 +1,126 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Release|Win32">
+      <Configuration>Release</Configuration>
+      <Platform>Win32</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Debug|Win32">
+      <Configuration>Debug</Configuration>
+      <Platform>Win32</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <ProjectGuid>{406F6070-0F21-46B8-8959-5C4FD6424709}</ProjectGuid>
+    <Keyword>Win32Proj</Keyword>
+    <RootNamespace>WinDV</RootNamespace>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <UseOfMfc>Dynamic</UseOfMfc>
+    <CharacterSet>MultiByte</CharacterSet>
+    <PlatformToolset>v145</PlatformToolset>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <UseDebugLibraries>true</UseDebugLibraries>
+    <UseOfMfc>Dynamic</UseOfMfc>
+    <CharacterSet>MultiByte</CharacterSet>
+    <PlatformToolset>v145</PlatformToolset>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <ImportGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'" Label="PropertySheets">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <ImportGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'" Label="PropertySheets">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
+    <OutDir>Release</OutDir>
+    <IntDir>Release</IntDir>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
+    <OutDir>Debug</OutDir>
+    <IntDir>Debug</IntDir>
+  </PropertyGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
+    <ClCompile>
+      <WarningLevel>Level3</WarningLevel>
+      <PreprocessorDefinitions>WIN32;NDEBUG;_WINDOWS;_AFXDLL;_WIN32_DCOM;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PrecompiledHeader>Use</PrecompiledHeader>
+    </ClCompile>
+    <Link>
+      <AdditionalDependencies>strmbase.lib;msvcrt.lib;quartz.lib;winmm.lib;version.lib;largeint.lib;comctl32.lib;olepro32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <IgnoreSpecificDefaultLibraries>libcmt;%(IgnoreSpecificDefaultLibraries)</IgnoreSpecificDefaultLibraries>
+      <SubSystem>Windows</SubSystem>
+    </Link>
+    <ResourceCompile>
+      <PreprocessorDefinitions>NDEBUG;_AFXDLL;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <Culture>0x0405</Culture>
+    </ResourceCompile>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
+    <ClCompile>
+      <WarningLevel>Level3</WarningLevel>
+      <PreprocessorDefinitions>WIN32;_DEBUG;_WINDOWS;_AFXDLL;DEBUG;_WIN32_DCOM;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <BasicRuntimeChecks>StackFrameRuntimeCheck</BasicRuntimeChecks>
+      <PrecompiledHeader>Use</PrecompiledHeader>
+    </ClCompile>
+    <Link>
+      <AdditionalDependencies>strmbasd.lib;msvcrtd.lib;quartz.lib;winmm.lib;version.lib;largeint.lib;comctl32.lib;olepro32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <IgnoreSpecificDefaultLibraries>libcmtd;%(IgnoreSpecificDefaultLibraries)</IgnoreSpecificDefaultLibraries>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <SubSystem>Windows</SubSystem>
+    </Link>
+    <ResourceCompile>
+      <PreprocessorDefinitions>_DEBUG;_AFXDLL;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <Culture>0x0405</Culture>
+    </ResourceCompile>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <ClCompile Include=".\CaptureCfg.cpp" />
+    <ClCompile Include=".\DropFilesEdit.cpp" />
+    <ClCompile Include=".\DShow.cpp" />
+    <ClCompile Include=".\DV.cpp" />
+    <ClCompile Include=".\DVToolsDlg.cpp" />
+    <ClCompile Include=".\RecordCfg.cpp" />
+    <ClCompile Include=".\StdAfx.cpp">
+      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">Create</PrecompiledHeader>
+      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">Create</PrecompiledHeader>
+    </ClCompile>
+    <ClCompile Include=".\ToolTab.cpp" />
+    <ClCompile Include=".\VideoDeviceSel.cpp" />
+    <ClCompile Include=".\WinDV.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include=".\res\WinDV.rc2" />
+    <None Include=".\WinDV.exe.manifest" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include=".\CaptureCfg.h" />
+    <ClInclude Include=".\DropFilesEdit.h" />
+    <ClInclude Include=".\DShow.h" />
+    <ClInclude Include=".\DV.h" />
+    <ClInclude Include=".\DVToolsDlg.h" />
+    <ClInclude Include=".\RecordCfg.h" />
+    <ClInclude Include=".\Resource.h" />
+    <ClInclude Include=".\StdAfx.h" />
+    <ClInclude Include=".\ToolTab.h" />
+    <ClInclude Include=".\VideoDeviceSel.h" />
+    <ClInclude Include=".\WinDV.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ResourceCompile Include=".\WinDV.rc" />
+  </ItemGroup>
+  <ItemGroup>
+    <Image Include=".\res\DVTool.ico" />
+    <Image Include=".\res\icon1.ico" />
+    <Image Include=".\res\WinDV.ico" />
+    <Image Include=".\res\WinDVlogo.ico" />
+  </ItemGroup>
+  <ItemGroup>
+    <Text Include=".\ReadMe.txt" />
+  </ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+</Project>

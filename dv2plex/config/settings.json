@@ -1,0 +1,100 @@
+{
+  "version": "1.0",
+  "paths": {
+    "plex_movies_root": "C:\\Users\\luisb\\PycharmProjects\\ACR\\PlexMovies",
+    "dv_import_root": "C:\\Users\\luisb\\PycharmProjects\\ACR\\DV",
+    "ffmpeg_path": "C:\\Users\\luisb\\PycharmProjects\\ACR\\dv2plex\\bin\\ffmpeg\\bin\\ffmpeg.exe",
+    "realesrgan_path": "C:\\Users\\luisb\\PycharmProjects\\ACR\\dv2plex\\bin\\realesrgan\\inference_realesrgan_video.py"
+  },
+  "device": {
+    "dshow_video_device": "JVC GR-D245"
+  },
+  "upscaling": {
+    "default_profile": "realesrgan_2x",
+    "profiles": {
+      "realesrgan_4x_hq": {
+        "backend": "realesrgan",
+        "scale_factor": 4,
+        "model": "RealESRGAN_x4plus",
+        "face_enhance": false,
+        "tile_size": 400,
+        "tile_pad": 10,
+        "encoder": "libx264",
+        "encoder_options": {
+          "crf": 17,
+          "preset": "veryfast",
+          "tune": "film"
+        }
+      },
+      "realesrgan_4x_balanced": {
+        "backend": "realesrgan",
+        "scale_factor": 4,
+        "model": "RealESRGAN_x4plus",
+        "face_enhance": false,
+        "tile_size": 400,
+        "tile_pad": 10,
+        "encoder": "libx264",
+        "encoder_options": {
+          "crf": 18,
+          "preset": "veryfast",
+          "tune": "film"
+        }
+      },
+      "realesrgan_4x_fast": {
+        "backend": "realesrgan",
+        "scale_factor": 4,
+        "model": "RealESRGAN_x4plus",
+        "face_enhance": false,
+        "tile_size": 400,
+        "tile_pad": 10,
+        "encoder": "libx264",
+        "encoder_options": {
+          "crf": 20,
+          "preset": "veryfast",
+          "tune": "film"
+        }
+      },
+      "realesrgan_2x": {
+        "backend": "realesrgan",
+        "scale_factor": 2,
+        "model": "RealESRGAN_x4plus",
+        "face_enhance": false,
+        "tile_size": 400,
+        "tile_pad": 10,
+        "encoder": "libx264",
+        "encoder_options": {
+          "crf": 18,
+          "preset": "slow",
+          "tune": "film"
+        }
+      },
+      "ffmpeg_fast": {
+        "backend": "ffmpeg",
+        "scale_factor": 4,
+        "encoder": "libx264",
+        "encoder_options": {
+          "crf": 20,
+          "preset": "veryfast",
+          "tune": "film"
+        }
+      }
+    }
+  },
+  "capture": {
+    "auto_merge": true,
+    "auto_upscale": true,
+    "auto_export": false,
+    "auto_postprocess": false
+  },
+  "ui": {
+    "window_width": 1280,
+    "window_height": 720,
+    "preview_fps": 30
+  },
+  "logging": {
+    "level": "INFO",
+    "log_directory": "",
+    "max_log_files": 10
+  }
+}
+
