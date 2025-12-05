@@ -1,200 +1,200 @@
-# Upscaling-Profile Referenz
+# Upscaling Profile Reference
 
-## Übersicht der verfügbaren Profile
+## Overview of Available Profiles
 
-Diese Tabelle dokumentiert alle verfügbaren Upscaling-Profile mit ihren Parametern, Verwendungszwecken und Performance-Charakteristika.
+This table documents all available upscaling profiles with their parameters, use cases, and performance characteristics.
 
 ---
 
-## RealESRGAN-Profile
+## RealESRGAN Profiles
 
-### RealESRGAN 4x HQ (Höchste Qualität)
+### RealESRGAN 4x HQ (Highest Quality)
 
-**Verwendungszweck:** Beste Qualität für wichtige Aufnahmen, Zeit spielt keine Rolle
+**Use Case:** Best quality for important recordings, time is not a factor
 
-| Parameter | Wert | Beschreibung |
+| Parameter | Value | Description |
 |-----------|------|--------------|
-| Backend | `realesrgan` | RealESRGAN-Engine |
-| Scale Factor | `4` | 4x Upscaling |
-| Model | `RealESRGAN_x4plus` | RealESRGAN x4plus Modell (höchste Qualität) |
-| Encoder | `libx264rgb` | RGB-Encoder für bessere Farbqualität |
-| CRF | `17` | Sehr hohe Qualität (18-23 ist Standard) |
-| Preset | `veryslow` | Langsamste, aber beste Kompression |
-| Tune | `film` | Optimiert für Filmmaterial |
+| Backend | `realesrgan` | RealESRGAN engine |
+| Scale Factor | `4` | 4x upscaling |
+| Model | `RealESRGAN_x4plus` | RealESRGAN x4plus model (highest quality) |
+| Encoder | `libx264rgb` | RGB encoder for better color quality |
+| CRF | `17` | Very high quality (18-23 is standard) |
+| Preset | `veryslow` | Slowest, but best compression |
+| Tune | `film` | Optimized for film material |
 
-**Geschätzte Verarbeitungszeit:** ~10-20 Minuten pro Minute Video (abhängig von GPU)
-**Empfohlen für:** Wichtige Familienaufnahmen, Archivmaterial
+**Estimated Processing Time:** ~10-20 minutes per minute of video (depending on GPU)
+**Recommended for:** Important family recordings, archive material
 
 ---
 
 ### RealESRGAN 4x Standard
 
-**Verwendungszweck:** Gute Balance zwischen Qualität und Geschwindigkeit
+**Use Case:** Good balance between quality and speed
 
-| Parameter | Wert | Beschreibung |
+| Parameter | Value | Description |
 |-----------|------|--------------|
-| Backend | `realesrgan` | RealESRGAN-Engine |
-| Scale Factor | `4` | 4x Upscaling |
-| Model | `RealESRGAN_x4plus` | RealESRGAN x4plus Modell |
-| Face Enhance | `false` | Keine Gesichtsverbesserung |
-| Encoder | `libx264` | Standard H.264-Encoder |
-| CRF | `18` | Hohe Qualität |
-| Preset | `slow` | Gute Balance |
-| Tune | `film` | Optimiert für Filmmaterial |
+| Backend | `realesrgan` | RealESRGAN engine |
+| Scale Factor | `4` | 4x upscaling |
+| Model | `RealESRGAN_x4plus` | RealESRGAN x4plus model |
+| Face Enhance | `false` | No face enhancement |
+| Encoder | `libx264` | Standard H.264 encoder |
+| CRF | `18` | High quality |
+| Preset | `slow` | Good balance |
+| Tune | `film` | Optimized for film material |
 
-**Geschätzte Verarbeitungszeit:** ~5-10 Minuten pro Minute Video
-**Empfohlen für:** Standard-Digitalisierungen
+**Estimated Processing Time:** ~5-10 minutes per minute of video
+**Recommended for:** Standard digitizations
 
 ---
 
 ### RealESRGAN 4x Fast
 
-**Verwendungszweck:** Schnelle Verarbeitung, akzeptable Qualität
+**Use Case:** Fast processing, acceptable quality
 
-| Parameter | Wert | Beschreibung |
+| Parameter | Value | Description |
 |-----------|------|--------------|
-| Backend | `realesrgan` | RealESRGAN-Engine |
-| Scale Factor | `4` | 4x Upscaling |
-| Model | `RealESRGAN_x4plus` | RealESRGAN x4plus Modell |
-| Face Enhance | `false` | Keine Gesichtsverbesserung |
-| Encoder | `libx264` | Standard H.264-Encoder (schneller) |
-| CRF | `20` | Gute Qualität |
-| Preset | `medium` | Schnellere Kompression |
-| Tune | `film` | Optimiert für Filmmaterial |
+| Backend | `realesrgan` | RealESRGAN engine |
+| Scale Factor | `4` | 4x upscaling |
+| Model | `RealESRGAN_x4plus` | RealESRGAN x4plus model |
+| Face Enhance | `false` | No face enhancement |
+| Encoder | `libx264` | Standard H.264 encoder (faster) |
+| CRF | `20` | Good quality |
+| Preset | `medium` | Faster compression |
+| Tune | `film` | Optimized for film material |
 
-**Geschätzte Verarbeitungszeit:** ~3-5 Minuten pro Minute Video
-**Empfohlen für:** Schnelle Durchsicht, Testläufe
+**Estimated Processing Time:** ~3-5 minutes per minute of video
+**Recommended for:** Quick review, test runs
 
 ---
 
 ### RealESRGAN 2x
 
-**Verwendungszweck:** 2x Upscaling (schneller als 4x)
+**Use Case:** 2x upscaling (faster than 4x)
 
-| Parameter | Wert | Beschreibung |
+| Parameter | Value | Description |
 |-----------|------|--------------|
-| Backend | `realesrgan` | RealESRGAN-Engine |
-| Scale Factor | `2` | 2x Upscaling |
-| Model | `RealESRGAN_x2plus` | RealESRGAN x2plus Modell |
-| Face Enhance | `false` | Keine Gesichtsverbesserung |
-| Encoder | `libx264` | Standard H.264-Encoder |
-| CRF | `18` | Hohe Qualität |
-| Preset | `slow` | Gute Balance |
-| Tune | `film` | Optimiert für Filmmaterial |
+| Backend | `realesrgan` | RealESRGAN engine |
+| Scale Factor | `2` | 2x upscaling |
+| Model | `RealESRGAN_x2plus` | RealESRGAN x2plus model |
+| Face Enhance | `false` | No face enhancement |
+| Encoder | `libx264` | Standard H.264 encoder |
+| CRF | `18` | High quality |
+| Preset | `slow` | Good balance |
+| Tune | `film` | Optimized for film material |
 
-**Geschätzte Verarbeitungszeit:** ~2-4 Minuten pro Minute Video
-**Empfohlen für:** Schnellere Verarbeitung, wenn 4K nicht benötigt wird
+**Estimated Processing Time:** ~2-4 minutes per minute of video
+**Recommended for:** Faster processing when 4K is not needed
 
 
-## Parameter-Erklärungen
+## Parameter Explanations
 
 ### Backend
 
-- **`realesrgan`**: RealESRGAN-Engine, optimiert für natürliche Bilder/Fotos und Videos
+- **`realesrgan`**: RealESRGAN engine, optimized for natural images/photos and videos
 
-### Scale Factor (nur RealESRGAN)
+### Scale Factor (RealESRGAN only)
 
-- **`2`**: 2x Upscaling (z.B. 720p → 1440p)
-- **`4`**: 4x Upscaling (z.B. 720p → 2880p, typisch für DV → 4K)
-- **`8`**: 8x Upscaling (experimentell, sehr langsam)
+- **`2`**: 2x upscaling (e.g., 720p → 1440p)
+- **`4`**: 4x upscaling (e.g., 720p → 2880p, typical for DV → 4K)
+- **`8`**: 8x upscaling (experimental, very slow)
 
 ### Model (RealESRGAN)
 
-- **`RealESRGAN_x4plus`**: Standard 4x Modell, beste Qualität für allgemeine Verwendung (empfohlen für Kassetten-Digitalisierung)
-- **`RealESRGAN_x2plus`**: 2x Modell, schneller
+- **`RealESRGAN_x4plus`**: Standard 4x model, best quality for general use (recommended for tape digitization)
+- **`RealESRGAN_x2plus`**: 2x model, faster
 
 ### Face Enhance
 
-- **`false`**: Keine Gesichtsverbesserung (Standard)
-- **`true`**: Aktiviert GFPGAN für Gesichtsverbesserung (langsamer, aber bessere Gesichter)
+- **`false`**: No face enhancement (default)
+- **`true`**: Enables GFPGAN for face enhancement (slower, but better faces)
 
 ### Encoder
 
-- **`libx264rgb`**: RGB-Encoder, bessere Farbqualität, größere Dateien
-- **`libx264`**: Standard H.264-Encoder, kompakter, schneller
+- **`libx264rgb`**: RGB encoder, better color quality, larger files
+- **`libx264`**: Standard H.264 encoder, more compact, faster
 
 ### CRF (Constant Rate Factor)
 
-- **`15-17`**: Sehr hohe Qualität, große Dateien
-- **`18-20`**: Hohe Qualität, gute Balance (empfohlen)
-- **`21-23`**: Standard-Qualität, kleinere Dateien
-- **`24+`**: Niedrigere Qualität, sehr kleine Dateien
+- **`15-17`**: Very high quality, large files
+- **`18-20`**: High quality, good balance (recommended)
+- **`21-23`**: Standard quality, smaller files
+- **`24+`**: Lower quality, very small files
 
 ### Preset
 
-- **`veryslow`**: Beste Kompression, langsamste Verarbeitung
-- **`slow`**: Sehr gute Kompression, langsam
-- **`medium`**: Standard, gute Balance
-- **`fast`**: Schnellere Verarbeitung, größere Dateien
-- **`veryfast`**: Sehr schnell, deutlich größere Dateien
+- **`veryslow`**: Best compression, slowest processing
+- **`slow`**: Very good compression, slow
+- **`medium`**: Standard, good balance
+- **`fast`**: Faster processing, larger files
+- **`veryfast`**: Very fast, significantly larger files
 
 ### Tune
 
-- **`film`**: Optimiert für Filmmaterial (empfohlen für DV)
-- **`animation`**: Optimiert für Animationen
-- **`grain`**: Erhält Filmkorn
-- **`stillimage`**: Für Standbilder
+- **`film`**: Optimized for film material (recommended for DV)
+- **`animation`**: Optimized for animations
+- **`grain`**: Preserves film grain
+- **`stillimage`**: For still images
 
 ---
 
-## Empfehlungen nach Anwendungsfall
+## Recommendations by Use Case
 
-### Wichtige Familienaufnahmen / Archivmaterial
-- **Profil:** RealESRGAN 4x HQ
-- **Begründung:** Beste Qualität, Zeit spielt keine Rolle
+### Important Family Recordings / Archive Material
+- **Profile:** RealESRGAN 4x HQ
+- **Reason:** Best quality, time is not a factor
 
-### Standard-Digitalisierungen
-- **Profil:** RealESRGAN 4x Standard
-- **Begründung:** Gute Balance zwischen Qualität und Zeit
+### Standard Digitizations
+- **Profile:** RealESRGAN 4x Standard
+- **Reason:** Good balance between quality and time
 
-### Schnelle Durchsicht / Testläufe
-- **Profil:** RealESRGAN 4x Fast
-- **Begründung:** Schnell, akzeptable Qualität
+### Quick Review / Test Runs
+- **Profile:** RealESRGAN 4x Fast
+- **Reason:** Fast, acceptable quality
 
-### Batch-Processing (viele Kassetten)
-- **Profil:** RealESRGAN 4x Fast oder RealESRGAN 2x
-- **Begründung:** Zeitersparnis bei akzeptabler Qualität
+### Batch Processing (many tapes)
+- **Profile:** RealESRGAN 4x Fast or RealESRGAN 2x
+- **Reason:** Time savings with acceptable quality
 
 ---
 
-## Performance-Hinweise
+## Performance Notes
 
 ### GPU vs. CPU
 
-- **GPU (CUDA/OpenCL):** Deutlich schneller (empfohlen)
-- **CPU:** Langsamer, aber universell verfügbar
+- **GPU (CUDA/OpenCL):** Significantly faster (recommended)
+- **CPU:** Slower, but universally available
 
-### Geschätzte Verarbeitungszeiten (pro Minute Video)
+### Estimated Processing Times (per minute of video)
 
-| Profil | GPU (RTX 3060) | GPU (RTX 4090) | CPU (i7-12700K) |
+| Profile | GPU (RTX 3060) | GPU (RTX 4090) | CPU (i7-12700K) |
 |--------|----------------|----------------|-----------------|
 | RealESRGAN 4x HQ | ~15 Min | ~8 Min | ~60 Min |
 | RealESRGAN 4x Balanced | ~8 Min | ~4 Min | ~30 Min |
 | RealESRGAN 4x Fast | ~4 Min | ~2 Min | ~15 Min |
 | RealESRGAN 2x | ~2 Min | ~1 Min | ~8 Min |
 
-*Hinweis: Zeiten sind Schätzungen und können je nach Hardware und Videoinhalt variieren.*
+*Note: Times are estimates and may vary depending on hardware and video content.*
 
 ---
 
-## Dateigrößen (geschätzt)
+## File Sizes (estimated)
 
-### Pro Minute Video (nach Upscaling auf 4K)
+### Per Minute of Video (after upscaling to 4K)
 
-| Profil | Dateigröße (ungefähr) |
+| Profile | File Size (approximately) |
 |--------|----------------------|
 | RealESRGAN 4x HQ (CRF 17) | ~500-800 MB |
 | RealESRGAN 4x Balanced (CRF 18) | ~400-600 MB |
 | RealESRGAN 4x Fast (CRF 20) | ~300-500 MB |
 | RealESRGAN 2x (CRF 18) | ~200-400 MB |
 
-*Hinweis: Dateigrößen hängen stark vom Videoinhalt ab (Bewegung, Details, etc.)*
+*Note: File sizes depend heavily on video content (motion, details, etc.)*
 
 ---
 
-## Konfiguration in settings.json
+## Configuration in settings.json
 
-Beispiel für ein vollständiges Profil in der Konfigurationsdatei:
+Example of a complete profile in the configuration file:
 
 ```json
 {
@@ -222,23 +222,22 @@ Beispiel für ein vollständiges Profil in der Konfigurationsdatei:
 
 ## Troubleshooting
 
-### "Model not found" Fehler
-- Stelle sicher, dass das entsprechende Modell im Real-ESRGAN weights-Ordner vorhanden ist
-- RealESRGAN-Modelle liegen in `dv2plex/bin/realesrgan/weights/`
-- Lade fehlende Modelle von: https://github.com/xinntao/Real-ESRGAN/releases
+### "Model not found" Error
+- Make sure the corresponding model is present in the Real-ESRGAN weights folder
+- RealESRGAN models are located in `dv2plex/bin/realesrgan/weights/`
+- Download missing models from: https://github.com/xinntao/Real-ESRGAN/releases
 
-### "GPU not available" Fehler
-- Prüfe, ob PyTorch mit CUDA-Support installiert ist
-- Real-ESRGAN nutzt PyTorch für GPU-Beschleunigung
-- Fallback auf CPU ist möglich (aber sehr langsam)
+### "GPU not available" Error
+- Check if PyTorch with CUDA support is installed
+- Real-ESRGAN uses PyTorch for GPU acceleration
+- Fallback to CPU is possible (but very slow)
 
-### Sehr langsame Verarbeitung
-- Prüfe GPU-Auslastung (Task Manager)
-- Reduziere Preset (z.B. `veryslow` → `slow`)
-- Erhöhe CRF leicht (z.B. `17` → `18`) für kleinere Dateien und schnellere Kompression
+### Very Slow Processing
+- Check GPU usage (Task Manager)
+- Reduce preset (e.g., `veryslow` → `slow`)
+- Increase CRF slightly (e.g., `17` → `18`) for smaller files and faster compression
 
-### Schlechte Qualität
-- Reduziere CRF (z.B. `20` → `17`)
-- Verwende `veryslow` Preset
-- Stelle sicher, dass das richtige Modell verwendet wird (z.B. `RealESRGAN_x4plus`)
-
+### Poor Quality
+- Reduce CRF (e.g., `20` → `17`)
+- Use `veryslow` preset
+- Make sure the correct model is used (e.g., `RealESRGAN_x4plus`)

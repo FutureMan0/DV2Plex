@@ -38,13 +38,16 @@ if realesrgan_dir.exists():
                 realesrgan_py_files.append(rel_path)
 
 a = Analysis(
-    ['start.py'],
+    [str(project_root / 'start.py')],
     pathex=[str(project_root)],
     binaries=[],
     datas=[
         # Konfigurationsdateien
         (str(dv2plex_dir / "config" / "settings.json"), "dv2plex/config"),
         (str(project_root / "config" / "examples" / "Konfiguration_Beispiel.json"), "."),
+        
+        # Logo
+        (str(project_root / "dv2plex_logo.png"), "."),
         
         # Real-ESRGAN Skripte und Module
         (str(realesrgan_dir / "inference_realesrgan_video.py"), "dv2plex/bin/realesrgan"),
@@ -135,7 +138,7 @@ a = Analysis(
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
     cipher=block_cipher,
-    noarchive=False,
+    noarchive=True,  # True, um Größenprobleme mit großen Bibliotheken (PyTorch) zu vermeiden
 )
 
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
@@ -151,7 +154,7 @@ exe = EXE(
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=True,
+    upx=False,  # Deaktiviert, da UPX bei großen Bibliotheken problematisch sein kann
     upx_exclude=[],
     runtime_tmpdir=None,
     console=False,  # Keine Konsole für GUI-Anwendung

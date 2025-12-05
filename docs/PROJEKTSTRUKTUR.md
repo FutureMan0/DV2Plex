@@ -1,161 +1,161 @@
-# Projektstruktur
+# Project Structure
 
-Diese Datei beschreibt die Struktur des DV2Plex-Projekts.
+This file describes the structure of the DV2Plex project.
 
-## Verzeichnisstruktur
+## Directory Structure
 
 ```
 dv2plex/
-├── dv2plex/                    # Haupt-Python-Package
-│   ├── __init__.py            # Package-Initialisierung
-│   ├── __main__.py            # Entry-Point für python -m dv2plex
-│   ├── app.py                 # GUI-Hauptprogramm (PySide6)
-│   ├── config.py              # Konfigurations-Management
-│   ├── capture.py             # DV-Capture-Engine
-│   ├── merge.py               # Video-Merge-Engine
-│   ├── upscale.py             # Upscaling-Engine (Real-ESRGAN)
-│   ├── plex_export.py         # Plex-Export-Engine
-│   ├── frame_extraction.py    # Frame-Extraktion für Cover
-│   ├── cover_generation.py    # Cover-Generierung (Stable Diffusion)
-│   ├── download_manager.py   # Download-Manager für Dependencies
-│   ├── config/                # Konfigurationsdateien
-│   │   └── settings.json      # Standard-Konfiguration
-│   └── bin/                   # Externe Binaries und Tools
-│       └── realesrgan/         # Real-ESRGAN Repository (Submodule)
+├── dv2plex/                    # Main Python package
+│   ├── __init__.py            # Package initialization
+│   ├── __main__.py            # Entry point for python -m dv2plex
+│   ├── app.py                 # GUI main program (PySide6)
+│   ├── config.py              # Configuration management
+│   ├── capture.py             # DV capture engine
+│   ├── merge.py               # Video merge engine
+│   ├── upscale.py             # Upscaling engine (Real-ESRGAN)
+│   ├── plex_export.py         # Plex export engine
+│   ├── frame_extraction.py    # Frame extraction for cover
+│   ├── cover_generation.py    # Cover generation (Stable Diffusion)
+│   ├── download_manager.py   # Download manager for dependencies
+│   ├── config/                # Configuration files
+│   │   └── settings.json      # Standard configuration
+│   └── bin/                   # External binaries and tools
+│       └── realesrgan/         # Real-ESRGAN repository (submodule)
 │
-├── docs/                      # Dokumentation
-│   ├── BUILD_ANLEITUNG.md     # PyInstaller Build-Anleitung
-│   ├── Upscaling_Profile_Referenz.md  # Upscaling-Profile-Dokumentation
-│   └── PROJEKTSTRUKTUR.md     # Diese Datei
+├── docs/                      # Documentation
+│   ├── BUILD_ANLEITUNG.md     # PyInstaller build guide
+│   ├── Upscaling_Profile_Referenz.md  # Upscaling profile documentation
+│   └── PROJEKTSTRUKTUR.md     # This file
 │
-├── scripts/                   # Build- und Utility-Skripte
-│   ├── build.sh               # Shell-Skript für PyInstaller-Build
-│   ├── build_pyinstaller.py   # Python-Build-Skript
-│   └── dv2plex.spec          # PyInstaller-Spezifikation
+├── scripts/                   # Build and utility scripts
+│   ├── build.sh               # Shell script for PyInstaller build
+│   ├── build_pyinstaller.py   # Python build script
+│   └── dv2plex.spec          # PyInstaller specification
 │
-├── config/                    # Konfigurationsbeispiele
+├── config/                    # Configuration examples
 │   └── examples/
 │       └── Konfiguration_Beispiel.json
 │
-├── tests/                     # Tests (geplant)
+├── tests/                     # Tests (planned)
 │
-├── .gitignore                # Git-Ignore-Regeln
-├── LICENSE                   # MIT-Lizenz
-├── README.md                 # Haupt-README
-├── CONTRIBUTING.md           # Contributing-Richtlinien
-├── CHANGELOG.md              # Änderungsprotokoll
-├── requirements.txt          # Python-Dependencies
-└── start.py                  # Direkter Startpunkt
+├── .gitignore                # Git ignore rules
+├── LICENSE                   # MIT license
+├── README.md                 # Main README
+├── CONTRIBUTING.md           # Contributing guidelines
+├── CHANGELOG.md              # Changelog
+├── requirements.txt          # Python dependencies
+└── start.py                  # Direct entry point
 ```
 
-## Wichtige Dateien
+## Important Files
 
-### Core-Module
+### Core Modules
 
-- **`dv2plex/app.py`**: Haupt-GUI-Anwendung mit PySide6
-- **`dv2plex/config.py`**: Zentrales Konfigurations-Management
-- **`dv2plex/capture.py`**: DV-Capture mit ffmpeg
-- **`dv2plex/merge.py`**: Zusammenfügen mehrerer Video-Parts
-- **`dv2plex/upscale.py`**: KI-basiertes Upscaling
-- **`dv2plex/plex_export.py`**: Export für Plex Media Server
+- **`dv2plex/app.py`**: Main GUI application with PySide6
+- **`dv2plex/config.py`**: Central configuration management
+- **`dv2plex/capture.py`**: DV capture with ffmpeg
+- **`dv2plex/merge.py`**: Merging multiple video parts
+- **`dv2plex/upscale.py`**: AI-based upscaling
+- **`dv2plex/plex_export.py`**: Export for Plex Media Server
 
-### Konfiguration
+### Configuration
 
-- **`dv2plex/config/settings.json`**: Haupt-Konfigurationsdatei
-- **`config/examples/Konfiguration_Beispiel.json`**: Beispiel-Konfiguration
+- **`dv2plex/config/settings.json`**: Main configuration file
+- **`config/examples/Konfiguration_Beispiel.json`**: Example configuration
 
-### Dokumentation
+### Documentation
 
-- **`README.md`**: Haupt-Dokumentation
-- **`CONTRIBUTING.md`**: Richtlinien für Beiträge
-- **`docs/`**: Zusätzliche Dokumentation
+- **`README.md`**: Main documentation
+- **`CONTRIBUTING.md`**: Guidelines for contributions
+- **`docs/`**: Additional documentation
 
 ### Build
 
-- **`scripts/build.sh`**: Automatisiertes Build-Skript
-- **`scripts/dv2plex.spec`**: PyInstaller-Konfiguration
+- **`scripts/build.sh`**: Automated build script
+- **`scripts/dv2plex.spec`**: PyInstaller configuration
 
-## Module-Beschreibung
+## Module Description
 
 ### app.py
 
-Haupt-GUI-Anwendung mit:
-- Modernem Liquid Glass Design
-- Tab-basierter Navigation
-- Live-Preview
-- Workflow-Orchestrierung
+Main GUI application with:
+- Modern liquid glass design
+- Tab-based navigation
+- Live preview
+- Workflow orchestration
 
 ### config.py
 
-Konfigurations-Management:
-- JSON-basierte Konfiguration
-- Punkt-Notation für verschachtelte Werte
-- Automatische Pfad-Auflösung
-- Standard-Werte
+Configuration management:
+- JSON-based configuration
+- Dot notation for nested values
+- Automatic path resolution
+- Default values
 
 ### capture.py
 
-DV-Capture-Engine:
-- ffmpeg-Integration
-- Multi-Part-Capture
-- Live-Preview
-- Fortschritts-Tracking
+DV capture engine:
+- ffmpeg integration
+- Multi-part capture
+- Live preview
+- Progress tracking
 
 ### merge.py
 
-Video-Merge-Engine:
-- Nahtloses Zusammenfügen
-- Metadaten-Erhaltung
-- Fehlerbehandlung
+Video merge engine:
+- Seamless merging
+- Metadata preservation
+- Error handling
 
 ### upscale.py
 
-Upscaling-Engine:
-- Real-ESRGAN-Integration
-- Mehrere Profile
-- GPU-Unterstützung
-- Fortschritts-Tracking
+Upscaling engine:
+- Real-ESRGAN integration
+- Multiple profiles
+- GPU support
+- Progress tracking
 
 ### plex_export.py
 
-Plex-Export-Engine:
-- Standard-Movie-Format
-- Metadaten-Integration
-- Ordnerstruktur
+Plex export engine:
+- Standard movie format
+- Metadata integration
+- Folder structure
 
-## Externe Dependencies
+## External Dependencies
 
 ### Real-ESRGAN
 
-Befindet sich in `dv2plex/bin/realesrgan/`:
-- KI-basiertes Upscaling
-- Video- und Bild-Upscaling
-- Mehrere Modelle
+Located in `dv2plex/bin/realesrgan/`:
+- AI-based upscaling
+- Video and image upscaling
+- Multiple models
 
 ### ffmpeg
 
-Wird systemweit oder lokal benötigt:
-- Video-Capture
-- Video-Verarbeitung
+Required system-wide or locally:
+- Video capture
+- Video processing
 - Encoding
 
-## Build-Prozess
+## Build Process
 
-1. **Entwicklung**: `python -m dv2plex`
+1. **Development**: `python -m dv2plex`
 2. **Build**: `./scripts/build.sh`
 3. **Distribution**: `dist/DV2Plex/`
 
-## Erweiterungen
+## Extensions
 
-### Neue Features hinzufügen
+### Adding New Features
 
-1. Neues Modul in `dv2plex/` erstellen
-2. In `app.py` integrieren
-3. Dokumentation aktualisieren
-4. Tests hinzufügen (geplant)
+1. Create new module in `dv2plex/`
+2. Integrate in `app.py`
+3. Update documentation
+4. Add tests (planned)
 
-### Konfiguration erweitern
+### Extending Configuration
 
-1. Neue Einträge in `settings.json` hinzufügen
-2. `config.py` erweitern
-3. Beispiel in `config/examples/` aktualisieren
+1. Add new entries to `settings.json`
+2. Extend `config.py`
+3. Update example in `config/examples/`

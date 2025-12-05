@@ -1,56 +1,56 @@
-# Projektstruktur-Übersicht
+# Project Structure Overview
 
-Diese Datei gibt einen schnellen Überblick über die reorganisierte Projektstruktur.
+This file provides a quick overview of the reorganized project structure.
 
-## Neue Struktur
+## New Structure
 
 ```
 dv2plex/
-├── .github/                  # GitHub-Templates und Workflows
-│   ├── ISSUE_TEMPLATE/       # Issue-Templates
+├── .github/                  # GitHub templates and workflows
+│   ├── ISSUE_TEMPLATE/       # Issue templates
 │   └── PULL_REQUEST_TEMPLATE.md
 │
-├── dv2plex/                  # Haupt-Python-Package (unverändert)
+├── dv2plex/                  # Main Python package (unchanged)
 │   ├── app.py
 │   ├── config.py
 │   ├── capture.py
 │   └── ...
 │
-├── docs/                     # ✨ NEU: Alle Dokumentation
+├── docs/                     # ✨ NEW: All documentation
 │   ├── BUILD_ANLEITUNG.md
 │   ├── Upscaling_Profile_Referenz.md
 │   ├── PROJEKTSTRUKTUR.md
 │   └── STRUKTUR_ÜBERSICHT.md
 │
-├── scripts/                  # ✨ NEU: Build-Skripte
+├── scripts/                  # ✨ NEW: Build scripts
 │   ├── build.sh
 │   ├── build_pyinstaller.py
 │   └── dv2plex.spec
 │
-├── config/                   # ✨ NEU: Konfigurationsbeispiele
+├── config/                   # ✨ NEW: Configuration examples
 │   └── examples/
 │       └── Konfiguration_Beispiel.json
 │
-├── README.md                 # ✨ ÜBERARBEITET: Vollständige Open-Source-README
-├── CONTRIBUTING.md           # ✨ NEU: Contributing-Richtlinien
-├── LICENSE                   # ✨ NEU: MIT-Lizenz
-├── CHANGELOG.md              # ✨ NEU: Änderungsprotokoll
+├── README.md                 # ✨ REVISED: Complete open-source README
+├── CONTRIBUTING.md           # ✨ NEW: Contributing guidelines
+├── LICENSE                   # ✨ NEW: MIT license
+├── CHANGELOG.md              # ✨ NEW: Changelog
 └── requirements.txt
 ```
 
-## Änderungen
+## Changes
 
-### Neu erstellt
+### Newly Created
 
-- **`docs/`**: Zentrale Dokumentation
-- **`scripts/`**: Build-Skripte
-- **`config/examples/`**: Konfigurationsbeispiele
-- **`.github/`**: GitHub-Templates
-- **`CONTRIBUTING.md`**: Contributing-Richtlinien
-- **`LICENSE`**: MIT-Lizenz
-- **`CHANGELOG.md`**: Änderungsprotokoll
+- **`docs/`**: Central documentation
+- **`scripts/`**: Build scripts
+- **`config/examples/`**: Configuration examples
+- **`.github/`**: GitHub templates
+- **`CONTRIBUTING.md`**: Contributing guidelines
+- **`LICENSE`**: MIT license
+- **`CHANGELOG.md`**: Changelog
 
-### Verschoben
+### Moved
 
 - `BUILD_ANLEITUNG.md` → `docs/BUILD_ANLEITUNG.md`
 - `Upscaling_Profile_Referenz.md` → `docs/Upscaling_Profile_Referenz.md`
@@ -59,27 +59,27 @@ dv2plex/
 - `build_pyinstaller.py` → `scripts/build_pyinstaller.py`
 - `dv2plex.spec` → `scripts/dv2plex.spec`
 
-### Überarbeitet
+### Revised
 
-- **`README.md`**: Vollständige Open-Source-README mit:
-  - Professionelle Formatierung
+- **`README.md`**: Complete open-source README with:
+  - Professional formatting
   - Badges
-  - Detaillierte Installation
-  - Contributing-Sektion
+  - Detailed installation
+  - Contributing section
   - Credits
   - Roadmap
 
-## Vorteile der neuen Struktur
+## Benefits of New Structure
 
-1. **Sauberer**: Klare Trennung von Code, Docs, Scripts
-2. **Wartbarer**: Einfacher zu navigieren und zu erweitern
-3. **Professionell**: Open-Source-Standards eingehalten
-4. **Dokumentiert**: Umfassende Dokumentation
-5. **Contributor-freundlich**: Klare Richtlinien für Beiträge
+1. **Cleaner**: Clear separation of code, docs, scripts
+2. **Maintainable**: Easier to navigate and extend
+3. **Professional**: Open-source standards followed
+4. **Documented**: Comprehensive documentation
+5. **Contributor-friendly**: Clear guidelines for contributions
 
-## Nächste Schritte
+## Next Steps
 
-1. GitHub-Repository erstellen
-2. GitHub-URLs in README.md aktualisieren
-3. Erste Version taggen
-4. Releases erstellen
+1. Create GitHub repository
+2. Update GitHub URLs in README.md
+3. Tag first version
+4. Create releases

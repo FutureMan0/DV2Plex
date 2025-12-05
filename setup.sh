@@ -1,5 +1,5 @@
 #!/bin/bash
-# Automatic Setup Script für DV2Plex (Linux)
+# Automatic Setup Script for DV2Plex (Linux)
 
 set -e
 
@@ -8,30 +8,30 @@ echo "DV2Plex - Automatic Setup (Linux)"
 echo "=========================================="
 echo ""
 
-# Prüfe ob wir root sind (für Paket-Installation)
+# Check if we are root (for package installation)
 NEED_SUDO=false
 
-# Funktion zum Prüfen von Kommandos
+# Function to check commands
 check_command() {
     if command -v "$1" &> /dev/null; then
-        echo "✓ $1 gefunden"
+        echo "✓ $1 found"
         return 0
     else
-        echo "✗ $1 nicht gefunden"
+        echo "✗ $1 not found"
         return 1
     fi
 }
 
-# Funktion zum Installieren von Paketen
+# Function to install packages
 install_package() {
     if [ -f /etc/debian_version ]; then
         # Debian/Ubuntu
-        echo "Installiere $1 mit apt..."
+        echo "Installing $1 with apt..."
         sudo apt-get update
         sudo apt-get install -y "$1"
     elif [ -f /etc/redhat-release ]; then
         # RedHat/CentOS/Fedora
-        echo "Installiere $1 mit yum/dnf..."
+        echo "Installing $1 with yum/dnf..."
         if command -v dnf &> /dev/null; then
             sudo dnf install -y "$1"
         else
@@ -39,66 +39,66 @@ install_package() {
         fi
     elif [ -f /etc/arch-release ]; then
         # Arch Linux
-        echo "Installiere $1 mit pacman..."
+        echo "Installing $1 with pacman..."
         sudo pacman -S --noconfirm "$1"
     else
-        echo "Unbekannte Distribution. Bitte installieren Sie $1 manuell."
+        echo "Unknown distribution. Please install $1 manually."
         return 1
     fi
 }
 
-# 1. Prüfe Python
-echo "1. Prüfe Python..."
+# 1. Check Python
+echo "1. Checking Python..."
 if ! check_command python3; then
-    echo "Python 3 nicht gefunden. Installiere..."
+    echo "Python 3 not found. Installing..."
     install_package python3
 fi
 
 PYTHON_VERSION=$(python3 --version 2>&1 | awk '{print $2}' | cut -d. -f1,2)
 echo "Python Version: $PYTHON_VERSION"
 
-# Prüfe Python 3.10+
+# Check Python 3.10+
 if python3 -c "import sys; exit(0 if sys.version_info >= (3, 10) else 1)"; then
-    echo "✓ Python 3.10+ gefunden"
+    echo "✓ Python 3.10+ found"
 else
-    echo "✗ Python 3.10+ erforderlich. Bitte aktualisieren Sie Python."
+    echo "✗ Python 3.10+ required. Please update Python."
     exit 1
 fi
 
-# 2. Prüfe pip
+# 2. Check pip
 echo ""
-echo "2. Prüfe pip..."
+echo "2. Checking pip..."
 if ! check_command pip3; then
-    echo "pip3 nicht gefunden. Installiere..."
+    echo "pip3 not found. Installing..."
     install_package python3-pip
 fi
 
-# 3. Prüfe dvgrab
+# 3. Check dvgrab
 echo ""
-echo "3. Prüfe dvgrab..."
+echo "3. Checking dvgrab..."
 if ! check_command dvgrab; then
-    echo "dvgrab nicht gefunden. Installiere..."
+    echo "dvgrab not found. Installing..."
     if [ -f /etc/debian_version ]; then
         install_package dvgrab
     elif [ -f /etc/redhat-release ]; then
         if command -v dnf &> /dev/null; then
             sudo dnf install -y dvgrab
         else
-            echo "dvgrab ist möglicherweise nicht in den Standard-Repositories."
-            echo "Bitte installieren Sie dvgrab manuell."
+            echo "dvgrab may not be in the standard repositories."
+            echo "Please install dvgrab manually."
         fi
     elif [ -f /etc/arch-release ]; then
         install_package dvgrab
     else
-        echo "Bitte installieren Sie dvgrab manuell für Ihre Distribution."
+        echo "Please install dvgrab manually for your distribution."
     fi
 fi
 
-# 4. Prüfe ffmpeg
+# 4. Check ffmpeg
 echo ""
-echo "4. Prüfe ffmpeg..."
+echo "4. Checking ffmpeg..."
 if ! check_command ffmpeg; then
-    echo "ffmpeg nicht gefunden. Installiere..."
+    echo "ffmpeg not found. Installing..."
     if [ -f /etc/debian_version ]; then
         install_package ffmpeg
     elif [ -f /etc/redhat-release ]; then
@@ -110,51 +110,51 @@ if ! check_command ffmpeg; then
     elif [ -f /etc/arch-release ]; then
         install_package ffmpeg
     else
-        echo "Bitte installieren Sie ffmpeg manuell für Ihre Distribution."
+        echo "Please install ffmpeg manually for your distribution."
     fi
 fi
 
-# 5. Prüfe FireWire-Treiber
+# 5. Check FireWire drivers
 echo ""
-echo "5. Prüfe FireWire-Treiber..."
+echo "5. Checking FireWire drivers..."
 if [ -f /etc/debian_version ]; then
     if ! dpkg -l | grep -q libraw1394; then
-        echo "FireWire-Treiber nicht gefunden. Installiere..."
+        echo "FireWire drivers not found. Installing..."
         install_package libraw1394-dev
         install_package libavc1394-dev
     else
-        echo "✓ FireWire-Treiber gefunden"
+        echo "✓ FireWire drivers found"
     fi
 elif [ -f /etc/redhat-release ]; then
     if ! rpm -qa | grep -q libraw1394; then
-        echo "FireWire-Treiber nicht gefunden. Installiere..."
+        echo "FireWire drivers not found. Installing..."
         if command -v dnf &> /dev/null; then
             sudo dnf install -y libraw1394-devel libavc1394-devel
         else
             sudo yum install -y libraw1394-devel libavc1394-devel
         fi
     else
-        echo "✓ FireWire-Treiber gefunden"
+        echo "✓ FireWire drivers found"
     fi
 elif [ -f /etc/arch-release ]; then
     if ! pacman -Q libraw1394 &> /dev/null; then
-        echo "FireWire-Treiber nicht gefunden. Installiere..."
+        echo "FireWire drivers not found. Installing..."
         install_package libraw1394
         install_package libavc1394
     else
-        echo "✓ FireWire-Treiber gefunden"
+        echo "✓ FireWire drivers found"
     fi
 else
-    echo "Bitte installieren Sie libraw1394 und libavc1394 manuell."
+    echo "Please install libraw1394 and libavc1394 manually."
 fi
 
-# 6. Installiere Python-Dependencies
+# 6. Install Python Dependencies
 echo ""
-echo "6. Installiere Python-Dependencies..."
+echo "6. Installing Python dependencies..."
 
-# Prüfe ob python3-venv installiert ist
+# Check if python3-venv is installed
 if ! python3 -m venv --help &> /dev/null; then
-    echo "python3-venv nicht gefunden. Installiere..."
+    echo "python3-venv not found. Installing..."
     if [ -f /etc/debian_version ]; then
         install_package python3-venv
     elif [ -f /etc/redhat-release ]; then
@@ -166,42 +166,42 @@ if ! python3 -m venv --help &> /dev/null; then
     elif [ -f /etc/arch-release ]; then
         install_package python-virtualenv
     else
-        echo "⚠ Bitte installieren Sie python3-venv manuell"
+        echo "⚠ Please install python3-venv manually"
     fi
 fi
 
-# Erstelle virtuelles Environment falls nicht vorhanden
+# Create virtual environment if not present
 if [ ! -d "venv" ]; then
-    echo "Erstelle virtuelles Environment..."
+    echo "Creating virtual environment..."
     if python3 -m venv venv; then
-        echo "✓ Virtuelles Environment erstellt"
+        echo "✓ Virtual environment created"
     else
-        echo "✗ Fehler beim Erstellen des virtuellen Environments"
-        echo "Versuche Installation mit --user Flag..."
+        echo "✗ Error creating virtual environment"
+        echo "Trying installation with --user flag..."
         pip3 install -r requirements.txt --user --break-system-packages || {
-            echo "✗ Installation fehlgeschlagen. Bitte manuell installieren:"
+            echo "✗ Installation failed. Please install manually:"
             echo "  sudo apt install python3-venv"
             echo "  python3 -m venv venv"
             echo "  source venv/bin/activate"
             echo "  pip install -r requirements.txt"
         }
-        exit 0  # Weiter mit Setup auch wenn venv fehlschlägt
+        exit 0  # Continue with setup even if venv fails
     fi
 fi
 
-# Aktiviere venv und installiere Dependencies (falls venv existiert)
+# Activate venv and install dependencies (if venv exists)
 if [ -d "venv" ] && [ -f "venv/bin/activate" ]; then
-    echo "Aktiviere virtuelles Environment und installiere Dependencies..."
+    echo "Activating virtual environment and installing dependencies..."
     source venv/bin/activate
     pip install --upgrade pip
     pip install -r requirements.txt
     deactivate
-    echo "✓ Python-Dependencies installiert"
+    echo "✓ Python dependencies installed"
 else
-    echo "⚠ Virtuelles Environment konnte nicht erstellt werden"
-    echo "Versuche Installation mit --user Flag..."
+    echo "⚠ Virtual environment could not be created"
+    echo "Trying installation with --user flag..."
     pip3 install -r requirements.txt --user --break-system-packages || {
-        echo "✗ Installation fehlgeschlagen. Bitte manuell installieren:"
+        echo "✗ Installation failed. Please install manually:"
         echo "  sudo apt install python3-venv"
         echo "  python3 -m venv venv"
         echo "  source venv/bin/activate"
@@ -209,57 +209,57 @@ else
     }
 fi
 
-# 7. Erstelle notwendige Verzeichnisse
+# 7. Create necessary directories
 echo ""
-echo "7. Erstelle Verzeichnisse..."
+echo "7. Creating directories..."
 mkdir -p dv2plex/DV_Import
 mkdir -p dv2plex/logs
 mkdir -p dv2plex/config
 mkdir -p dv2plex/PlexMovies
 
-# 8. Konfiguriere FireWire-Berechtigungen
+# 8. Configure FireWire permissions
 echo ""
-echo "8. Konfiguriere FireWire-Berechtigungen..."
+echo "8. Configuring FireWire permissions..."
 if [ -e /dev/raw1394 ]; then
-    # Prüfe ob Benutzer bereits in der video-Gruppe ist
+    # Check if user is already in video group
     if groups | grep -q video; then
-        echo "✓ Benutzer ist bereits in der video-Gruppe"
+        echo "✓ User is already in video group"
     else
-        echo "Füge Benutzer zur video-Gruppe hinzu..."
+        echo "Adding user to video group..."
         sudo usermod -a -G video "$USER"
-        echo "⚠ Bitte melden Sie sich ab und wieder an, damit die Gruppenänderung wirksam wird."
+        echo "⚠ Please log out and log back in for the group change to take effect."
     fi
     
-    # Setze Berechtigungen (falls nötig)
+    # Set permissions (if needed)
     if [ -w /dev/raw1394 ]; then
-        echo "✓ Berechtigungen für /dev/raw1394 sind korrekt"
+        echo "✓ Permissions for /dev/raw1394 are correct"
     else
-        echo "⚠ /dev/raw1394 ist nicht schreibbar. Möglicherweise müssen Sie sich neu anmelden."
+        echo "⚠ /dev/raw1394 is not writable. You may need to log out and back in."
     fi
 else
-    echo "⚠ /dev/raw1394 nicht gefunden. Bitte verbinden Sie ein FireWire-Gerät."
+    echo "⚠ /dev/raw1394 not found. Please connect a FireWire device."
 fi
 
-# 9. Teste FireWire-Verbindung
+# 9. Test FireWire connection
 echo ""
-echo "9. Teste FireWire-Verbindung..."
+echo "9. Testing FireWire connection..."
 if command -v dvgrab &> /dev/null; then
     if dvgrab --list 2>&1 | grep -q "Device"; then
-        echo "✓ FireWire-Gerät erkannt:"
+        echo "✓ FireWire device detected:"
         dvgrab --list
     else
-        echo "⚠ Kein FireWire-Gerät gefunden. Bitte verbinden Sie eine Kamera."
+        echo "⚠ No FireWire device found. Please connect a camera."
     fi
 else
-    echo "⚠ dvgrab nicht verfügbar, kann FireWire-Verbindung nicht testen."
+    echo "⚠ dvgrab not available, cannot test FireWire connection."
 fi
 
-# 10. Erstelle Standard-Konfiguration falls nicht vorhanden
+# 10. Create default configuration if not present
 echo ""
-echo "10. Erstelle Standard-Konfiguration..."
+echo "10. Creating default configuration..."
 if [ ! -f dv2plex/config/settings.json ]; then
-    echo "Erstelle Standard-Konfiguration..."
-    # Verwende venv falls vorhanden
+    echo "Creating default configuration..."
+    # Use venv if available
     if [ -d "venv" ]; then
         source venv/bin/activate
         python -c "
@@ -267,7 +267,7 @@ from pathlib import Path
 from dv2plex.config import Config
 config = Config()
 config.save_config()
-print('Standard-Konfiguration erstellt.')
+print('Default configuration created.')
 "
         deactivate
     else
@@ -276,34 +276,33 @@ from pathlib import Path
 from dv2plex.config import Config
 config = Config()
 config.save_config()
-print('Standard-Konfiguration erstellt.')
+print('Default configuration created.')
 "
     fi
-    echo "✓ Konfiguration erstellt: dv2plex/config/settings.json"
+    echo "✓ Configuration created: dv2plex/config/settings.json"
 else
-    echo "✓ Konfiguration bereits vorhanden"
+    echo "✓ Configuration already present"
 fi
 
-# 11. Real-ESRGAN Hinweis
+# 11. Real-ESRGAN note
 echo ""
 echo "11. Real-ESRGAN Setup..."
-echo "⚠ Real-ESRGAN muss manuell eingerichtet werden:"
-echo "   1. Klone das Repository: git clone https://github.com/xinntao/Real-ESRGAN.git"
-echo "   2. Kopiere den gesamten Ordner nach: dv2plex/bin/realesrgan/"
+echo "⚠ Real-ESRGAN must be set up manually:"
+echo "   1. Clone the repository: git clone https://github.com/xinntao/Real-ESRGAN.git"
+echo "   2. Copy the entire folder to: dv2plex/bin/realesrgan/"
 if [ -d "venv" ]; then
-    echo "   3. Installiere Dependencies: source venv/bin/activate && pip install -r dv2plex/bin/realesrgan/requirements.txt"
+    echo "   3. Install dependencies: source venv/bin/activate && pip install -r dv2plex/bin/realesrgan/requirements.txt"
 else
-    echo "   3. Installiere Dependencies: pip3 install -r dv2plex/bin/realesrgan/requirements.txt --user"
+    echo "   3. Install dependencies: pip3 install -r dv2plex/bin/realesrgan/requirements.txt --user"
 fi
 
 echo ""
 echo "=========================================="
-echo "Setup abgeschlossen!"
+echo "Setup completed!"
 echo "=========================================="
 echo ""
-echo "Nächste Schritte:"
-echo "1. Verbinden Sie Ihre MiniDV-Kamera über FireWire"
-echo "2. Starten Sie die Anwendung mit: ./run.sh"
-echo "3. Oder: python3 -m dv2plex.app"
+echo "Next steps:"
+echo "1. Connect your MiniDV camera via FireWire"
+echo "2. Start the application with: ./run.sh"
+echo "3. Or: python3 -m dv2plex.app"
 echo ""
-

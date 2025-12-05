@@ -2,98 +2,100 @@
 
 <div align="center">
 
-![DV2Plex Logo](https://img.shields.io/badge/DV2Plex-MiniDV%20Digitalisierung-blue?style=for-the-badge)
+<img src="dv2plex_logo.png" alt="DV2Plex Logo" width="200"/>
+
+![DV2Plex Logo](https://img.shields.io/badge/DV2Plex-MiniDV%20Digitalization-blue?style=for-the-badge)
 ![Python](https://img.shields.io/badge/Python-3.8%2B-blue?logo=python&style=for-the-badge)
 ![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)
 ![Platform](https://img.shields.io/badge/Platform-Linux%20%7C%20Windows%20%7C%20macOS-lightgrey?style=for-the-badge)
 
-**Professionelle Digitalisierung von MiniDV-Kassetten mit automatischem Upscaling und Plex-Export**
+**Professional digitization of MiniDV tapes with automatic upscaling and Plex export**
 
-[Features](#-features) • [Installation](#-installation) • [Verwendung](#-verwendung) • [Entwicklung](#-entwicklung) • [Contributing](#-contributing) • [Credits](#-credits)
+[Features](#-features) • [Installation](#-installation) • [Usage](#-usage) • [Development](#-development) • [Contributing](#-contributing) • [Credits](#-credits)
 
 </div>
 
 ---
 
-## 📖 Überblick
+## 📖 Overview
 
-DV2Plex ist eine moderne, plattformübergreifende Anwendung zur Digitalisierung von MiniDV-Kassetten. Die Software kombiniert professionelle Video-Capture-Technologie mit KI-basiertem Upscaling und automatisiertem Export für Plex Media Server.
+DV2Plex is a modern, cross-platform application for digitizing MiniDV tapes. The software combines professional video capture technology with AI-based upscaling and automated export for Plex Media Server.
 
-### Warum DV2Plex?
+### Why DV2Plex?
 
-- 🎥 **Vollständiger Workflow**: Von der Aufnahme bis zum fertigen Plex-Export in einer Anwendung
-- 🤖 **KI-Upscaling**: Automatisches Upscaling auf 4K mit Real-ESRGAN
-- 🎨 **Moderne GUI**: Intuitive Benutzeroberfläche mit Live-Preview
-- 🔄 **Automatisierung**: Automatisches Mergen, Upscaling und Exportieren
-- 📦 **Plex-Integration**: Direkter Export im Plex-Standard-Format
-- 🖼️ **Cover-Generierung**: Automatische Cover-Erstellung mit Stable Diffusion
+- 🎥 **Complete Workflow**: From capture to finished Plex export in one application
+- 🤖 **AI Upscaling**: Automatic upscaling to 4K with Real-ESRGAN
+- 🎨 **Modern GUI**: Intuitive user interface with live preview
+- 🔄 **Automation**: Automatic merging, upscaling, and exporting
+- 📦 **Plex Integration**: Direct export in Plex standard format
+- 🖼️ **Cover Generation**: Automatic cover creation with Stable Diffusion
 
 ---
 
 ## ✨ Features
 
-### Core-Funktionen
+### Core Features
 
-- **Live-Preview**: Echtzeit-Vorschau der Kamera über DirectShow (Windows) oder v4l2 (Linux)
-- **DV-Capture**: Professionelle Video-Aufnahme mit ffmpeg (mehrere Parts möglich)
-- **Automatisches Mergen**: Nahtloses Zusammenfügen mehrerer Capture-Parts
-- **4K-Upscaling**: KI-basiertes Upscaling mit Real-ESRGAN
-- **Plex-Export**: Automatischer Export im Standard-Movie-Format
-- **Cover-Generierung**: Automatische Cover-Erstellung mit Stable Diffusion
+- **Live Preview**: Real-time camera preview via DirectShow (Windows) or v4l2 (Linux)
+- **DV Capture**: Professional video recording with ffmpeg (multiple parts possible)
+- **Automatic Merging**: Seamless merging of multiple capture parts
+- **4K Upscaling**: AI-based upscaling with Real-ESRGAN
+- **Plex Export**: Automatic export in standard movie format
+- **Cover Generation**: Automatic cover creation with Stable Diffusion
 
-### Erweiterte Features
+### Advanced Features
 
-- **Mehrere Upscaling-Profile**: Von schnell bis höchste Qualität
-- **Batch-Verarbeitung**: Verarbeitung mehrerer Videos gleichzeitig
-- **Fortschrittsanzeige**: Detaillierte Fortschrittsanzeige für alle Prozesse
-- **Logging**: Umfassendes Logging-System für Debugging
-- **Konfigurierbar**: Flexible Konfiguration über JSON-Dateien
+- **Multiple Upscaling Profiles**: From fast to highest quality
+- **Batch Processing**: Processing multiple videos simultaneously
+- **Progress Display**: Detailed progress display for all processes
+- **Logging**: Comprehensive logging system for debugging
+- **Configurable**: Flexible configuration via JSON files
 
 ---
 
 ## 🚀 Installation
 
-### Voraussetzungen
+### Prerequisites
 
 - **Python 3.8+**
-- **ffmpeg** (wird beim Start geprüft)
-- **FireWire-Kamera** oder DV-Device (für Capture)
-- **GPU** empfohlen (für schnelleres Upscaling, optional)
+- **ffmpeg** (checked at startup)
+- **FireWire camera** or DV device (for capture)
+- **GPU** recommended (for faster upscaling, optional)
 
-### Schnellstart
+### Quick Start
 
-#### 1. Repository klonen
+#### 1. Clone Repository
 
 ```bash
 git clone https://github.com/FutureMan0/ACR.git
 cd dv2plex
 ```
 
-#### 2. Dependencies installieren
+#### 2. Install Dependencies
 
 ```bash
 pip install -r requirements.txt
 ```
 
-#### 3. Externe Tools (optional)
+#### 3. External Tools (optional)
 
 **ffmpeg:**
-- **Linux**: `sudo apt-get install ffmpeg` oder [statisches Binary](https://johnvansickle.com/ffmpeg/)
+- **Linux**: `sudo apt-get install ffmpeg` or [static binary](https://johnvansickle.com/ffmpeg/)
 
-**Real-ESRGAN Modelle:**
-Werden beim ersten Start automatisch heruntergeladen.
+**Real-ESRGAN Models:**
+Will be automatically downloaded on first start.
 
-#### 4. Anwendung starten
+#### 4. Start Application
 
 ```bash
 python -m dv2plex
-# oder
+# or
 python start.py
 ```
 
-### Build als eigenständige Anwendung
+### Build as Standalone Application
 
-Siehe [docs/BUILD_ANLEITUNG.md](docs/BUILD_ANLEITUNG.md) für Details zum PyInstaller-Build.
+See [docs/BUILD_ANLEITUNG.md](docs/BUILD_ANLEITUNG.md) for details on PyInstaller build.
 
 ```bash
 ./scripts/build.sh
@@ -101,17 +103,17 @@ Siehe [docs/BUILD_ANLEITUNG.md](docs/BUILD_ANLEITUNG.md) für Details zum PyInst
 
 ---
 
-## 📖 Verwendung
+## 📖 Usage
 
-### Erste Schritte
+### Getting Started
 
-1. **Kamera anschließen**: FireWire-Kamera über IEEE 1394 anschließen
-2. **Programm starten**: `python -m dv2plex`
-3. **Titel und Jahr eingeben**: Im Capture-Tab
-4. **Preview starten** (optional): Zum Überprüfen der Verbindung
-5. **Aufnahme starten**: Button "Aufnahme starten" klicken
-6. **Kassette bedienen**: Play auf der Kamera drücken
-7. **Aufnahme stoppen**: Button "Aufnahme stoppen" oder bis Bandende warten
+1. **Connect Camera**: Connect FireWire camera via IEEE 1394
+2. **Start Program**: `python -m dv2plex`
+3. **Enter Title and Year**: In the Capture tab
+4. **Start Preview** (optional): To verify connection
+5. **Start Recording**: Click "Start Recording" button
+6. **Control Tape**: Press play on camera
+7. **Stop Recording**: Click "Stop Recording" button or wait until end of tape
 
 ### Workflow
 
@@ -119,185 +121,172 @@ Siehe [docs/BUILD_ANLEITUNG.md](docs/BUILD_ANLEITUNG.md) für Details zum PyInst
 Capture → Merge → Upscale → Plex-Export
 ```
 
-Alle Schritte können automatisch oder manuell ausgeführt werden.
+All steps can be executed automatically or manually.
 
-### Konfiguration
+### Configuration
 
-Die Konfiguration erfolgt über `dv2plex/config/settings.json`. Eine Beispiel-Konfiguration findest du in `config/examples/Konfiguration_Beispiel.json`.
+Configuration is done via `dv2plex/config/settings.json`. An example configuration can be found in `config/examples/Konfiguration_Beispiel.json`.
 
-**Wichtige Einstellungen:**
+**Important Settings:**
 
-- `paths.ffmpeg_path`: Pfad zu ffmpeg (leer = System-PATH)
-- `paths.realesrgan_path`: Pfad zu Real-ESRGAN (wird automatisch erkannt)
-- `paths.plex_movies_root`: Zielverzeichnis für Plex-Export
-- `upscaling.default_profile`: Standard-Upscaling-Profil
+- `paths.ffmpeg_path`: Path to ffmpeg (empty = system PATH)
+- `paths.realesrgan_path`: Path to Real-ESRGAN (automatically detected)
+- `paths.plex_movies_root`: Target directory for Plex export
+- `upscaling.default_profile`: Default upscaling profile
 
-### Upscaling-Profile
+### Upscaling Profiles
 
-Siehe [docs/Upscaling_Profile_Referenz.md](docs/Upscaling_Profile_Referenz.md) für eine vollständige Übersicht aller verfügbaren Profile.
+See [docs/Upscaling_Profile_Referenz.md](docs/Upscaling_Profile_Referenz.md) for a complete overview of all available profiles.
 
-**Verfügbare Profile:**
-- `realesrgan_4x_hq`: Höchste Qualität (langsam)
-- `realesrgan_4x_balanced`: Balance zwischen Qualität und Geschwindigkeit
-- `realesrgan_4x_fast`: Schnell (geringere Qualität)
-- `realesrgan_2x`: 2x Upscaling (sehr schnell)
-- `ffmpeg_fast`: Nur ffmpeg-Upscaling (sehr schnell, niedrige Qualität)
+**Available Profiles:**
+- `realesrgan_4x_hq`: Highest quality (slow)
+- `realesrgan_4x_balanced`: Balance between quality and speed
+- `realesrgan_4x_fast`: Fast (lower quality)
+- `realesrgan_2x`: 2x upscaling (very fast)
+- `ffmpeg_fast`: Only ffmpeg upscaling (very fast, low quality)
 
 ---
 
-## 🛠️ Entwicklung
+## 🛠️ Development
 
-### Projektstruktur
+### Project Structure
 
 ```
 dv2plex/
-├── dv2plex/              # Haupt-Python-Package
-│   ├── app.py            # GUI-Hauptprogramm
-│   ├── capture.py        # Capture-Engine
-│   ├── merge.py          # Merge-Engine
-│   ├── upscale.py        # Upscale-Engine
-│   ├── plex_export.py    # Plex-Export
-│   ├── config.py         # Konfigurations-Management
+├── dv2plex/              # Main Python package
+│   ├── app.py            # GUI main program
+│   ├── capture.py        # Capture engine
+│   ├── merge.py          # Merge engine
+│   ├── upscale.py        # Upscale engine
+│   ├── plex_export.py    # Plex export
+│   ├── config.py         # Configuration management
 │   └── ...
-├── docs/                 # Dokumentation
-├── scripts/              # Build-Skripte
-├── config/              # Konfigurationsbeispiele
-└── tests/               # Tests (geplant)
+├── docs/                 # Documentation
+├── scripts/              # Build scripts
+├── config/              # Configuration examples
+└── tests/               # Tests (planned)
 ```
 
-### Setup für Entwicklung
+### Development Setup
 
 ```bash
-# Repository klonen
+# Clone repository
 git clone https://github.com/yourusername/dv2plex.git
 cd dv2plex
 
-# Virtual Environment erstellen
+# Create virtual environment
 python -m venv venv
 source venv/bin/activate  # Linux/Mac
-# oder
+# or
 venv\Scripts\activate  # Windows
 
-# Dependencies installieren
+# Install dependencies
 pip install -r requirements.txt
 
-# Entwicklung starten
+# Start development
 python -m dv2plex
 ```
 
-### Code-Stil
+### Code Style
 
 - **Python**: PEP 8
-- **Type Hints**: Empfohlen für neue Funktionen
-- **Docstrings**: Google-Style für alle öffentlichen Funktionen
+- **Type Hints**: Recommended for new functions
+- **Docstrings**: Google-style for all public functions
 
 ### Tests
 
-Tests sind geplant. Siehe [CONTRIBUTING.md](CONTRIBUTING.md) für Details.
+Tests are planned. See [CONTRIBUTING.md](CONTRIBUTING.md) for details.
 
 ---
 
 ## 🤝 Contributing
 
-Wir freuen uns über Beiträge! Bitte lies zuerst [CONTRIBUTING.md](CONTRIBUTING.md) für Details.
+We welcome contributions! Please read [CONTRIBUTING.md](CONTRIBUTING.md) first for details.
 
-### Wie kann ich beitragen?
+### How can I contribute?
 
-- 🐛 **Bug Reports**: Erstelle ein Issue mit detaillierter Beschreibung
-- 💡 **Feature Requests**: Diskutiere neue Features in Issues
-- 📝 **Dokumentation**: Verbessere die Dokumentation
-- 🔧 **Code**: Sende Pull Requests für Bugfixes oder Features
-- 🎨 **UI/UX**: Verbesserungen an der Benutzeroberfläche
-- 🌍 **Übersetzungen**: Übersetze die Anwendung in andere Sprachen
+- 🐛 **Bug Reports**: Create an issue with detailed description
+- 💡 **Feature Requests**: Discuss new features in issues
+- 📝 **Documentation**: Improve documentation
+- 🔧 **Code**: Send pull requests for bugfixes or features
+- 🎨 **UI/UX**: Improvements to the user interface
+- 🌍 **Translations**: Translate the application to other languages
 
-### Pull Request Prozess
+### Pull Request Process
 
-1. Fork das Repository
-2. Erstelle einen Feature-Branch (`git checkout -b feature/AmazingFeature`)
-3. Committe deine Änderungen (`git commit -m 'Add some AmazingFeature'`)
-4. Push zum Branch (`git push origin feature/AmazingFeature`)
-5. Öffne einen Pull Request
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/AmazingFeature`)
+3. Commit your changes (`git commit -m 'Add some AmazingFeature'`)
+4. Push to the branch (`git push origin feature/AmazingFeature`)
+5. Open a Pull Request
 
 ---
 
-## 📝 Lizenz
+## 📝 License
 
-Dieses Projekt ist unter der MIT-Lizenz lizenziert. Siehe [LICENSE](LICENSE) für Details.
+This project is licensed under the MIT License. See [LICENSE](LICENSE) for details.
 
 ---
 
 ## 🙏 Credits
 
-### Hauptentwickler
+### Main Developer
 
-- **[Ihr Name]** - *Initialer Entwickler* - [GitHub](https://github.com/yourusername)
+- **Luis Blüml** - *Initial Developer* - [GitHub](https://github.com/yourusername)
 
 ### Dependencies & Libraries
 
-- **[PySide6](https://www.qt.io/qt-for-python/)** - GUI-Framework
-- **[Real-ESRGAN](https://github.com/xinntao/Real-ESRGAN)** - KI-basiertes Upscaling
-- **[ffmpeg](https://ffmpeg.org/)** - Video-Verarbeitung
+- **[PySide6](https://www.qt.io/qt-for-python/)** - GUI Framework
+- **[Real-ESRGAN](https://github.com/xinntao/Real-ESRGAN)** - AI-based upscaling
+- **[ffmpeg](https://ffmpeg.org/)** - Video processing
 - **[PyTorch](https://pytorch.org/)** - Deep Learning Framework
-- **[Stable Diffusion](https://github.com/Stability-AI/stable-diffusion)** - Cover-Generierung
+- **[Stable Diffusion](https://github.com/Stability-AI/stable-diffusion)** - Cover generation
 
 ### Inspiration
 
-- Real-ESRGAN von [Xinntao](https://github.com/xinntao)
+- Real-ESRGAN by [Xinntao](https://github.com/xinntao)
 - Plex Media Server Community
 
 ---
 
-## 📊 Roadmap
+### Known Issues
 
-### Geplante Features
-
-- [ ] Batch-Verarbeitung mehrerer Kassetten
-- [ ] Unterstützung für weitere Video-Formate
-- [ ] Cloud-Export (Google Drive, Dropbox, etc.)
-- [ ] Automatische Metadaten-Extraktion
-- [ ] Unterstützung für weitere Upscaling-Modelle
-- [ ] Plugin-System für Erweiterungen
-- [ ] Web-Interface für Remote-Zugriff
-- [ ] Automatische Kapitel-Erkennung
-
-### Bekannte Probleme
-
-Siehe [Issues](https://github.com/yourusername/dv2plex/issues) für bekannte Probleme und geplante Fixes.
+See [Issues](https://github.com/yourusername/dv2plex/issues) for known issues and planned fixes.
 
 ---
 
 ## 📞 Support
 
-### Hilfe bekommen
+### Getting Help
 
-- 📖 **Dokumentation**: Siehe `docs/` Verzeichnis
+- 📖 **Documentation**: See `docs/` directory
 - 💬 **Issues**: [GitHub Issues](https://github.com/yourusername/dv2plex/issues)
-- 💡 **Diskussionen**: [GitHub Discussions](https://github.com/yourusername/dv2plex/discussions)
+- 💡 **Discussions**: [GitHub Discussions](https://github.com/yourusername/dv2plex/discussions)
 
-### Häufige Probleme
+### Common Problems
 
-**ffmpeg nicht gefunden:**
-- Installiere ffmpeg systemweit oder platziere es in `dv2plex/bin/ffmpeg/`
+**ffmpeg not found:**
+- Install ffmpeg system-wide or place it in `dv2plex/bin/ffmpeg/`
 
-**Modelle werden nicht heruntergeladen:**
-- Prüfe Internet-Verbindung
-- Modelle werden in `~/.cache/realesrgan/` gespeichert
+**Models not downloading:**
+- Check internet connection
+- Models are stored in `~/.cache/realesrgan/`
 
-**Upscaling zu langsam:**
-- Verwende ein schnelleres Profil (z.B. `realesrgan_2x`)
-- GPU wird empfohlen für bessere Performance
+**Upscaling too slow:**
+- Use a faster profile (e.g., `realesrgan_2x`)
+- GPU is recommended for better performance
 
 ---
 
 ## 🌟 Stars & Sponsoring
 
-Wenn dir dieses Projekt gefällt, erwäge es mit einem ⭐ zu markieren!
+If you like this project, consider marking it with a ⭐!
 
 ---
 
 ## 📄 Changelog
 
-Siehe [CHANGELOG.md](CHANGELOG.md) für eine vollständige Liste der Änderungen.
+See [CHANGELOG.md](CHANGELOG.md) for a complete list of changes.
 
 ---
 
@@ -305,6 +294,6 @@ Siehe [CHANGELOG.md](CHANGELOG.md) für eine vollständige Liste der Änderungen
 
 **Made with ❤️ by the DV2Plex Community**
 
-[⬆ Zurück nach oben](#dv2plex-)
+[⬆ Back to top](#dv2plex-)
 
 </div>

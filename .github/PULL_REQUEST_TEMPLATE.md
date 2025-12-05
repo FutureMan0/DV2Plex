@@ -1,43 +1,43 @@
-## Beschreibung
+## Description
 
-Bitte beschreibe deine Änderungen im Detail.
+Please describe your changes in detail.
 
-## Art der Änderung
+## Type of Change
 
-Bitte markiere die zutreffenden Optionen:
+Please mark the applicable options:
 
-- [ ] Bugfix (nicht-breaking Änderung, die ein Problem behebt)
-- [ ] Neues Feature (nicht-breaking Änderung, die Funktionalität hinzufügt)
-- [ ] Breaking Change (fix oder feature, das bestehende Funktionalität ändert)
-- [ ] Dokumentation (nur Änderungen an der Dokumentation)
-- [ ] Code-Refactoring (keine Funktionalitätsänderung)
-- [ ] Performance-Verbesserung
-- [ ] Test (Hinzufügen oder Ändern von Tests)
+- [ ] Bugfix (non-breaking change that fixes an issue)
+- [ ] New Feature (non-breaking change that adds functionality)
+- [ ] Breaking Change (fix or feature that changes existing functionality)
+- [ ] Documentation (documentation changes only)
+- [ ] Code Refactoring (no functional change)
+- [ ] Performance Improvement
+- [ ] Test (adding or changing tests)
 
 ## Checklist
 
-- [ ] Mein Code folgt den Coding-Standards des Projekts
-- [ ] Ich habe selbst getestet
-- [ ] Ich habe Kommentare hinzugefügt, besonders bei komplexen Bereichen
-- [ ] Ich habe die Dokumentation entsprechend aktualisiert
-- [ ] Meine Änderungen generieren keine neuen Warnings
-- [ ] Ich habe Tests hinzugefügt, die beweisen, dass mein Fix/Feature funktioniert
-- [ ] Neue und bestehende Unit-Tests bestehen lokal mit meinen Änderungen
-- [ ] Alle abhängigen Pull Requests wurden gemerged
+- [ ] My code follows the project's coding standards
+- [ ] I have tested it myself
+- [ ] I have added comments, especially in complex areas
+- [ ] I have updated the documentation accordingly
+- [ ] My changes generate no new warnings
+- [ ] I have added tests that prove my fix/feature works
+- [ ] New and existing unit tests pass locally with my changes
+- [ ] All dependent pull requests have been merged
 
 ## Tests
 
-Bitte beschreibe die Tests, die du durchgeführt hast, um deine Änderungen zu verifizieren:
+Please describe the tests you performed to verify your changes:
 
-## Screenshots (falls zutreffend)
+## Screenshots (if applicable)
 
-Füge Screenshots hinzu, wenn deine Änderungen die UI betreffen.
+Add screenshots if your changes affect the UI.
 
-## Zusätzliche Notizen
+## Additional Notes
 
-Füge hier zusätzliche Informationen hinzu, die für Reviewer hilfreich sein könnten.
+Add any additional information here that might be helpful for reviewers.
 
-## Verwandte Issues
+## Related Issues
 
 Fixes #(issue number)
 Closes #(issue number)

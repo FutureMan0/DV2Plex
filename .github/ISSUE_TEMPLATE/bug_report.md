@@ -1,50 +1,50 @@
 ---
 name: Bug Report
-about: Einen Bug melden, um uns zu helfen, das Projekt zu verbessern
+about: Report a bug to help us improve the project
 title: '[BUG] '
 labels: bug
 assignees: ''
 ---
 
-## Bug-Beschreibung
+## Bug Description
 
-Eine klare und präzise Beschreibung des Bugs.
+A clear and concise description of the bug.
 
-## Schritte zur Reproduktion
+## Steps to Reproduce
 
-1. Gehe zu '...'
-2. Klicke auf '...'
-3. Scrolle zu '...'
-4. Siehe Fehler
+1. Go to '...'
+2. Click on '...'
+3. Scroll to '...'
+4. See error
 
-## Erwartetes Verhalten
+## Expected Behavior
 
-Eine klare und präzise Beschreibung dessen, was du erwartet hast.
+A clear and concise description of what you expected to happen.
 
-## Tatsächliches Verhalten
+## Actual Behavior
 
-Eine klare und präzise Beschreibung dessen, was tatsächlich passiert ist.
+A clear and concise description of what actually happened.
 
 ## Screenshots
 
-Falls zutreffend, füge Screenshots hinzu, um das Problem zu erklären.
+If applicable, add screenshots to help explain the problem.
 
-## Umgebung
+## Environment
 
-- **OS**: [z.B. Ubuntu 22.04, Windows 11, macOS 13]
-- **Python-Version**: [z.B. 3.10.5]
-- **DV2Plex-Version**: [z.B. 1.0.0]
-- **ffmpeg-Version**: [z.B. 6.0] (falls bekannt)
-- **GPU**: [z.B. NVIDIA RTX 3080] (falls relevant)
+- **OS**: [e.g., Ubuntu 22.04, Windows 11, macOS 13]
+- **Python Version**: [e.g., 3.10.5]
+- **DV2Plex Version**: [e.g., 1.0.0]
+- **ffmpeg Version**: [e.g., 6.0] (if known)
+- **GPU**: [e.g., NVIDIA RTX 3080] (if relevant)
 
-## Zusätzlicher Kontext
+## Additional Context
 
-Füge hier jeden anderen Kontext zum Problem hinzu.
+Add any other context about the problem here.
 
 ## Logs
 
-Falls verfügbar, füge relevante Log-Ausgaben hinzu:
+If available, add relevant log output:
 
 ```
-Hier Log-Ausgabe einfügen
+Insert log output here
 ```

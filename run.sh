@@ -1,12 +1,11 @@
 #!/bin/bash
-# DV2Plex Start-Skript für Linux
+# DV2Plex Start Script for Linux
 
-# Aktiviere Virtual Environment falls vorhanden
+# Activate virtual environment if present
 if [ -d "venv" ]; then
     source venv/bin/activate
     python -m dv2plex.app
 else
-    # Fallback: Verwende system Python
+    # Fallback: Use system Python
     python3 -m dv2plex.app
 fi
-

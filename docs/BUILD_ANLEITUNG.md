@@ -1,161 +1,150 @@
-# PyInstaller Build-Anleitung für DV2Plex
+# PyInstaller Build Guide for DV2Plex
 
-Diese Anleitung beschreibt, wie DV2Plex mit PyInstaller zu einer eigenständigen, ausführbaren Datei kompiliert wird.
+This guide describes how to compile DV2Plex with PyInstaller into a standalone, executable file.
 
-## Voraussetzungen
+## Prerequisites
 
-### 1. Python-Umgebung
+### 1. Python Environment
 
-Stelle sicher, dass Python 3.8+ installiert ist:
+Make sure Python 3.8+ is installed:
 
 ```bash
 python3 --version
 ```
 
-### 2. Dependencies installieren
+### 2. Install Dependencies
 
-Installiere alle notwendigen Python-Packages:
+Install all necessary Python packages:
 
 ```bash
 pip install -r requirements.txt
 ```
 
-### 3. Externe Tools
+### 3. External Tools
 
 #### ffmpeg
 
-ffmpeg muss separat installiert werden:
+ffmpeg must be installed separately:
 
 **Linux:**
 ```bash
-# Option 1: System-Package-Manager
+# Option 1: System package manager
 sudo apt-get install ffmpeg  # Debian/Ubuntu
 sudo yum install ffmpeg      # CentOS/RHEL
 
-# Option 2: Statisches Binary
-# Lade von: https://johnvansickle.com/ffmpeg/
-# Extrahiere nach: dv2plex/bin/ffmpeg/
+# Option 2: Static binary
+# Download from: https://johnvansickle.com/ffmpeg/
+# Extract to: dv2plex/bin/ffmpeg/
 ```
 
-**Windows:**
-- Lade von: https://www.gyan.dev/ffmpeg/builds/
-- Extrahiere nach: `dv2plex/bin/ffmpeg/`
-- Stelle sicher, dass `dv2plex/bin/ffmpeg/bin/ffmpeg.exe` existiert
+## Build Process
 
-**macOS:**
-```bash
-brew install ffmpeg
-# Oder lade von: https://evermeet.cx/ffmpeg/
-```
+### Automatic Build
 
-## Build-Prozess
-
-### Automatischer Build
-
-Das einfachste Verfahren ist die Verwendung des Build-Skripts:
+The easiest method is using the build script:
 
 ```bash
 python build_pyinstaller.py
 ```
 
-Das Skript:
-1. Prüft alle Dependencies
-2. Prüft ffmpeg und Modelle
-3. Führt PyInstaller Build aus
-4. Kopiert zusätzliche Dateien
-5. Erstellt Startup-Skripte
+The script:
+1. Checks all dependencies
+2. Checks ffmpeg and models
+3. Executes PyInstaller build
+4. Copies additional files
+5. Creates startup scripts
 
-### Manueller Build
+### Manual Build
 
-Falls du den Build manuell durchführen möchtest:
+If you want to perform the build manually:
 
 ```bash
-# 1. PyInstaller ausführen
+# 1. Run PyInstaller
 pyinstaller --clean --noconfirm dv2plex.spec
 
-# 2. Ergebnis befindet sich in: dist/DV2Plex/
+# 2. Result is located in: dist/DV2Plex/
 ```
 
-## Build-Ergebnis
+## Build Result
 
-Nach erfolgreichem Build findest du die Distribution in:
+After successful build, you will find the distribution in:
 
 ```
 dist/DV2Plex/
-├── DV2Plex              # Haupt-Executable (Linux/Mac)
-├── DV2Plex.exe          # Haupt-Executable (Windows)
-├── start.sh             # Startup-Skript (Linux/Mac)
-├── start.bat            # Startup-Skript (Windows)
-├── README.md            # Dokumentation
+├── DV2Plex              # Main executable (Linux/Mac)
+├── DV2Plex.exe          # Main executable (Windows)
+├── start.sh             # Startup script (Linux/Mac)
+├── start.bat            # Startup script (Windows)
+├── README.md            # Documentation
 ├── Konfiguration_Beispiel.json
-└── [weitere Dateien und Bibliotheken]
+└── [additional files and libraries]
 ```
 
-## Verteilung
+## Distribution
 
-Die gesamte `dist/DV2Plex/` Verzeichnisstruktur kann als eigenständige Distribution verwendet werden.
+The entire `dist/DV2Plex/` directory structure can be used as a standalone distribution.
 
-**Wichtig:**
-- Die Distribution ist plattformspezifisch (Linux/Windows/macOS)
-- ffmpeg muss separat installiert werden (wird beim Start geprüft)
-- Real-ESRGAN Modelle werden beim ersten Start automatisch heruntergeladen
+**Important:**
+- The distribution is platform-specific (Linux/Windows/macOS)
+- ffmpeg must be installed separately (checked at startup)
+- Real-ESRGAN models will be automatically downloaded on first start
 
-## Fehlerbehebung
+## Troubleshooting
 
-### "Module nicht gefunden" Fehler
+### "Module not found" Errors
 
-Falls PyInstaller bestimmte Module nicht findet, füge sie zu `hiddenimports` in `dv2plex.spec` hinzu:
+If PyInstaller cannot find certain modules, add them to `hiddenimports` in `dv2plex.spec`:
 
 ```python
 hiddenimports=[
-    'fehlendes_modul',
+    'missing_module',
     # ...
 ]
 ```
 
-### Große Dateigröße
+### Large File Size
 
-Die Distribution kann sehr groß sein (mehrere GB) aufgrund von:
+The distribution can be very large (several GB) due to:
 - PyTorch
 - PySide6
-- Real-ESRGAN Dependencies
+- Real-ESRGAN dependencies
 
-Dies ist normal für eine eigenständige Distribution.
+This is normal for a standalone distribution.
 
-### ffmpeg nicht gefunden
+### ffmpeg not found
 
-Die Anwendung prüft beim Start automatisch, ob ffmpeg vorhanden ist. Falls nicht:
-1. Installiere ffmpeg systemweit, oder
-2. Platziere es in `dv2plex/bin/ffmpeg/`
+The application automatically checks for ffmpeg at startup. If not found:
+1. Install ffmpeg system-wide, or
+2. Place it in `dv2plex/bin/ffmpeg/`
 
-### Modelle werden nicht heruntergeladen
+### Models not downloading
 
-Real-ESRGAN Modelle werden automatisch beim ersten Gebrauch heruntergeladen nach:
+Real-ESRGAN models are automatically downloaded on first use to:
 - Linux/Mac: `~/.cache/realesrgan/`
 - Windows: `%USERPROFILE%\.cache\realesrgan\`
 
-Falls der automatische Download fehlschlägt, lade die Modelle manuell herunter:
+If automatic download fails, download the models manually:
 - RealESRGAN_x4plus.pth: https://github.com/xinntao/Real-ESRGAN/releases/download/v0.1.0/RealESRGAN_x4plus.pth
 - RealESRGAN_x4plus_anime_6B.pth: https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.2.4/RealESRGAN_x4plus_anime_6B.pth
 
-## Erweiterte Konfiguration
+## Advanced Configuration
 
-### Icon hinzufügen
+### Adding Icon
 
-Um ein Icon für die Executable hinzuzufügen, bearbeite `dv2plex.spec`:
+To add an icon for the executable, edit `dv2plex.spec`:
 
 ```python
 exe = EXE(
     # ...
-    icon='pfad/zum/icon.ico',  # Windows
-    icon='pfad/zum/icon.icns',  # macOS
+    icon='path/to/icon.ico',  # Windows
+    icon='path/to/icon.icns',  # macOS
     # ...
 )
 ```
 
-### UPX Kompression
+### UPX Compression
 
-UPX wird standardmäßig verwendet, um die Dateigröße zu reduzieren. Falls Probleme auftreten, kann es deaktiviert werden:
+UPX is used by default to reduce file size. If problems occur, it can be disabled:
 
 ```python
 exe = EXE(
@@ -165,26 +154,16 @@ exe = EXE(
 )
 ```
 
-## Plattform-spezifische Hinweise
+## Platform-Specific Notes
 
 ### Linux
 
-- Benötigt `libGL.so.1` und andere X11-Bibliotheken
-- Teste auf verschiedenen Distributionen
-
-### Windows
-
-- Möglicherweise benötigt: Visual C++ Redistributable
-- Antivirus-Software könnte die Executable blockieren (False Positive)
-
-### macOS
-
-- Möglicherweise benötigt: Code-Signing für Gatekeeper
-- Erstelle ein .app Bundle für bessere Integration
+- Requires `libGL.so.1` and other X11 libraries
+- Test on various distributions
 
 ## Support
 
-Bei Problemen:
-1. Prüfe die Logs in `logs/`
-2. Führe die Anwendung mit `--debug` aus (falls implementiert)
-3. Prüfe die PyInstaller-Dokumentation: https://pyinstaller.org/
+If you encounter problems:
+1. Check the logs in `logs/`
+2. Run the application with `--debug` (if implemented)
+3. Check the PyInstaller documentation: https://pyinstaller.org/

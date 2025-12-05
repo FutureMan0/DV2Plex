@@ -1,75 +1,75 @@
-# Contributing zu DV2Plex
+# Contributing to DV2Plex
 
-Vielen Dank für dein Interesse, zu DV2Plex beizutragen! 🎉
+Thank you for your interest in contributing to DV2Plex! 🎉
 
-Dieses Dokument beschreibt, wie du zum Projekt beitragen kannst.
+This document describes how you can contribute to the project.
 
-## 📋 Inhaltsverzeichnis
+## 📋 Table of Contents
 
 - [Code of Conduct](#code-of-conduct)
-- [Wie kann ich beitragen?](#wie-kann-ich-beitragen)
-- [Entwicklungsumgebung einrichten](#entwicklungsumgebung-einrichten)
-- [Entwicklungsprozess](#entwicklungsprozess)
-- [Coding-Standards](#coding-standards)
-- [Commit-Messages](#commit-messages)
+- [How can I contribute?](#how-can-i-contribute)
+- [Setting up Development Environment](#setting-up-development-environment)
+- [Development Process](#development-process)
+- [Coding Standards](#coding-standards)
+- [Commit Messages](#commit-messages)
 - [Pull Requests](#pull-requests)
 
 ## Code of Conduct
 
-Dieses Projekt folgt einem Code of Conduct. Durch die Teilnahme erwartet man, dass du diesen einhältst.
+This project follows a Code of Conduct. By participating, you are expected to uphold this.
 
-### Unsere Standards
+### Our Standards
 
-- Respektvolle und inklusive Sprache verwenden
-- Verschiedene Standpunkte und Erfahrungen respektieren
-- Konstruktives Feedback geben und annehmen
-- Fokus auf das, was am besten für die Community ist
+- Use respectful and inclusive language
+- Respect different viewpoints and experiences
+- Give and accept constructive feedback
+- Focus on what is best for the community
 
-## Wie kann ich beitragen?
+## How can I contribute?
 
 ### 🐛 Bug Reports
 
-Wenn du einen Bug findest:
+If you find a bug:
 
-1. Prüfe, ob das Issue bereits existiert
-2. Erstelle ein neues Issue mit:
-   - Klarer, beschreibender Titel
-   - Detaillierte Beschreibung des Problems
-   - Schritte zur Reproduktion
-   - Erwartetes vs. tatsächliches Verhalten
-   - System-Informationen (OS, Python-Version, etc.)
-   - Screenshots (falls relevant)
+1. Check if the issue already exists
+2. Create a new issue with:
+   - Clear, descriptive title
+   - Detailed description of the problem
+   - Steps to reproduce
+   - Expected vs. actual behavior
+   - System information (OS, Python version, etc.)
+   - Screenshots (if relevant)
 
 ### 💡 Feature Requests
 
-Für neue Features:
+For new features:
 
-1. Prüfe, ob das Feature bereits vorgeschlagen wurde
-2. Erstelle ein Issue mit:
-   - Klare Beschreibung des Features
-   - Begründung, warum es nützlich ist
-   - Mögliche Implementierungsansätze (optional)
+1. Check if the feature has already been suggested
+2. Create an issue with:
+   - Clear description of the feature
+   - Justification for why it's useful
+   - Possible implementation approaches (optional)
 
-### 📝 Dokumentation
+### 📝 Documentation
 
-Verbesserungen an der Dokumentation sind immer willkommen:
+Documentation improvements are always welcome:
 
-- Korrektur von Tippfehlern
-- Klarere Erklärungen
-- Zusätzliche Beispiele
-- Übersetzungen
+- Fix typos
+- Clearer explanations
+- Additional examples
+- Translations
 
-### 🔧 Code-Beiträge
+### 🔧 Code Contributions
 
-1. Fork das Repository
-2. Erstelle einen Feature-Branch
-3. Mache deine Änderungen
-4. Teste deine Änderungen
-5. Sende einen Pull Request
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Test your changes
+5. Submit a pull request
 
-## Entwicklungsumgebung einrichten
+## Setting up Development Environment
 
-### Voraussetzungen
+### Prerequisites
 
 - Python 3.8+
 - Git
@@ -78,98 +78,98 @@ Verbesserungen an der Dokumentation sind immer willkommen:
 ### Setup
 
 ```bash
-# Repository klonen
+# Clone repository
 git clone https://github.com/yourusername/dv2plex.git
 cd dv2plex
 
-# Virtual Environment erstellen
+# Create virtual environment
 python -m venv venv
 source venv/bin/activate  # Linux/Mac
-# oder
+# or
 venv\Scripts\activate  # Windows
 
-# Dependencies installieren
+# Install dependencies
 pip install -r requirements.txt
 
-# Entwicklung starten
+# Start development
 python -m dv2plex
 ```
 
-## Entwicklungsprozess
+## Development Process
 
-### Branch-Strategie
+### Branch Strategy
 
-- `main`: Stabile, produktionsreife Version
-- `develop`: Entwicklungs-Branch (falls vorhanden)
-- `feature/*`: Neue Features
-- `fix/*`: Bugfixes
-- `docs/*`: Dokumentations-Änderungen
+- `main`: Stable, production-ready version
+- `develop`: Development branch (if present)
+- `feature/*`: New features
+- `fix/*`: Bug fixes
+- `docs/*`: Documentation changes
 
 ### Workflow
 
-1. **Issue erstellen** (optional, aber empfohlen)
-2. **Branch erstellen**:
+1. **Create Issue** (optional, but recommended)
+2. **Create Branch**:
    ```bash
-   git checkout -b feature/mein-feature
-   # oder
-   git checkout -b fix/bug-beschreibung
+   git checkout -b feature/my-feature
+   # or
+   git checkout -b fix/bug-description
    ```
 
-3. **Änderungen machen**:
-   - Code schreiben
-   - Tests hinzufügen (falls möglich)
-   - Dokumentation aktualisieren
+3. **Make Changes**:
+   - Write code
+   - Add tests (if possible)
+   - Update documentation
 
-4. **Commits erstellen**:
+4. **Create Commits**:
    ```bash
    git add .
-   git commit -m "feat: Beschreibung der Änderung"
+   git commit -m "feat: Description of change"
    ```
 
-5. **Push und Pull Request**:
+5. **Push and Pull Request**:
    ```bash
-   git push origin feature/mein-feature
+   git push origin feature/my-feature
    ```
 
-## Coding-Standards
+## Coding Standards
 
 ### Python
 
-- **PEP 8** befolgen
-- **Type Hints** für neue Funktionen
-- **Docstrings** im Google-Style:
+- Follow **PEP 8**
+- **Type Hints** for new functions
+- **Docstrings** in Google-style:
 
 ```python
 def example_function(param1: str, param2: int) -> bool:
     """
-    Kurze Beschreibung der Funktion.
+    Short description of the function.
     
     Args:
-        param1: Beschreibung des ersten Parameters
-        param2: Beschreibung des zweiten Parameters
+        param1: Description of first parameter
+        param2: Description of second parameter
     
     Returns:
-        Beschreibung des Rückgabewerts
+        Description of return value
     
     Raises:
-        ValueError: Wenn etwas schiefgeht
+        ValueError: When something goes wrong
     """
     pass
 ```
 
-### Code-Formatierung
+### Code Formatting
 
-- **Maximale Zeilenlänge**: 100 Zeichen (wenn möglich)
-- **Imports**: Sortiert und gruppiert (stdlib, third-party, local)
+- **Maximum line length**: 100 characters (if possible)
+- **Imports**: Sorted and grouped (stdlib, third-party, local)
 - **Naming**:
-  - Funktionen: `snake_case`
-  - Klassen: `PascalCase`
-  - Konstanten: `UPPER_SNAKE_CASE`
+  - Functions: `snake_case`
+  - Classes: `PascalCase`
+  - Constants: `UPPER_SNAKE_CASE`
 
-### Beispiel
+### Example
 
 ```python
-"""Modul-Dokumentation."""
+"""Module documentation."""
 
 import os
 from pathlib import Path
@@ -182,35 +182,35 @@ from dv2plex.config import Config
 
 
 class ExampleClass:
-    """Kurze Klassen-Beschreibung."""
+    """Short class description."""
     
     def __init__(self, config: Config):
         """
-        Initialisiert die Klasse.
+        Initialize the class.
         
         Args:
-            config: Konfigurations-Objekt
+            config: Configuration object
         """
         self.config = config
     
     def example_method(self, value: int) -> Optional[str]:
         """
-        Beispiel-Methode.
+        Example method.
         
         Args:
-            value: Ein Integer-Wert
+            value: An integer value
         
         Returns:
-            Optionaler String-Wert
+            Optional string value
         """
         if value < 0:
             return None
         return str(value)
 ```
 
-## Commit-Messages
+## Commit Messages
 
-Wir folgen dem [Conventional Commits](https://www.conventionalcommits.org/) Standard:
+We follow the [Conventional Commits](https://www.conventionalcommits.org/) standard:
 
 ### Format
 
@@ -224,15 +224,15 @@ Wir folgen dem [Conventional Commits](https://www.conventionalcommits.org/) Stan
 
 ### Types
 
-- `feat`: Neue Features
-- `fix`: Bugfixes
-- `docs`: Dokumentation
-- `style`: Code-Formatierung (keine Logik-Änderungen)
-- `refactor`: Code-Refactoring
-- `test`: Tests hinzufügen/ändern
-- `chore`: Build-Prozess, Dependencies, etc.
+- `feat`: New features
+- `fix`: Bug fixes
+- `docs`: Documentation
+- `style`: Code formatting (no logic changes)
+- `refactor`: Code refactoring
+- `test`: Adding/changing tests
+- `chore`: Build process, dependencies, etc.
 
-### Beispiele
+### Examples
 
 ```bash
 feat(capture): Add support for multiple capture parts
@@ -241,63 +241,63 @@ docs(readme): Update installation instructions
 refactor(config): Simplify configuration loading
 ```
 
-### Regeln
+### Rules
 
-- **Subject**: Maximal 50 Zeichen, Imperativ ("Add" nicht "Added")
-- **Body**: Erkläre das "Was" und "Warum", nicht das "Wie"
-- **Footer**: Referenzen zu Issues (z.B. `Closes #123`)
+- **Subject**: Maximum 50 characters, imperative ("Add" not "Added")
+- **Body**: Explain the "what" and "why", not the "how"
+- **Footer**: References to issues (e.g., `Closes #123`)
 
 ## Pull Requests
 
-### Vor dem Pull Request
+### Before Pull Request
 
-- [ ] Code folgt den Coding-Standards
-- [ ] Selbst getestet
-- [ ] Kommentare und Docstrings hinzugefügt
-- [ ] Dokumentation aktualisiert (falls nötig)
-- [ ] Keine neuen Warnings
-- [ ] Commit-Messages folgen dem Standard
+- [ ] Code follows coding standards
+- [ ] Self-tested
+- [ ] Comments and docstrings added
+- [ ] Documentation updated (if necessary)
+- [ ] No new warnings
+- [ ] Commit messages follow standard
 
-### Pull Request erstellen
+### Creating Pull Request
 
-1. **Beschreibung**:
-   - Was wurde geändert?
-   - Warum wurde es geändert?
-   - Wie wurde es getestet?
+1. **Description**:
+   - What was changed?
+   - Why was it changed?
+   - How was it tested?
 
-2. **Referenzen**:
-   - Verlinke zu relevanten Issues
-   - `Closes #123` für automatisches Schließen
+2. **References**:
+   - Link to relevant issues
+   - `Closes #123` for automatic closing
 
 3. **Screenshots**:
-   - Für UI-Änderungen
+   - For UI changes
 
 4. **Checklist**:
-   - Nutze die PR-Template-Checklist
+   - Use the PR template checklist
 
-### Review-Prozess
+### Review Process
 
-- Maintainer werden den PR reviewen
-- Feedback kann gegeben werden
-- Änderungen können angefragt werden
-- Nach Approval wird der PR gemerged
+- Maintainers will review the PR
+- Feedback may be given
+- Changes may be requested
+- After approval, the PR will be merged
 
 ## Tests
 
-Tests sind aktuell noch in Planung. Wenn du Tests hinzufügst:
+Tests are currently still planned. If you add tests:
 
-- Unit-Tests für einzelne Funktionen
-- Integration-Tests für Workflows
-- Verwende `pytest` als Test-Framework
+- Unit tests for individual functions
+- Integration tests for workflows
+- Use `pytest` as test framework
 
-## Fragen?
+## Questions?
 
-Wenn du Fragen hast:
+If you have questions:
 
-- Öffne ein Issue mit dem Label "question"
-- Diskutiere in GitHub Discussions
-- Kontaktiere die Maintainer
+- Open an issue with the label "question"
+- Discuss in GitHub Discussions
+- Contact the maintainers
 
-## Danke! 🙏
+## Thank you! 🙏
 
-Jeder Beitrag, egal wie klein, ist wertvoll. Danke, dass du DV2Plex besser machst!
+Every contribution, no matter how small, is valuable. Thank you for making DV2Plex better!

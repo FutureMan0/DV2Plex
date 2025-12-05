@@ -1,32 +1,32 @@
 ---
 name: Feature Request
-about: Schlage ein neues Feature für dieses Projekt vor
+about: Suggest a new feature for this project
 title: '[FEATURE] '
 labels: enhancement
 assignees: ''
 ---
 
-## Feature-Beschreibung
+## Feature Description
 
-Eine klare und präzise Beschreibung des gewünschten Features.
+A clear and concise description of the desired feature.
 
-## Problem, das gelöst wird
+## Problem Being Solved
 
-Ist dein Feature-Request mit einem Problem verbunden? Bitte beschreibe es.
-z.B. "Ich bin immer frustriert, wenn [...]"
+Is your feature request related to a problem? Please describe it.
+e.g., "I'm always frustrated when [...]"
 
-## Vorgeschlagene Lösung
+## Proposed Solution
 
-Eine klare und präzise Beschreibung dessen, was du dir wünschst.
+A clear and concise description of what you want.
 
-## Alternativen
+## Alternatives
 
-Eine klare und präzise Beschreibung aller alternativen Lösungen oder Features, die du in Betracht gezogen hast.
+A clear and concise description of any alternative solutions or features you've considered.
 
-## Zusätzlicher Kontext
+## Additional Context
 
-Füge hier jeden anderen Kontext oder Screenshots zum Feature-Request hinzu.
+Add any other context or screenshots about the feature request here.
 
-## Implementierungsvorschlag (optional)
+## Implementation Proposal (optional)
 
-Falls du eine Idee hast, wie das Feature implementiert werden könnte, beschreibe es hier.
+If you have an idea of how the feature could be implemented, describe it here.
