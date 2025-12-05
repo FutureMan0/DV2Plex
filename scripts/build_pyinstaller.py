@@ -155,12 +155,6 @@ def copy_additional_files():
         shutil.copy2(readme, dist_exe_dir / "README.md")
         print(f"  ✓ README.md")
     
-    # Kopiere Beispiel-Konfiguration
-    config_example = project_root / "config" / "examples" / "Konfiguration_Beispiel.json"
-    if config_example.exists():
-        shutil.copy2(config_example, dist_exe_dir / "Konfiguration_Beispiel.json")
-        print(f"  ✓ Konfiguration_Beispiel.json")
-    
     # Erstelle Verzeichnisse für Output
     (dist_exe_dir / "DV_Import").mkdir(exist_ok=True)
     (dist_exe_dir / "logs").mkdir(exist_ok=True)

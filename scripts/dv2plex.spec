@@ -44,7 +44,6 @@ a = Analysis(
     datas=[
         # Konfigurationsdateien
         (str(dv2plex_dir / "config" / "settings.json"), "dv2plex/config"),
-        (str(project_root / "config" / "examples" / "Konfiguration_Beispiel.json"), "."),
         
         # Logo
         (str(project_root / "dv2plex_logo.png"), "."),

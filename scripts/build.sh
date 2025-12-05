@@ -265,11 +265,6 @@ if [ -f "$PROJECT_ROOT/README.md" ]; then
     print_success "README.md copied"
 fi
 
-# Example configuration (correct path inside config/examples)
-if [ -f "$PROJECT_ROOT/config/examples/Konfiguration_Beispiel.json" ]; then
-    cp "$PROJECT_ROOT/config/examples/Konfiguration_Beispiel.json" "$DIST_DIR/"
-    print_success "Konfiguration_Beispiel.json copied"
-fi
 
 # Logo (if not already copied by PyInstaller)
 if [ -f "$PROJECT_ROOT/dv2plex_logo.png" ]; then

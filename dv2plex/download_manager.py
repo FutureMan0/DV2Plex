@@ -1,6 +1,6 @@
 """
-Download-Manager für fehlende Komponenten
-Wird beim Start der Anwendung ausgeführt, um fehlende Dependencies herunterzuladen
+Download manager for missing components
+Runs at application startup to download missing dependencies
 """
 
 import os
@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 
 class DownloadManager:
-    """Verwaltet das Herunterladen fehlender Komponenten"""
+    """Manages downloading of missing components"""
     
     def __init__(self, base_dir: Path):
         self.base_dir = base_dir
@@ -26,14 +26,14 @@ class DownloadManager:
         self.realesrgan_dir = self.bin_dir / "realesrgan"
         
     def check_ffmpeg(self) -> bool:
-        """Prüft ob ffmpeg vorhanden ist"""
-        # Prüfe lokales ffmpeg
+        """Checks if ffmpeg is available"""
+        # Check local ffmpeg
         local_ffmpeg = self.ffmpeg_dir / "bin" / "ffmpeg"
         if local_ffmpeg.exists() and local_ffmpeg.is_file():
             logger.info(f"✓ ffmpeg gefunden: {local_ffmpeg}")
             return True
         
-        # Prüfe System-ffmpeg
+        # Check system ffmpeg
         system_ffmpeg = shutil.which("ffmpeg")
         if system_ffmpeg:
             logger.info(f"✓ ffmpeg im System-PATH gefunden: {system_ffmpeg}")
@@ -60,8 +60,8 @@ class DownloadManager:
         return info
     
     def check_realesrgan_models(self) -> Dict[str, bool]:
-        """Prüft welche Real-ESRGAN Modelle vorhanden sind"""
-        # Modelle werden normalerweise in ~/.cache/realesrgan gespeichert
+        """Checks which Real-ESRGAN models are available"""
+        # Models are usually stored in ~/.cache/realesrgan
         cache_dir = Path.home() / ".cache" / "realesrgan"
         
         models = {
@@ -81,7 +81,7 @@ class DownloadManager:
         return models
     
     def download_realesrgan_model(self, model_name: str) -> bool:
-        """Lädt ein Real-ESRGAN Modell herunter"""
+        """Downloads a Real-ESRGAN model"""
         from basicsr.utils.download_util import load_file_from_url
         
         cache_dir = Path.home() / ".cache" / "realesrgan"
@@ -93,7 +93,7 @@ class DownloadManager:
             logger.info(f"Modell bereits vorhanden: {model_name}")
             return True
         
-        # URLs für Modelle
+        # URLs for models
         model_urls = {
             "RealESRGAN_x4plus.pth": "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.1.0/RealESRGAN_x4plus.pth",
             "RealESRGAN_x4plus_anime_6B.pth": "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.2.4/RealESRGAN_x4plus_anime_6B.pth",
@@ -127,7 +127,7 @@ class DownloadManager:
             return False
     
     def check_all(self) -> Dict[str, Any]:
-        """Prüft alle Komponenten und gibt Status zurück"""
+        """Checks all components and returns status"""
         status = {
             "ffmpeg": {
                 "found": self.check_ffmpeg(),
@@ -138,7 +138,7 @@ class DownloadManager:
         return status
     
     def download_missing_models(self, auto_download: bool = False) -> Dict[str, bool]:
-        """Lädt fehlende Modelle herunter"""
+        """Downloads missing models"""
         models = self.check_realesrgan_models()
         results = {}
         
@@ -155,17 +155,17 @@ class DownloadManager:
 
 
 def check_python_package(package_name: str) -> bool:
-    """Prüft ob ein Python-Package installiert ist"""
-    # Normalisiere Package-Name (cv2 -> cv2, PIL -> PIL, etc.)
+    """Checks if a Python package is installed"""
+    # Normalize package name (cv2 -> cv2, PIL -> PIL, etc.)
     import_name = package_name
     if package_name == 'PIL':
         import_name = 'PIL'
     elif package_name == 'cv2':
         import_name = 'cv2'
     
-    # Zuerst prüfen, ob das Paket in pip installiert ist
-    # Das ist wichtig, da Pakete installiert sein können, aber aufgrund von
-    # Abhängigkeitsproblemen nicht importierbar sind
+    # First check if package is installed in pip
+    # This is important because packages can be installed but not importable
+    # due to dependency problems
     try:
         result = subprocess.run(
             [sys.executable, "-m", "pip", "show", package_name],
@@ -174,66 +174,66 @@ def check_python_package(package_name: str) -> bool:
             timeout=5
         )
         if result.returncode == 0:
-            # Paket ist installiert - versuche Import
+            # Package is installed - try import
             try:
                 __import__(import_name)
                 return True
             except (ImportError, ModuleNotFoundError):
-                # Paket ist installiert, aber nicht importierbar (z.B. wegen Abhängigkeiten)
-                # Das ist OK - das Paket ist vorhanden, auch wenn es aktuell nicht funktioniert
+                # Package is installed but not importable (e.g. due to dependencies)
+                # This is OK - the package is present, even if it doesn't work currently
                 logger.debug(f"✓ {package_name} ist installiert, aber Import schlägt fehl (möglicherweise Abhängigkeitsproblem)")
                 return True
             except Exception:
-                # Andere Fehler beim Import - Paket ist installiert, aber hat Probleme
+                # Other errors during import - package is installed but has problems
                 logger.debug(f"✓ {package_name} ist installiert, aber Import hat Probleme")
                 return True
     except (subprocess.TimeoutExpired, subprocess.SubprocessError, Exception):
-        # pip show hat nicht funktioniert - versuche trotzdem Import
+        # pip show didn't work - try import anyway
         pass
     
-    # Fallback: Versuche direkten Import
+    # Fallback: Try direct import
     try:
         __import__(import_name)
         return True
     except ImportError:
         return False
     except Exception:
-        # Andere Fehler (z.B. wenn Package teilweise installiert ist)
+        # Other errors (e.g. if package is partially installed)
         return False
 
 
 def install_python_package(package_name: str, ask_user: bool = True) -> bool:
     """
-    Installiert ein Python-Package zur Laufzeit
+    Installs a Python package at runtime
     
     Args:
-        package_name: Name des Packages (z.B. 'torch' oder 'torch>=1.7')
-        ask_user: Wenn True, wird der Benutzer gefragt, ob installiert werden soll
+        package_name: Name of the package (e.g. 'torch' or 'torch>=1.7')
+        ask_user: If True, user will be asked if installation should proceed
     
     Returns:
-        True wenn erfolgreich installiert, False sonst
+        True if successfully installed, False otherwise
     """
     package_base = package_name.split('>=')[0].split('==')[0]
     
-    # Prüfe erneut, ob Package bereits installiert ist
+    # Check again if package is already installed
     if check_python_package(package_base):
         logger.info(f"✓ {package_base} bereits installiert")
         return True
     
     if ask_user:
-        # Verwende nur Console-Input, keine GUI (um QApplication-Konflikte zu vermeiden)
-        # Die GUI wird erst später in app.py erstellt
+        # Use only console input, no GUI (to avoid QApplication conflicts)
+        # GUI will be created later in app.py
         try:
             response = input(f"⚠ {package_base} fehlt. Automatisch installieren? [y/N]: ")
             if response.lower() not in ['y', 'yes']:
                 logger.warning(f"✗ Installation von {package_base} abgebrochen")
                 return False
         except (EOFError, KeyboardInterrupt):
-            # Keine Interaktion möglich (z.B. in nicht-interaktiver Umgebung)
+            # No interaction possible (e.g. in non-interactive environment)
             logger.warning(f"✗ Installation von {package_base} abgebrochen (keine Interaktion möglich)")
             return False
         except Exception:
-            # Unerwarteter Fehler, versuche trotzdem zu installieren
+            # Unexpected error, try to install anyway
             logger.info(f"→ Installiere {package_base} automatisch...")
     
     try:
@@ -248,23 +248,23 @@ def install_python_package(package_name: str, ask_user: bool = True) -> bool:
             logger.error(f"✗ Fehler beim Installieren von {package_name}: {result.stderr}")
             return False
         
-        # Prüfe erneut, ob Installation erfolgreich war
-        # Warte etwas und lade Import-Cache neu
+        # Check again if installation was successful
+        # Wait a bit and reload import cache
         import time
         import importlib
-        time.sleep(1)  # Pause, damit pip Installation abgeschlossen ist
+        time.sleep(1)  # Pause so pip installation can complete
         
-        # Versuche Import-Cache zu leeren für dieses Package
+        # Try to clear import cache for this package
         if package_base in sys.modules:
             del sys.modules[package_base]
         
-        # Prüfe erneut
+        # Check again
         if check_python_package(package_base):
             logger.info(f"✓ {package_base} erfolgreich installiert und verfügbar")
             return True
         else:
-            # Installation war erfolgreich, aber Import funktioniert noch nicht
-            # Das kann passieren, wenn das Package neu geladen werden muss
+            # Installation was successful but import doesn't work yet
+            # This can happen if the package needs to be reloaded
             logger.info(f"✓ {package_base} installiert (wird beim nächsten Start verfügbar sein)")
             return True
     except subprocess.CalledProcessError as e:
@@ -277,43 +277,43 @@ def install_python_package(package_name: str, ask_user: bool = True) -> bool:
 
 def check_and_install_dependencies(required_packages: list, ask_user: bool = True) -> dict:
     """
-    Prüft und installiert fehlende Python-Packages
+    Checks and installs missing Python packages
     
     Args:
-        required_packages: Liste von Package-Namen (z.B. ['torch>=1.7', 'numpy'])
-        ask_user: Wenn True, wird der Benutzer gefragt
+        required_packages: List of package names (e.g. ['torch>=1.7', 'numpy'])
+        ask_user: If True, user will be asked
     
     Returns:
-        Dict mit Status für jedes Package
+        Dict with status for each package
     """
     global _checked_packages
     results = {}
     missing = []
     
-    # Erste Runde: Prüfe welche Packages fehlen
+    # First round: Check which packages are missing
     for package in required_packages:
         package_base = package.split('>=')[0].split('==')[0]
         
-        # Überspringe, wenn bereits geprüft und vorhanden
+        # Skip if already checked and available
         if package_base in _checked_packages:
             results[package] = True
             continue
         
         if check_python_package(package_base):
             results[package] = True
-            _checked_packages.add(package_base)  # Markiere als geprüft
+            _checked_packages.add(package_base)  # Mark as checked
             logger.info(f"✓ {package_base} vorhanden")
         else:
             results[package] = False
             missing.append(package)
             logger.warning(f"✗ {package_base} fehlt")
     
-    # Zweite Runde: Installiere fehlende Packages
+    # Second round: Install missing packages
     if missing:
         missing_names = [pkg.split('>=')[0].split('==')[0] for pkg in missing]
         logger.info(f"Fehlende Packages: {', '.join(missing_names)}")
         
-        # Frage einmal für alle Packages zusammen
+        # Ask once for all packages together
         if ask_user and len(missing) > 1:
             try:
                 response = input(f"⚠ {len(missing)} Packages fehlen. Alle automatisch installieren? [y/N]: ")
@@ -328,65 +328,65 @@ def check_and_install_dependencies(required_packages: list, ask_user: bool = Tru
                     results[package] = False
                 return results
         
-        # Installiere jedes fehlende Package
+        # Install each missing package
         for package in missing:
-            # Bei mehreren Packages: Nur beim ersten fragen, dann automatisch installieren
+            # With multiple packages: Only ask for the first, then install automatically
             should_ask = ask_user and len(missing) == 1
             package_base = package.split('>=')[0].split('==')[0]
             
-            # Prüfe nochmal, ob Package vielleicht zwischenzeitlich installiert wurde
+            # Check again if package was maybe installed in the meantime
             if check_python_package(package_base):
                 results[package] = True
                 logger.info(f"✓ {package_base} ist jetzt verfügbar")
                 continue
             
-            # Installiere Package
+            # Install package
             results[package] = install_python_package(package, ask_user=should_ask)
             
-            # Nach Installation erneut prüfen
+            # Check again after installation
             if results[package]:
-                # Kurze Pause und erneut prüfen
+                # Short pause and check again
                 import time
                 time.sleep(0.5)
                 if check_python_package(package_base):
                     results[package] = True
-                    _checked_packages.add(package_base)  # Markiere als geprüft und verfügbar
+                    _checked_packages.add(package_base)  # Mark as checked and available
                     logger.info(f"✓ {package_base} erfolgreich installiert und verfügbar")
                 else:
-                    # Installation war erfolgreich, aber Import funktioniert noch nicht
-                    results[package] = True  # Markiere als installiert
-                    _checked_packages.add(package_base)  # Markiere als geprüft (auch wenn Import noch nicht funktioniert)
+                    # Installation was successful but import doesn't work yet
+                    results[package] = True  # Mark as installed
+                    _checked_packages.add(package_base)  # Mark as checked (even if import doesn't work yet)
                     logger.info(f"✓ {package_base} installiert (möglicherweise Neustart erforderlich)")
     
     return results
 
 
-# Globale Variable, um zu verhindern, dass der Check mehrfach läuft
+# Global variable to prevent the check from running multiple times
 _dependency_check_done = False
-_checked_packages = set()  # Set von bereits geprüften Packages
+_checked_packages = set()  # Set of already checked packages
 
 def check_and_download_on_startup(base_dir: Path, auto_download: bool = False, check_python_deps: bool = True):
     """
-    Prüft beim Start alle Komponenten und lädt fehlende herunter
+    Checks all components at startup and downloads missing ones
     
     Args:
-        base_dir: Basis-Verzeichnis der Anwendung
-        auto_download: Wenn True, werden fehlende Modelle automatisch heruntergeladen
-        check_python_deps: Wenn True, werden Python-Packages geprüft und installiert
+        base_dir: Base directory of the application
+        auto_download: If True, missing models will be downloaded automatically
+        check_python_deps: If True, Python packages will be checked and installed
     """
     global _dependency_check_done
     
-    # Verhindere mehrfache Ausführung des kompletten Checks
+    # Prevent multiple executions of the complete check
     if _dependency_check_done and check_python_deps:
-        logger.debug("Dependency-Check wurde bereits ausgeführt, überspringe Python-Deps...")
-        # Führe nur noch System-Checks aus (ffmpeg, Modelle)
+        logger.debug("Dependency check was already executed, skipping Python deps...")
+        # Only run system checks (ffmpeg, models)
         check_python_deps = False
     
     manager = DownloadManager(base_dir)
     
-    logger.info("Prüfe Komponenten...")
+    logger.info("Checking components...")
     
-    # Prüfe Python-Packages (wichtigste zuerst)
+    # Check Python packages (most important first)
     if check_python_deps:
         logger.info("Prüfe Python-Dependencies...")
         critical_packages = [
@@ -406,7 +406,7 @@ def check_and_download_on_startup(base_dir: Path, auto_download: bool = False, c
             'transformers',
         ]
         
-        # Prüfe und installiere kritische Packages zuerst
+        # Check and install critical packages first
         critical_results = check_and_install_dependencies(critical_packages, ask_user=True)
         missing_critical = [pkg.split('>=')[0].split('==')[0] for pkg, found in critical_results.items() if not found]
         
@@ -416,7 +416,7 @@ def check_and_download_on_startup(base_dir: Path, auto_download: bool = False, c
         else:
             logger.info("✓ Alle kritischen Python-Packages vorhanden")
         
-        # Prüfe optionale Packages (nur wenn kritische vorhanden sind)
+        # Check optional packages (only if critical ones are present)
         if not missing_critical:
             optional_results = check_and_install_dependencies(optional_packages, ask_user=True)
         else:
@@ -424,7 +424,7 @@ def check_and_download_on_startup(base_dir: Path, auto_download: bool = False, c
     
     status = manager.check_all()
     
-    # Prüfe ffmpeg
+    # Check ffmpeg
     if not status["ffmpeg"]["found"]:
         logger.warning("ffmpeg nicht gefunden!")
         info = status["ffmpeg"]["info"]
@@ -440,7 +440,7 @@ def check_and_download_on_startup(base_dir: Path, auto_download: bool = False, c
         
         logger.info(f"Download-Anleitung: {info['instructions'].get(platform_key, 'Siehe README')}")
     
-    # Prüfe Modelle
+    # Check models
     missing_models = [name for name, found in status["realesrgan_models"].items() if not found]
     if missing_models:
         logger.info(f"Fehlende Modelle: {', '.join(missing_models)}")
@@ -455,7 +455,7 @@ def check_and_download_on_startup(base_dir: Path, auto_download: bool = False, c
         else:
             logger.info("Modelle werden beim ersten Gebrauch automatisch heruntergeladen.")
     
-    # Markiere Check als abgeschlossen
+    # Mark check as completed
     if check_python_deps:
         _dependency_check_done = True
     

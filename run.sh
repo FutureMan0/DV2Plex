@@ -1,5 +1,5 @@
 #!/bin/bash
-# DV2Plex Start Script for Linux mit Dependenz-Check
+# DV2Plex Start Script for Linux with dependency check
 
 set -e
 
@@ -19,17 +19,17 @@ ask_install() {
     elif command -v pacman &> /dev/null; then
         install_cmd="sudo pacman -S --noconfirm $pkg"
     else
-        echo "⚠ Kein unterstützter Paketmanager gefunden. Bitte installiere $pkg manuell."
+        echo "⚠ No supported package manager found. Please install $pkg manually."
         return
     fi
 
-    read -p "⚠ $pkg fehlt. Automatisch installieren? [y/N] " -n 1 -r
+    read -p "⚠ $pkg is missing. Install automatically? [y/N] " -n 1 -r
     echo ""
     if [[ $REPLY =~ ^[Yy]$ ]]; then
-        echo "→ Installiere $pkg ..."
+        echo "→ Installing $pkg ..."
         eval "$install_cmd"
     else
-        echo "✗ $pkg wurde nicht installiert. DV2Plex benötigt es ggf. für volle Funktionalität."
+        echo "✗ $pkg was not installed. DV2Plex may need it for full functionality."
     fi
 }
 
@@ -37,25 +37,25 @@ check_dep() {
     local cmd="$1"
     local pkg_name="$2"
     if command -v "$cmd" &> /dev/null; then
-        echo "✓ $cmd vorhanden"
+        echo "✓ $cmd available"
     else
         ask_install "$pkg_name"
     fi
 }
 
-echo "=== DV2Plex Start (mit Dependenz-Check) ==="
+echo "=== DV2Plex Start (with dependency check) ==="
 
-# Wichtige System-Dependencies prüfen (kann je nach Distribution anders heißen)
+# Check important system dependencies (may vary by distribution)
 check_dep ffmpeg ffmpeg
 check_dep dvgrab dvgrab
 
 echo ""
 
-# Virtuelle Umgebung nutzen, falls vorhanden
+# Use virtual environment if available
 if [ -d "$SCRIPT_DIR/venv" ]; then
     source "$SCRIPT_DIR/venv/bin/activate"
     python "$SCRIPT_DIR/start.py"
 else
-    # Fallback: Verwende system Python
+    # Fallback: Use system Python
     python3 "$SCRIPT_DIR/start.py"
 fi

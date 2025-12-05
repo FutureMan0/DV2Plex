@@ -1,5 +1,5 @@
 """
-Hauptprogramm für DV2Plex - GUI und Workflow-Orchestrierung
+Main program for DV2Plex - GUI and workflow orchestration
 """
 
 import sys
@@ -43,7 +43,7 @@ from PySide6.QtGui import QImage, QPixmap, QColor, QPainter, QPainterPath, QPen,
 
 import re
 
-# Imports - unterstützt sowohl Modul- als auch direkte Ausführung
+# Imports - supports both module and direct execution
 try:
     from .config import Config
     from .capture import CaptureEngine
@@ -53,7 +53,7 @@ try:
     from .frame_extraction import FrameExtractionEngine
     from .cover_generation import CoverGenerationEngine
 except ImportError:
-    # Fallback für direkte Ausführung
+    # Fallback for direct execution
     import sys
     from pathlib import Path
     sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -67,50 +67,50 @@ except ImportError:
 
 
 def get_resource_path(relative_path: str) -> Path:
-    """Ermittelt den Pfad zu einer Ressource, funktioniert sowohl im Entwicklungsmodus als auch in PyInstaller"""
-    # PyInstaller erstellt ein temporäres Verzeichnis und speichert den Pfad in _MEIPASS
+    """Determines the path to a resource, works both in development mode and in PyInstaller"""
+    # PyInstaller creates a temporary directory and stores the path in _MEIPASS
     if getattr(sys, 'frozen', False):
-        # PyInstaller-Modus: Ressourcen sind im Verzeichnis der ausführbaren Datei
-        # Bei onedir-Modus ist sys.executable der Pfad zur ausführbaren Datei
+        # PyInstaller mode: resources are in the directory of the executable
+        # In onedir mode, sys.executable is the path to the executable
         base_path = Path(sys.executable).parent
         resource_path = base_path / relative_path
         if resource_path.exists():
             return resource_path
-        # Fallback: Prüfe im temporären Verzeichnis (falls vorhanden)
+        # Fallback: check in temporary directory (if present)
         if hasattr(sys, '_MEIPASS'):
             resource_path = Path(sys._MEIPASS) / relative_path
             if resource_path.exists():
                 return resource_path
         return base_path / relative_path
     else:
-        # Entwicklungsmodus: Prüfe mehrere mögliche Pfade
+        # Development mode: check multiple possible paths
         possible_paths = []
         
-        # 1. Relativ zu app.py (wenn als Modul importiert)
-        # app.py ist in dv2plex/app.py, also zwei Ebenen nach oben zum Projekt-Root
+        # 1. Relative to app.py (when imported as module)
+        # app.py is in dv2plex/app.py, so two levels up to project root
         base_path = Path(__file__).parent.parent
         possible_paths.append(base_path / relative_path)
         
-        # 2. Relativ zu start.py (wenn über start.py gestartet)
-        # start.py ist im Projekt-Root, also direkt daneben
+        # 2. Relative to start.py (when started via start.py)
+        # start.py is in project root, so directly next to it
         try:
             start_script_path = Path(sys.argv[0]).resolve().parent
             possible_paths.append(start_script_path / relative_path)
         except (IndexError, OSError):
             pass
         
-        # 3. Prüfe aktuelles Arbeitsverzeichnis
+        # 3. Check current working directory
         try:
             possible_paths.append(Path.cwd() / relative_path)
         except OSError:
             pass
         
-        # 4. Prüfe alle Pfade und gib den ersten existierenden zurück
+        # 4. Check all paths and return the first existing one
         for path in possible_paths:
             if path.exists():
                 return path
         
-        # 5. Fallback: Verwende den ersten Pfad (relativ zu app.py)
+        # 5. Fallback: use the first path (relative to app.py)
         return possible_paths[0] if possible_paths else Path(relative_path)
 
 
@@ -476,7 +476,7 @@ QDialogButtonBox QPushButton {
 }
 """
 
-# Stylesheet für StyledComboBox
+# Stylesheet for StyledComboBox
 COMBOBOX_STYLE = """
 QComboBox {
     background-color: rgba(15, 18, 30, 0.7);
@@ -531,7 +531,7 @@ QComboBox QAbstractItemView::item:selected {
 }
 """
 
-# Stylesheet für das Popup-Frame
+# Stylesheet for the popup frame
 POPUP_FRAME_STYLE = """
 QFrame {
     background-color: rgb(20, 22, 35);
@@ -547,18 +547,18 @@ class StyledComboBox(QComboBox):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setStyleSheet(COMBOBOX_STYLE)
-        # Zeige alle Einträge ohne Scrollen
+        # Show all entries without scrolling
         self.setMaxVisibleItems(20)
     
     def showPopup(self):
-        """Zeigt das Popup direkt unter der ComboBox an"""
+        """Shows the popup directly below the ComboBox"""
         super().showPopup()
-        # Korrigiere die Popup-Position und Style
+        # Correct popup position and style
         popup = self.findChild(QFrame)
         if popup:
-            # Style den Frame-Container
+            # Style the frame container
             popup.setStyleSheet(POPUP_FRAME_STYLE)
-            # Berechne die globale Position der ComboBox
+            # Calculate global position of ComboBox
             global_pos = self.mapToGlobal(QPoint(0, self.height()))
             popup.move(global_pos)
 
@@ -681,12 +681,12 @@ class LiquidContainer(QFrame):
         rect = self.rect()
         radius = 20
         
-        # Pfad für abgerundetes Rechteck
+        # Path for rounded rectangle
         path = QPainterPath()
         path.addRoundedRect(rect, radius, radius)
         
         # 1. Gradient Background (Liquid Deep Blue/Purple)
-        # Verlauf von tiefem Dunkelblau zu etwas hellerem Grau-Blau
+        # Gradient from deep dark blue to lighter gray-blue
         gradient = QLinearGradient(rect.topLeft(), rect.bottomRight())
         gradient.setColorAt(0.0, QColor(15, 15, 25, 230))    # Deep Dark
         gradient.setColorAt(1.0, QColor(35, 40, 60, 220))    # Lighter Blue-ish
@@ -697,8 +697,8 @@ class LiquidContainer(QFrame):
         painter.setPen(pen)
         painter.drawPath(path)
         
-        # 3. Glossy Overlay (Lichtreflexion oben)
-        # Erzeugt den "Glas"-Effekt durch einen weißen Verlauf im oberen Bereich
+        # 3. Glossy Overlay (light reflection on top)
+        # Creates the "glass" effect through a white gradient in the upper area
         painter.setPen(Qt.NoPen)
         gloss_gradient = QLinearGradient(rect.topLeft(), rect.bottomLeft())
         gloss_gradient.setColorAt(0.0, QColor(255, 255, 255, 15))
@@ -709,9 +709,9 @@ class LiquidContainer(QFrame):
         gloss_rect = QRect(0, 0, rect.width(), int(rect.height() * 0.4))
         gloss_path.addRoundedRect(gloss_rect, radius, radius)
         
-        # Wir schneiden den unteren Teil des Gloss-Rechtecks nicht ab, sondern nutzen den Gradient,
-        # der transparent wird. Aber wir müssen sicherstellen, dass er nicht über die Ecken malt.
-        # Einfachste Methode: Den gleichen Path wie background nutzen aber mit Gradient füllen
+        # We don't cut off the lower part of the gloss rectangle, but use the gradient
+        # that becomes transparent. But we need to make sure it doesn't paint over the corners.
+        # Simplest method: Use the same path as background but fill with gradient
         painter.setBrush(QBrush(gloss_gradient))
         painter.drawPath(path)
 
@@ -783,13 +783,13 @@ class PostprocessingThread(QThread):
             
             self.progress.emit(20)
             
-            # Timestamp-Overlay (falls aktiviert)
+            # Timestamp overlay (if enabled)
             timestamp_overlay = self.config.get("capture.timestamp_overlay", True)
             if timestamp_overlay:
-                self.log_message.emit("=== Füge Timestamp-Overlays hinzu ===")
+                self.log_message.emit("=== Adding Timestamp Overlays ===")
                 timestamp_duration = self.config.get("capture.timestamp_duration", 4)
                 
-                # Erstelle temporäre Datei mit Timestamps
+                # Create temporary file with timestamps
                 temp_merged = merged_file.parent / f"{merged_file.stem}_with_timestamps{merged_file.suffix}"
                 result_file = merge_engine.add_timestamp_overlay(
                     merged_file,
@@ -798,7 +798,7 @@ class PostprocessingThread(QThread):
                 )
                 
                 if result_file and result_file.exists():
-                    # Ersetze merged_file mit Version mit Timestamps
+                    # Replace merged_file with version with timestamps
                     merged_file.unlink()
                     result_file.rename(merged_file)
                     self.log_message.emit("Timestamp-Overlays erfolgreich hinzugefügt")
@@ -885,11 +885,11 @@ class PreviewThread(QThread):
         import subprocess
         import time
         
-        # Linux: Verwende dv1394 statt dshow
+        # Linux: Use dv1394 instead of dshow
         cmd = [
             str(self.ffmpeg_path),
             "-f", "dv1394",
-            "-i", self.device_name,  # device_name ist jetzt der Gerätepfad (z.B. /dev/raw1394)
+            "-i", self.device_name,  # device_name is now the device path (e.g. /dev/raw1394)
             "-vf", f"fps={self.fps},scale=640:-1",
             "-f", "mjpeg",
             "-q:v", "5",
@@ -904,7 +904,7 @@ class PreviewThread(QThread):
                 stderr=subprocess.PIPE,
                 bufsize=0
             )
-            # Starte Thread zum Auslesen von stderr, damit der Puffer nicht blockiert
+            # Start thread to read stderr, so the buffer doesn't block
             self.stderr_output = []
 
             def stderr_logger(line: str):
@@ -923,7 +923,7 @@ class PreviewThread(QThread):
             
             while self.running:
                 if self.process.poll() is not None:
-                    # Prozess beendet - prüfe gesammelte stderr-Ausgabe für Fehler
+                    # Process ended - check collected stderr output for errors
                     stderr_text = "\n".join(self.stderr_output[-5:])
                     if stderr_text:
                         lower = stderr_text.lower()
@@ -932,48 +932,48 @@ class PreviewThread(QThread):
                     break
                 
                 try:
-                    # Lese Daten in kleineren Chunks für bessere Responsiveness
+                    # Read data in smaller chunks for better responsiveness
                     chunk = self.process.stdout.read(4096)
                     if not chunk:
-                        # Keine Daten - kurze Pause
+                        # No data - short pause
                         time.sleep(0.02)
                         continue
                     
                     buffer.extend(chunk)
                     
-                    # Suche nach vollständigen JPEGs - verarbeite alle gefundenen Frames
+                    # Search for complete JPEGs - process all found frames
                     frames_found = []
                     while True:
                         start_idx = buffer.find(jpeg_start)
                         if start_idx == -1:
-                            # Kein JPEG-Start gefunden
+                            # No JPEG start found
                             if len(buffer) > 200000:
-                                # Buffer zu groß - zurücksetzen
+                                # Buffer too large - reset
                                 buffer = bytearray()
                             break
                         
-                        # Entferne Daten vor JPEG-Start
+                        # Remove data before JPEG start
                         if start_idx > 0:
                             buffer = buffer[start_idx:]
                         
-                        # Suche nach JPEG-Ende
+                        # Search for JPEG end
                         end_idx = buffer.find(jpeg_end, 2)
                         if end_idx == -1:
-                            # Noch kein vollständiges JPEG
+                            # Not a complete JPEG yet
                             break
                         
-                        # Extrahiere JPEG
+                        # Extract JPEG
                         jpeg_data = bytes(buffer[:end_idx + 2])
                         buffer = buffer[end_idx + 2:]
                         frames_found.append(jpeg_data)
                     
-                    # Zeige das neueste Frame (mit Rate-Limiting)
+                    # Show the newest frame (with rate limiting)
                     if frames_found:
                         current_time = time.time()
-                        # Lockere Rate-Limiting: erlaube Frame wenn genug Zeit vergangen ist
-                        # oder wenn es das erste Frame ist
+                        # Relaxed rate limiting: allow frame if enough time has passed
+                        # or if it's the first frame
                         if last_frame_time == 0 or (current_time - last_frame_time >= frame_time):
-                            # Nimm das letzte (neueste) Frame
+                            # Take the last (newest) frame
                             jpeg_data = frames_found[-1]
                             try:
                                 image = QImage.fromData(jpeg_data)
@@ -981,13 +981,13 @@ class PreviewThread(QThread):
                                     self.frame_ready.emit(image)
                                     last_frame_time = current_time
                             except Exception as e:
-                                # Fehler beim Dekodieren - überspringe Frame
+                                # Error decoding - skip frame
                                 pass
                         
                 except Exception as e:
                     if self.running:
-                        self.error_occurred.emit(f"Fehler: {str(e)}")
-                    # Nicht abbrechen, sondern weiter versuchen
+                        self.error_occurred.emit(f"Error: {str(e)}")
+                    # Don't abort, keep trying
                     time.sleep(0.1)
                     continue
             
@@ -1085,7 +1085,7 @@ class MainWindow(QMainWindow):
         self.init_ui()
         self.update_status("Bereit.")
         
-        # Starte Preview automatisch
+        # Start preview automatically
         QTimer.singleShot(500, self.start_preview)
     
     def setup_logging(self):
@@ -1109,10 +1109,10 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("DV2Plex - MiniDV Digitalisierung")
         self.resize(1200, 300)
         
-        # Stelle sicher, dass Fenster nicht maximiert ist
+        # Make sure window is not maximized
         self.setWindowState(Qt.WindowNoState)
         
-        # Setze Fenster-Icon
+        # Set window icon
         icon_path = get_resource_path("dv2plex_logo.png")
         if icon_path.exists():
             try:
@@ -1138,7 +1138,7 @@ class MainWindow(QMainWindow):
         main_layout = QVBoxLayout()
         main_layout.setContentsMargins(10, 10, 10, 10)
         
-        # Liquid Container (Abgerundet & Glas-Effekt)
+        # Liquid container (rounded & glass effect)
         self.container = LiquidContainer(self)
         container_layout = QVBoxLayout(self.container)
         container_layout.setContentsMargins(0, 0, 0, 0)
@@ -1148,7 +1148,7 @@ class MainWindow(QMainWindow):
         self.title_bar = ModernTitleBar(self, title="DV2Plex - MiniDV Digitalisierung")
         container_layout.addWidget(self.title_bar)
         
-        # Verbinde Settings-Button
+        # Connect settings button
         self.title_bar.btn_settings.clicked.connect(self.open_settings)
         
         # Content Area
@@ -1163,13 +1163,13 @@ class MainWindow(QMainWindow):
         container_layout.addWidget(content_widget)
         
         # Main Layout zusammenbauen
-        # Wir setzen einen Dummy-Widget als Central Widget, damit das Layout greift
+        # We set a dummy widget as central widget so the layout works
         dummy_central = QWidget()
         dummy_central.setLayout(main_layout)
         main_layout.addWidget(self.container)
         self.setCentralWidget(dummy_central)
         
-        # Drop Shadow für Tiefenwirkung
+        # Drop shadow for depth effect
         shadow = QGraphicsDropShadowEffect(self)
         shadow.setBlurRadius(20)
         shadow.setXOffset(0)
@@ -1199,7 +1199,7 @@ class MainWindow(QMainWindow):
         splitter.setChildrenCollapsible(False)
         layout.addWidget(splitter)
         
-        # Preview-Bereich links
+        # Preview area on the left
         preview_container = QWidget()
         preview_layout = QVBoxLayout(preview_container)
         preview_layout.setContentsMargins(0, 0, 0, 0)
@@ -1213,12 +1213,12 @@ class MainWindow(QMainWindow):
         
         splitter.addWidget(preview_container)
         
-        # Steuerbereich rechts
+        # Control area on the right
         control_container = QWidget()
         control_layout = QVBoxLayout(control_container)
         control_layout.setSpacing(10)
         
-        # Film-Infos
+        # Movie info
         info_layout = QHBoxLayout()
         title_box = QVBoxLayout()
         title_label = QLabel("Titel")
@@ -1239,14 +1239,14 @@ class MainWindow(QMainWindow):
         info_layout.addLayout(year_box)
         control_layout.addLayout(info_layout)
         
-        # Auto-Postprocessing Checkbox
+        # Auto-postprocessing checkbox
         self.auto_postprocess_checkbox = QCheckBox("Postprocessing nach Aufnahme automatisch starten")
         auto_post = bool(self.config.get("capture.auto_postprocess", False))
         self.auto_postprocess_checkbox.setChecked(auto_post)
         self.auto_postprocess_checkbox.stateChanged.connect(self.on_auto_postprocess_changed)
         control_layout.addWidget(self.auto_postprocess_checkbox)
         
-        # Kamera-Steuerung Buttons
+        # Camera control buttons
         camera_control_label = QLabel("Kamera-Steuerung:")
         control_layout.addWidget(camera_control_label)
         
@@ -1266,7 +1266,7 @@ class MainWindow(QMainWindow):
         
         control_layout.addLayout(camera_button_layout)
         
-        # Aufnahme Buttons
+        # Capture buttons
         button_layout = QHBoxLayout()
         
         self.capture_start_btn = QPushButton("Aufnahme Start")
@@ -1280,7 +1280,7 @@ class MainWindow(QMainWindow):
         
         control_layout.addLayout(button_layout)
         
-        # Status & Log
+        # Status & log
         self.status_label = QLabel("Bereit.")
         control_layout.addWidget(self.status_label)
         
@@ -1310,7 +1310,7 @@ class MainWindow(QMainWindow):
         description.setWordWrap(True)
         layout.addWidget(description)
         
-        # Upscaling-Profil-Auswahl (nur im Upscaling-Tab)
+        # Upscaling profile selection (only in upscaling tab)
         profile_row = QHBoxLayout()
         profile_row.addWidget(QLabel("Upscaling-Profil:"))
         self.profile_combo = StyledComboBox()
@@ -1343,7 +1343,7 @@ class MainWindow(QMainWindow):
         button_row.addWidget(self.process_all_btn)
         layout.addLayout(button_row)
         
-        # Status & Progress für Postprocessing
+        # Status & progress for postprocessing
         self.postprocess_status_label = QLabel("Bereit.")
         layout.addWidget(self.postprocess_status_label)
         
@@ -1351,7 +1351,7 @@ class MainWindow(QMainWindow):
         self.postprocess_progress_bar.setVisible(False)
         layout.addWidget(self.postprocess_progress_bar)
         
-        # Log-Console für Postprocessing
+        # Log console for postprocessing
         self.postprocess_log_text = QTextEdit()
         self.postprocess_log_text.setReadOnly(True)
         self.postprocess_log_text.setMinimumHeight(150)
@@ -1372,7 +1372,7 @@ class MainWindow(QMainWindow):
         description.setWordWrap(True)
         layout.addWidget(description)
         
-        # Film-Info für Merge
+        # Movie info for merge
         info_layout = QHBoxLayout()
         title_box = QVBoxLayout()
         title_label = QLabel("Film-Titel (für Merge)")
@@ -1393,9 +1393,9 @@ class MainWindow(QMainWindow):
         info_layout.addLayout(year_box)
         layout.addLayout(info_layout)
         
-        # Video-Liste
+        # Video list
         self.movie_mode_list = QListWidget()
-        self.movie_mode_list.setSelectionMode(QListWidget.ExtendedSelection)  # Multi-Auswahl
+        self.movie_mode_list.setSelectionMode(QListWidget.ExtendedSelection)  # Multi-selection
         self.movie_mode_list.itemSelectionChanged.connect(self.on_movie_mode_selection_changed)
         layout.addWidget(self.movie_mode_list, stretch=1)
         
@@ -1416,7 +1416,7 @@ class MainWindow(QMainWindow):
         button_row.addWidget(self.export_single_btn)
         layout.addLayout(button_row)
         
-        # Status & Progress
+        # Status & progress
         self.movie_mode_status_label = QLabel("Bereit.")
         layout.addWidget(self.movie_mode_status_label)
         
@@ -1424,7 +1424,7 @@ class MainWindow(QMainWindow):
         self.movie_mode_progress_bar.setVisible(False)
         layout.addWidget(self.movie_mode_progress_bar)
         
-        # Log-Console
+        # Log console
         self.movie_mode_log_text = QTextEdit()
         self.movie_mode_log_text.setReadOnly(True)
         self.movie_mode_log_text.setMinimumHeight(150)
@@ -1450,19 +1450,19 @@ class MainWindow(QMainWindow):
     def start_preview(self, retry_count: int = 0):
         """Startet Live-Preview mit Retry-Logik"""
         if self.capture_engine and self.capture_engine.is_active():
-            # Capture liefert bereits Preview-Frames
+            # Capture already provides preview frames
             return
         if self.preview_thread and self.preview_thread.isRunning():
             return
         
-        # Automatische Geräteerkennung
+        # Automatic device detection
         device_name = self.config.get_firewire_device()
         if not device_name:
-            # Versuche automatische Erkennung
+            # Try automatic detection
             if self.capture_engine:
                 device_name = self.capture_engine.detect_firewire_device()
             else:
-                # Erstelle temporären CaptureEngine für Geräteerkennung
+                # Create temporary CaptureEngine for device detection
                 ffmpeg_path = self.config.get_ffmpeg_path()
                 temp_engine = CaptureEngine(ffmpeg_path)
                 device_name = temp_engine.detect_firewire_device()
@@ -1476,7 +1476,7 @@ class MainWindow(QMainWindow):
             return
         
         ffmpeg_path = self.config.get_ffmpeg_path()
-        # Prüfe ob ffmpeg verfügbar ist (kann auch im PATH sein)
+        # Check if ffmpeg is available (can also be in PATH)
         import shutil
         if not ffmpeg_path.exists() and not shutil.which("ffmpeg"):
             QMessageBox.critical(
@@ -1490,12 +1490,12 @@ class MainWindow(QMainWindow):
         self.preview_thread = PreviewThread(ffmpeg_path, device_name, fps=preview_fps)
         self.preview_thread.frame_ready.connect(self.update_preview)
         
-        # Fehler-Handler mit Retry
+        # Error handler with retry
         def on_preview_error(error: str):
             if "I/O error" in error or "Device" in error or "No such device" in error:
                 if retry_count < 3:
                     self.log(f"Preview-Verbindungsfehler, versuche erneut ({retry_count + 1}/3)...")
-                    # Warte 2 Sekunden, dann Retry
+                    # Wait 2 seconds, then retry
                     QTimer.singleShot(2000, lambda r=retry_count+1: self.start_preview(r))
                 else:
                     self.log("Preview-Verbindung fehlgeschlagen nach 3 Versuchen.")
@@ -1511,11 +1511,11 @@ class MainWindow(QMainWindow):
         """Stoppt Live-Preview"""
         if self.preview_thread:
             self.preview_thread.stop()
-            # PySide6: wait() nimmt Millisekunden als Argument, nicht timeout=
+            # PySide6: wait() takes milliseconds as argument, not timeout=
             self.preview_thread.wait(1000)
             self.preview_thread = None
         
-        # Nur Label zurücksetzen wenn nicht während Capture
+        # Only reset label if not during capture
         if not keep_frame and not self.capture_preview_active:
             self.preview_label.clear()
             self.preview_label.setText("Kein Preview")
@@ -1541,7 +1541,7 @@ class MainWindow(QMainWindow):
     
     def start_capture(self):
         """Startet DV-Aufnahme"""
-        # Validiere Eingaben
+        # Validate inputs
         title = self.title_input.text().strip()
         year = self.year_input.text().strip()
         
@@ -1553,18 +1553,18 @@ class MainWindow(QMainWindow):
             )
             return
         
-        # Automatische Geräteerkennung
+        # Automatic device detection
         ffmpeg_path = self.config.get_ffmpeg_path()
         device_path = self.config.get_firewire_device()
         
-        # Erstelle CaptureEngine für Geräteerkennung
+        # Create CaptureEngine for device detection
         self.capture_engine = CaptureEngine(
             ffmpeg_path,
             device_path=device_path,
             log_callback=self.log,
         )
         
-        # Automatische Geräteerkennung falls nicht konfiguriert
+        # Automatic device detection falls nicht konfiguriert
         device = self.capture_engine.get_device()
         if not device:
             QMessageBox.warning(
@@ -1574,7 +1574,7 @@ class MainWindow(QMainWindow):
             )
             return
         
-        # Prüfe ffmpeg (kann auch im PATH sein)
+        # Check ffmpeg (can also be in PATH)
         import shutil
         if not ffmpeg_path.exists() and not shutil.which("ffmpeg"):
             QMessageBox.critical(
@@ -1584,18 +1584,18 @@ class MainWindow(QMainWindow):
             )
             return
         
-        # Speichere Film-Info
+        # Save movie info
         self.current_movie_title = title
         self.current_year = year
         movie_name = f"{title} ({year})"
         
-        # Erstelle Arbeitsordner
+        # Create work directory
         dv_import_root = self.config.get_dv_import_root()
         self.current_movie_dir = dv_import_root / movie_name
         lowres_dir = self.current_movie_dir / "LowRes"
         lowres_dir.mkdir(parents=True, exist_ok=True)
         
-        # Finde nächste Part-Nummer
+        # Find next part number
         existing_parts = list(lowres_dir.glob("part_*.avi"))
         if existing_parts:
             numbers = [int(p.stem.split('_')[1]) for p in existing_parts]
@@ -1603,7 +1603,7 @@ class MainWindow(QMainWindow):
         else:
             self.part_number = 1
         
-        # Automatischer Workflow-Dialog
+        # Automatic workflow dialog
         auto_rewind_play = self.config.get("capture.auto_rewind_play", True)
         
         if auto_rewind_play:
@@ -1612,7 +1612,7 @@ class MainWindow(QMainWindow):
             msg_box.setText("Kassette wird automatisch zurückgespult und abgespielt.\n\nBereit für Aufnahme?")
             msg_box.setStandardButtons(QMessageBox.Ok | QMessageBox.Cancel)
             
-            # Checkbox für Deaktivierung
+            # Checkbox for deactivation
             checkbox = QCheckBox("Automatisches Rewind/Play deaktivieren")
             msg_box.setCheckBox(checkbox)
             
@@ -1621,10 +1621,10 @@ class MainWindow(QMainWindow):
             if reply != QMessageBox.Ok:
                 return
             
-            # Aktualisiere auto_rewind_play basierend auf Checkbox
+            # Update auto_rewind_play based on checkbox
             auto_rewind_play = not checkbox.isChecked()
         else:
-            # Frage nach manueller Bedienung
+            # Ask for manual operation
             reply = QMessageBox.question(
                 self,
                 "Kassette vorbereiten",
@@ -1636,7 +1636,7 @@ class MainWindow(QMainWindow):
             if reply != QMessageBox.Ok:
                 return
         
-        # Preview wird beim Capture durch den Capture-Stream ersetzt
+        # Preview is replaced by capture stream during capture
         self.preview_was_running_before_capture = True
         self.stop_preview(keep_frame=True)
         
@@ -1654,7 +1654,7 @@ class MainWindow(QMainWindow):
             self.capture_preview_active = True
             self.capture_start_btn.setEnabled(False)
             self.capture_stop_btn.setEnabled(True)
-            # Deaktiviere Kamera-Steuerung während Aufnahme
+            # Disable camera control during capture
             if self.rewind_btn:
                 self.rewind_btn.setEnabled(False)
             if self.play_btn:
@@ -1673,7 +1673,7 @@ class MainWindow(QMainWindow):
             if self.capture_engine.stop_capture():
                 self.capture_start_btn.setEnabled(True)
                 self.capture_stop_btn.setEnabled(False)
-                # Reaktiviere Kamera-Steuerung
+                # Re-enable camera control
                 if self.rewind_btn:
                     self.rewind_btn.setEnabled(True)
                 if self.play_btn:
@@ -1684,7 +1684,7 @@ class MainWindow(QMainWindow):
                 
                 self.capture_preview_active = False
                 
-                # Preview automatisch wieder starten
+                # Restart preview automatically
                 self.log("Starte Preview automatisch neu...")
                 QTimer.singleShot(1000, self.start_preview)
                 
@@ -1697,14 +1697,14 @@ class MainWindow(QMainWindow):
                     self.refresh_postprocess_list()
             else:
                 QMessageBox.warning(self, "Fehler", "Aufnahme konnte nicht gestoppt werden.")
-                # Auch bei Fehler Preview wieder starten
+                # Also restart preview on error
                 self.capture_preview_active = False
                 QTimer.singleShot(1000, self.start_preview)
     
     def rewind_camera(self):
         """Spult die Kassette zurück"""
         if not self.capture_engine:
-            # Erstelle temporären CaptureEngine
+            # Create temporary CaptureEngine
             ffmpeg_path = self.config.get_ffmpeg_path()
             device_path = self.config.get_firewire_device()
             temp_engine = CaptureEngine(ffmpeg_path, device_path=device_path, log_callback=self.log)
@@ -1715,7 +1715,7 @@ class MainWindow(QMainWindow):
     def play_camera(self):
         """Startet die Wiedergabe"""
         if not self.capture_engine:
-            # Erstelle temporären CaptureEngine
+            # Create temporary CaptureEngine
             ffmpeg_path = self.config.get_ffmpeg_path()
             device_path = self.config.get_firewire_device()
             temp_engine = CaptureEngine(ffmpeg_path, device_path=device_path, log_callback=self.log)
@@ -1726,7 +1726,7 @@ class MainWindow(QMainWindow):
     def pause_camera(self):
         """Pausiert die Wiedergabe"""
         if not self.capture_engine:
-            # Erstelle temporären CaptureEngine
+            # Create temporary CaptureEngine
             ffmpeg_path = self.config.get_ffmpeg_path()
             device_path = self.config.get_firewire_device()
             temp_engine = CaptureEngine(ffmpeg_path, device_path=device_path, log_callback=self.log)
@@ -1747,7 +1747,7 @@ class MainWindow(QMainWindow):
             )
             return False
         
-        # Prüfe ob bereits ein Postprocessing läuft
+        # Check if postprocessing is already running
         if self.postprocess_thread and self.postprocess_thread.isRunning():
             QMessageBox.warning(
                 self,
@@ -1756,20 +1756,20 @@ class MainWindow(QMainWindow):
             )
             return False
         
-        # Leere Postprocessing-Log
+        # Clear postprocessing log
         if hasattr(self, 'postprocess_log_text'):
             self.postprocess_log_text.clear()
         
-        # Buttons deaktivieren
+        # Disable buttons
         if self.process_selected_btn:
             self.process_selected_btn.setEnabled(False)
         if self.process_all_btn:
             self.process_all_btn.setEnabled(False)
         
-        # Profil auswählen
+        # Select profile
         profile_name = self.profile_combo.currentText() if hasattr(self, 'profile_combo') and self.profile_combo else self.config.get("upscaling.default_profile", "realesrgan_2x")
         
-        # Thread erstellen und starten
+        # Create and start thread
         self.postprocess_thread = PostprocessingThread(self.config, movie_dir, profile_name)
         self.postprocess_thread.progress.connect(self._on_postprocess_progress)
         self.postprocess_thread.status.connect(self._on_postprocess_status)
@@ -1794,7 +1794,7 @@ class MainWindow(QMainWindow):
         """Callback für Postprocessing-Log"""
         if hasattr(self, 'postprocess_log_text'):
             self.postprocess_log_text.append(message)
-        # Auch ins Hauptlog
+        # Also in main log
         self.log(message)
     
     def _on_postprocess_finished(self, success: bool, message: str):
@@ -1805,16 +1805,16 @@ class MainWindow(QMainWindow):
         if hasattr(self, 'postprocess_status_label'):
             self.postprocess_status_label.setText("Bereit." if success else "Fehler!")
         
-        # Buttons wieder aktivieren
+        # Re-enable buttons
         if self.process_selected_btn:
             self.process_selected_btn.setEnabled(True)
         if self.process_all_btn:
             self.process_all_btn.setEnabled(True)
         
-        # Liste aktualisieren
+        # Update list
         self.refresh_postprocess_list()
         
-        # Nachricht anzeigen
+        # Show message
         if success:
             QMessageBox.information(self, "Erfolg", message)
         else:
@@ -1958,7 +1958,7 @@ class MainWindow(QMainWindow):
             if not highres_dir.exists():
                 continue
             
-            # Suche nach *_4k.mp4 Dateien
+            # Search for *_4k.mp4 files
             for video_file in highres_dir.glob("*_4k.mp4"):
                 title, year = self._parse_movie_folder_name(movie_dir.name)
                 videos.append((video_file, title, year))
@@ -1982,8 +1982,8 @@ class MainWindow(QMainWindow):
             display = f"{title} ({year})" if year else f"{title} - {video_path.name}"
             item = QListWidgetItem(display)
             item.setData(Qt.UserRole, str(video_path))
-            item.setData(Qt.UserRole + 1, title)  # Titel speichern
-            item.setData(Qt.UserRole + 2, year)   # Jahr speichern
+            item.setData(Qt.UserRole + 1, title)  # Store title
+            item.setData(Qt.UserRole + 2, year)   # Store year
             self.movie_mode_list.addItem(item)
     
     def on_movie_mode_selection_changed(self):
@@ -1994,11 +1994,11 @@ class MainWindow(QMainWindow):
         selected_items = self.movie_mode_list.selectedItems()
         count = len(selected_items)
         
-        # Merge-Button: mindestens 2 Videos
+        # Merge button: at least 2 videos
         if self.merge_videos_btn:
             self.merge_videos_btn.setEnabled(count >= 2)
         
-        # Export-Button: genau 1 Video
+        # Export button: exactly 1 video
         if self.export_single_btn:
             self.export_single_btn.setEnabled(count == 1)
     
@@ -2028,7 +2028,7 @@ class MainWindow(QMainWindow):
             )
             return
         
-        # Sammle Video-Pfade
+        # Collect video paths
         video_paths = []
         for item in selected_items:
             path_str = item.data(Qt.UserRole)
@@ -2039,7 +2039,7 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Fehler", "Keine gültigen Videos ausgewählt.")
             return
         
-        # Bestätigung
+        # Confirmation
         reply = QMessageBox.question(
             self,
             "Videos mergen?",
@@ -2050,13 +2050,13 @@ class MainWindow(QMainWindow):
         if reply != QMessageBox.Yes:
             return
         
-        # Merge durchführen
+        # Perform merge
         self.movie_mode_status_label.setText("Merge läuft...")
         self.movie_mode_progress_bar.setVisible(True)
         self.movie_mode_progress_bar.setValue(0)
         self.movie_mode_log_text.clear()
         
-        # Erstelle temporäre Ausgabedatei
+        # Create temporary output file
         temp_dir = Path(tempfile.gettempdir()) / "dv2plex_merge"
         temp_dir.mkdir(parents=True, exist_ok=True)
         temp_output = temp_dir / f"{title}_{year}_merged.mp4"
@@ -2080,7 +2080,7 @@ class MainWindow(QMainWindow):
             self.movie_mode_progress_bar.setValue(50)
             self.movie_mode_log_text.append("=== Merge erfolgreich, starte Export ===")
             
-            # Export nach PlexMovies
+            # Export to PlexMovies
             plex_exporter = PlexExporter(
                 self.config.get_plex_movies_root(),
                 log_callback=lambda msg: self.movie_mode_log_text.append(msg)
@@ -2096,7 +2096,7 @@ class MainWindow(QMainWindow):
                     "Erfolg",
                     f"Videos erfolgreich gemerged und exportiert:\n{result}"
                 )
-                # Lösche temporäre Datei
+                # Delete temporary file
                 try:
                     merged_file.unlink()
                 except:
@@ -2140,7 +2140,7 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Fehler", f"Video nicht gefunden: {video_path}")
             return
         
-        # Bestätigung
+        # Confirmation
         display_name = f"{title} ({year})" if year else title or video_path.name
         reply = QMessageBox.question(
             self,
@@ -2152,7 +2152,7 @@ class MainWindow(QMainWindow):
         if reply != QMessageBox.Yes:
             return
         
-        # Export durchführen
+        # Perform export
         self.movie_mode_status_label.setText("Export läuft...")
         self.movie_mode_progress_bar.setVisible(True)
         self.movie_mode_progress_bar.setValue(0)
@@ -2198,7 +2198,7 @@ class MainWindow(QMainWindow):
         description.setWordWrap(True)
         layout.addWidget(description)
         
-        # Video-Auswahl
+        # Video selection
         video_label = QLabel("Verfügbare Videos:")
         layout.addWidget(video_label)
         
@@ -2206,7 +2206,7 @@ class MainWindow(QMainWindow):
         self.cover_video_list.itemSelectionChanged.connect(self.on_cover_video_selected)
         layout.addWidget(self.cover_video_list, stretch=1)
         
-        # Buttons für Video-Auswahl
+        # Buttons for video selection
         video_button_row = QHBoxLayout()
         refresh_videos_btn = QPushButton("Liste aktualisieren")
         refresh_videos_btn.clicked.connect(self.refresh_cover_video_list)
@@ -2218,7 +2218,7 @@ class MainWindow(QMainWindow):
         video_button_row.addWidget(self.extract_frames_btn)
         layout.addLayout(video_button_row)
         
-        # Frame-Thumbnail-Grid
+        # Frame thumbnail grid
         frames_label = QLabel("Extrahierte Frames (klicke zum Auswählen):")
         layout.addWidget(frames_label)
         
@@ -2248,13 +2248,13 @@ class MainWindow(QMainWindow):
         
         layout.addWidget(frames_container)
         
-        # Cover-Generierung Button
+        # Cover generation button
         self.generate_cover_btn = QPushButton("Cover generieren")
         self.generate_cover_btn.clicked.connect(self.generate_cover)
         self.generate_cover_btn.setEnabled(False)
         layout.addWidget(self.generate_cover_btn)
         
-        # Status & Progress
+        # Status & progress
         self.cover_status_label = QLabel("Bereit.")
         layout.addWidget(self.cover_status_label)
         
@@ -2262,7 +2262,7 @@ class MainWindow(QMainWindow):
         self.cover_progress_bar.setVisible(False)
         layout.addWidget(self.cover_progress_bar)
         
-        # Log-Console
+        # Log console
         self.cover_log_text = QTextEdit()
         self.cover_log_text.setReadOnly(True)
         self.cover_log_text.setMinimumHeight(150)
@@ -2280,19 +2280,19 @@ class MainWindow(QMainWindow):
         """
         videos = []
         
-        # 1. Suche in Plex Movies Root
+        # 1. Search in Plex Movies Root
         plex_root = self.config.get_plex_movies_root()
         if plex_root.exists():
             for movie_dir in sorted(plex_root.iterdir()):
                 if not movie_dir.is_dir():
                     continue
                 
-                # Suche nach .mp4 Dateien im Movie-Ordner
+                # Search for .mp4 files in movie folder
                 for video_file in movie_dir.glob("*.mp4"):
                     title, year = self._parse_movie_folder_name(movie_dir.name)
                     videos.append((video_file, title, year))
         
-        # 2. Suche in HighRes-Ordnern
+        # 2. Search in HighRes folders
         dv_root = self.config.get_dv_import_root()
         if dv_root.exists():
             for movie_dir in sorted(dv_root.iterdir()):
@@ -2337,7 +2337,7 @@ class MainWindow(QMainWindow):
         selected = self.cover_video_list.currentItem()
         if selected and selected.data(Qt.UserRole):
             self.extract_frames_btn.setEnabled(True)
-            # Lösche vorherige Frames
+            # Clear previous frames
             self.clear_frame_previews()
         else:
             self.extract_frames_btn.setEnabled(False)
@@ -2361,7 +2361,7 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Fehler", f"Video nicht gefunden: {video_path}")
             return
         
-        # Deaktiviere Button während Extraktion
+        # Disable button during extraction
         self.extract_frames_btn.setEnabled(False)
         self.cover_status_label.setText("Extrahiere Frames...")
         self.cover_log_text.clear()
@@ -2371,13 +2371,13 @@ class MainWindow(QMainWindow):
         self.clear_frame_previews()
         
         try:
-            # Erstelle FrameExtractionEngine
+            # Create FrameExtractionEngine
             frame_engine = FrameExtractionEngine(
                 self.config.get_ffmpeg_path(),
                 log_callback=lambda msg: self.cover_log_text.append(msg)
             )
             
-            # Extrahiere Frames
+            # Extract frames
             self.extracted_frames = frame_engine.extract_random_frames(video_path, count=4)
             
             if not self.extracted_frames:
@@ -2386,7 +2386,7 @@ class MainWindow(QMainWindow):
                 self.extract_frames_btn.setEnabled(True)
                 return
             
-            # Zeige Frames als Thumbnails
+            # Show frames as thumbnails
             self.display_frames(self.extracted_frames)
             
             self.cover_status_label.setText(f"{len(self.extracted_frames)} Frames extrahiert")
@@ -2444,7 +2444,7 @@ class MainWindow(QMainWindow):
         selected_frame = self.extracted_frames[index]
         self.selected_frame_path = selected_frame
         
-        # Visualisiere Auswahl: Markiere ausgewähltes Frame
+        # Visualize selection: mark selected frame
         for i, label in enumerate(self.cover_frame_labels):
             if i == index:
                 label.setStyleSheet("""
@@ -2475,7 +2475,7 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Keine Auswahl", "Bitte wähle einen Frame aus.")
             return
         
-        # Prüfe ob bereits eine Generierung läuft
+        # Check if generation is already running
         if self.cover_generation_thread and self.cover_generation_thread.isRunning():
             QMessageBox.warning(
                 self,
@@ -2484,7 +2484,7 @@ class MainWindow(QMainWindow):
             )
             return
         
-        # Hole Video-Info für Cover-Speicherung
+        # Get video info for cover storage
         selected_video = self.cover_video_list.currentItem()
         if not selected_video:
             QMessageBox.warning(self, "Fehler", "Kein Video ausgewählt.")
@@ -2494,20 +2494,20 @@ class MainWindow(QMainWindow):
         year = selected_video.data(Qt.UserRole + 2) or ""
         
         if not title:
-            # Versuche Titel aus Video-Pfad zu extrahieren
+            # Try to extract title from video path
             video_path_str = selected_video.data(Qt.UserRole)
             if video_path_str:
                 video_path = Path(video_path_str)
                 title = video_path.stem
         
-        # Deaktiviere Button
+        # Disable button
         self.generate_cover_btn.setEnabled(False)
         self.cover_status_label.setText("Generiere Cover...")
         self.cover_progress_bar.setVisible(True)
         self.cover_progress_bar.setValue(0)
         self.cover_log_text.append("=== Starte Cover-Generierung ===")
         
-        # Erstelle Thread
+        # Create thread
         self.cover_generation_thread = CoverGenerationThread(
             self.config,
             self.selected_frame_path,
@@ -2579,7 +2579,7 @@ class CoverGenerationThread(QThread):
             self.status.emit("Lade Stable Diffusion Modell...")
             self.progress.emit(10)
             
-            # Hole Config-Werte
+            # Get config values
             model_id = self.config.get("cover.default_model", "runwayml/stable-diffusion-v1-5")
             prompt = self.config.get("cover.default_prompt", CoverGenerationEngine.DEFAULT_PROMPT)
             strength = self.config.get("cover.strength", 0.6)
@@ -2594,7 +2594,7 @@ class CoverGenerationThread(QThread):
             except:
                 output_size = (1000, 1500)
             
-            # Erstelle CoverGenerationEngine
+            # Create CoverGenerationEngine
             cover_engine = CoverGenerationEngine(
                 model_id=model_id,
                 log_callback=self.log
@@ -2603,13 +2603,13 @@ class CoverGenerationThread(QThread):
             self.progress.emit(30)
             self.status.emit("Generiere Cover...")
             
-            # Erstelle temporäres Ausgabeverzeichnis
+            # Create temporary output directory
             import tempfile
             temp_dir = Path(tempfile.gettempdir()) / "dv2plex_covers"
             temp_dir.mkdir(parents=True, exist_ok=True)
             temp_cover = temp_dir / f"cover_{self.frame_path.stem}.jpg"
             
-            # Generiere Cover
+            # Generate cover
             result_path = cover_engine.generate_cover(
                 self.frame_path,
                 temp_cover,
@@ -2627,7 +2627,7 @@ class CoverGenerationThread(QThread):
             self.progress.emit(80)
             self.status.emit("Speichere Cover...")
             
-            # Speichere Cover im Plex Movies Ordner
+            # Save cover in Plex Movies folder
             plex_exporter = PlexExporter(
                 self.config.get_plex_movies_root(),
                 log_callback=self.log
@@ -2674,7 +2674,7 @@ class SettingsDialog(QDialog):
         self.setMinimumSize(600, 700)
         self.setModal(True)
         
-        # Frameless Window Setup (passend zum Liquid Design)
+        # Frameless window setup (matching liquid design)
         self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)
         self.setAttribute(Qt.WA_TranslucentBackground)
         
@@ -2690,13 +2690,13 @@ class SettingsDialog(QDialog):
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(10, 10, 10, 10)
         
-        # Liquid Container (Abgerundet & Glas-Effekt)
+        # Liquid container (rounded & glass effect)
         container = LiquidContainer(self)
         container_layout = QVBoxLayout(container)
         container_layout.setContentsMargins(20, 20, 20, 20)
         container_layout.setSpacing(15)
         
-        # Drop Shadow für Tiefenwirkung
+        # Drop shadow for depth effect
         shadow = QGraphicsDropShadowEffect(self)
         shadow.setBlurRadius(20)
         shadow.setXOffset(0)
@@ -2706,7 +2706,7 @@ class SettingsDialog(QDialog):
         
         main_layout.addWidget(container)
         
-        # ScrollArea für alle Einstellungen
+        # ScrollArea for all settings
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.NoFrame)
@@ -2717,7 +2717,7 @@ class SettingsDialog(QDialog):
         scroll_layout.setContentsMargins(10, 10, 10, 10)
         scroll_layout.setSpacing(15)
         
-        # Pfade-Sektion
+        # Paths section
         paths_group = QGroupBox("Pfade")
         paths_layout = QVBoxLayout()
         paths_layout.setSpacing(10)
@@ -2818,7 +2818,7 @@ class SettingsDialog(QDialog):
         capture_group.setLayout(capture_layout)
         scroll_layout.addWidget(capture_group)
         
-        # UI-Einstellungen
+        # UI settings
         ui_group = QGroupBox("Benutzeroberfläche")
         ui_layout = QHBoxLayout()
         ui_layout.addWidget(QLabel("Preview FPS:"))
@@ -2848,7 +2848,7 @@ class SettingsDialog(QDialog):
         scroll.setWidget(scroll_widget)
         container_layout.addWidget(scroll)
         
-        # Button Box
+        # Button box
         button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         button_box.accepted.connect(self.accept)
         button_box.rejected.connect(self.reject)
@@ -2856,21 +2856,21 @@ class SettingsDialog(QDialog):
     
     def _load_settings(self):
         """Lädt aktuelle Einstellungen in die UI"""
-        # Pfade
+        # Paths
         plex_root = self.config.get_plex_movies_root()
         self.plex_movies_edit.setText(str(plex_root))
         
         dv_root = self.config.get_dv_import_root()
         self.dv_import_edit.setText(str(dv_root))
         
-        # ffmpeg: Zeige nur wenn explizit gesetzt, sonst leer
+        # ffmpeg: Only show if explicitly set, otherwise empty
         ffmpeg_path_config = self.config.get("paths.ffmpeg_path", "")
         if ffmpeg_path_config and ffmpeg_path_config.strip():
             self.ffmpeg_edit.setText(ffmpeg_path_config)
         else:
             self.ffmpeg_edit.setText("")
         
-        # RealESRGAN: Zeige nur wenn explizit gesetzt, sonst leer
+        # RealESRGAN: Only show if explicitly set, otherwise empty
         realesrgan_path_config = self.config.get("paths.realesrgan_path", "")
         if realesrgan_path_config and realesrgan_path_config.strip():
             self.realesrgan_edit.setText(realesrgan_path_config)
@@ -2914,15 +2914,15 @@ class SettingsDialog(QDialog):
     
     def _save_settings(self):
         """Speichert Einstellungen aus der UI"""
-        # Pfade
+        # Paths
         self.config.set("paths.plex_movies_root", self.plex_movies_edit.text())
         self.config.set("paths.dv_import_root", self.dv_import_edit.text())
         
-        # ffmpeg: Leer = System-PATH verwenden
+        # ffmpeg: Empty = use system PATH
         ffmpeg_text = self.ffmpeg_edit.text().strip()
         self.config.set("paths.ffmpeg_path", ffmpeg_text if ffmpeg_text else "")
         
-        # RealESRGAN: Leer = System-PATH verwenden
+        # RealESRGAN: Empty = use system PATH
         realesrgan_text = self.realesrgan_edit.text().strip()
         self.config.set("paths.realesrgan_path", realesrgan_text if realesrgan_text else "")
         
@@ -2944,7 +2944,7 @@ class SettingsDialog(QDialog):
         # Upscaling
         self.config.set("upscaling.default_profile", self.profile_combo.currentText())
         
-        # Speichere Config
+        # Save config
         self.config.save_config()
     
     def accept(self):
@@ -3002,32 +3002,32 @@ class SettingsDialog(QDialog):
 
 def main():
     """Hauptfunktion"""
-    # Dependency-Check läuft bereits in start.py VOR den Imports
-    # Hier nur noch optional prüfen (ohne Installation), falls start.py nicht verwendet wurde
+    # Dependency check already runs in start.py BEFORE imports
+    # Here only optionally check (without installation), if start.py was not used
     try:
         from .download_manager import check_and_download_on_startup
         from pathlib import Path
         base_dir = Path(__file__).parent.parent
         
-        # Nur prüfen, nicht installieren (Installation sollte bereits in start.py passiert sein)
-        # check_python_deps=False: Keine Installation hier, nur Status prüfen
+        # Only check, don't install (installation should have already happened in start.py)
+        # check_python_deps=False: No installation here, only check status
         check_and_download_on_startup(
             base_dir, 
             auto_download=False,
-            check_python_deps=False  # Keine Installation, da bereits in start.py gemacht
+            check_python_deps=False  # No installation, already done in start.py
         )
     except ImportError:
-        # Fallback wenn download_manager nicht verfügbar
+        # Fallback if download_manager is not available
         pass
     except Exception as e:
-        # Fehler beim Download-Manager sollten die Anwendung nicht blockieren
+        # Errors in download manager should not block the application
         logging.debug(f"Dependency-Check Info: {e}")
     
     app = QApplication(sys.argv)
     app.setApplicationName("DV2Plex")
     app.setStyleSheet(LIQUID_STYLESHEET)
     
-    # Setze Anwendungs-Icon
+    # Set application icon
     icon_path = get_resource_path("dv2plex_logo.png")
     if icon_path.exists():
         try:

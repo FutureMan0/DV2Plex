@@ -1,7 +1,7 @@
 {
   "version": "1.0",
   "paths": {
-    "plex_movies_root": "/media/luis/EveryThing/Projects/linux/ACR/PlexMovies",
+    "plex_movies_root": "PlexMovies/",
     "dv_import_root": "dv2plex/DV_Import",
     "ffmpeg_path": "",
     "realesrgan_path": ""
