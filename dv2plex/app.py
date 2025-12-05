@@ -39,7 +39,7 @@ from PySide6.QtWidgets import (
     QSpinBox
 )
 from PySide6.QtCore import Qt, QThread, Signal, QTimer, QObject, QPoint, QSize, QEvent, QRect
-from PySide6.QtGui import QImage, QPixmap, QColor, QPainter, QPainterPath, QPen, QBrush, QMouseEvent, QLinearGradient
+from PySide6.QtGui import QImage, QPixmap, QColor, QPainter, QPainterPath, QPen, QBrush, QMouseEvent, QLinearGradient, QIcon
 
 import re
 
@@ -64,6 +64,54 @@ except ImportError:
     from dv2plex.plex_export import PlexExporter
     from dv2plex.frame_extraction import FrameExtractionEngine
     from dv2plex.cover_generation import CoverGenerationEngine
+
+
+def get_resource_path(relative_path: str) -> Path:
+    """Ermittelt den Pfad zu einer Ressource, funktioniert sowohl im Entwicklungsmodus als auch in PyInstaller"""
+    # PyInstaller erstellt ein temporäres Verzeichnis und speichert den Pfad in _MEIPASS
+    if getattr(sys, 'frozen', False):
+        # PyInstaller-Modus: Ressourcen sind im Verzeichnis der ausführbaren Datei
+        # Bei onedir-Modus ist sys.executable der Pfad zur ausführbaren Datei
+        base_path = Path(sys.executable).parent
+        resource_path = base_path / relative_path
+        if resource_path.exists():
+            return resource_path
+        # Fallback: Prüfe im temporären Verzeichnis (falls vorhanden)
+        if hasattr(sys, '_MEIPASS'):
+            resource_path = Path(sys._MEIPASS) / relative_path
+            if resource_path.exists():
+                return resource_path
+        return base_path / relative_path
+    else:
+        # Entwicklungsmodus: Prüfe mehrere mögliche Pfade
+        possible_paths = []
+        
+        # 1. Relativ zu app.py (wenn als Modul importiert)
+        # app.py ist in dv2plex/app.py, also zwei Ebenen nach oben zum Projekt-Root
+        base_path = Path(__file__).parent.parent
+        possible_paths.append(base_path / relative_path)
+        
+        # 2. Relativ zu start.py (wenn über start.py gestartet)
+        # start.py ist im Projekt-Root, also direkt daneben
+        try:
+            start_script_path = Path(sys.argv[0]).resolve().parent
+            possible_paths.append(start_script_path / relative_path)
+        except (IndexError, OSError):
+            pass
+        
+        # 3. Prüfe aktuelles Arbeitsverzeichnis
+        try:
+            possible_paths.append(Path.cwd() / relative_path)
+        except OSError:
+            pass
+        
+        # 4. Prüfe alle Pfade und gib den ersten existierenden zurück
+        for path in possible_paths:
+            if path.exists():
+                return path
+        
+        # 5. Fallback: Verwende den ersten Pfad (relativ zu app.py)
+        return possible_paths[0] if possible_paths else Path(relative_path)
 
 
 class PreviewBridge(QObject):
@@ -139,34 +187,36 @@ QLineEdit:focus, QTextEdit:focus, QListWidget:focus {
 
 /* ComboBox */
 QComboBox {
-    background-color: rgba(10, 10, 15, 0.5);
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    background-color: rgba(15, 18, 30, 0.7);
+    border: 1px solid rgba(255, 255, 255, 0.08);
     border-radius: 12px;
-    padding: 10px 15px;
-    color: #ffffff;
-    font-weight: 500;
+    padding: 10px 42px 10px 14px;
+    color: #e8eefc;
+    font-weight: 600;
 }
 
-QComboBox:hover {
-    border: 1px solid rgba(0, 210, 255, 0.6);
-    background-color: rgba(20, 20, 30, 0.6);
+QComboBox:hover,
+QComboBox:focus {
+    border: 1px solid rgba(0, 210, 255, 0.7);
+    background-color: rgba(20, 24, 36, 0.85);
 }
 
 QComboBox::drop-down {
     subcontrol-origin: padding;
     subcontrol-position: top right;
-    width: 30px;
-    border-left-width: 0px;
+    width: 34px;
+    border-left: 1px solid rgba(255, 255, 255, 0.08);
     border-top-right-radius: 12px;
     border-bottom-right-radius: 12px;
+    background: transparent;
 }
 
 QComboBox::down-arrow {
-    width: 0; 
+    width: 0;
     height: 0;
     border-left: 5px solid transparent;
     border-right: 5px solid transparent;
-    border-top: 6px solid #a0a0b0;
+    border-top: 6px solid #8ecff9;
     margin-right: 10px;
 }
 
@@ -175,26 +225,84 @@ QComboBox::down-arrow:on {
 }
 
 QComboBox QAbstractItemView {
-    border: 1px solid rgba(0, 210, 255, 0.3);
-    background-color: #1e1e28;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    background-color: rgba(10, 10, 15, 0.95);
     border-radius: 12px;
-    selection-background-color: rgba(0, 210, 255, 0.2);
-    color: #ffffff;
+    selection-background-color: rgba(0, 210, 255, 0.25);
+    selection-color: #ffffff;
+    color: #e0e6f6;
     outline: none;
-    padding: 5px;
+    padding: 6px;
 }
 
 QComboBox QAbstractItemView::item {
-    padding: 8px;
-    border-radius: 6px;
+    padding: 10px 12px;
+    margin: 2px 0;
+    border-radius: 8px;
+    background-color: transparent;
+    color: #ffffff;
 }
 
 QComboBox QAbstractItemView::item:hover {
-    background-color: rgba(255, 255, 255, 0.1);
+    background-color: rgba(255, 255, 255, 0.15);
+    color: #ffffff;
 }
 
 QComboBox QAbstractItemView::item:selected {
-    background-color: rgba(0, 210, 255, 0.2);
+    background-color: rgba(0, 210, 255, 0.3);
+    color: #ffffff;
+}
+
+/* Zusätzliche Selektoren für ComboBox Popup (falls Qt es als separates Widget behandelt) */
+QComboBox::view {
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    background-color: rgba(10, 10, 15, 0.95);
+    border-radius: 12px;
+    color: #e0e6f6;
+}
+
+QComboBox::view::item {
+    background-color: transparent;
+    color: #ffffff;
+    padding: 10px 12px;
+    border-radius: 8px;
+}
+
+QComboBox::view::item:hover {
+    background-color: rgba(255, 255, 255, 0.15);
+    color: #ffffff;
+}
+
+QComboBox::view::item:selected {
+    background-color: rgba(0, 210, 255, 0.3);
+    color: #ffffff;
+}
+
+/* QListView direkt stylen (wird von QComboBox für Popup verwendet) */
+QListView {
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    background-color: rgba(10, 10, 15, 0.95);
+    border-radius: 12px;
+    color: #e0e6f6;
+    outline: none;
+    padding: 6px;
+}
+
+QListView::item {
+    background-color: transparent;
+    color: #ffffff;
+    padding: 10px 12px;
+    margin: 2px 0;
+    border-radius: 8px;
+}
+
+QListView::item:hover {
+    background-color: rgba(255, 255, 255, 0.15);
+    color: #ffffff;
+}
+
+QListView::item:selected {
+    background-color: rgba(0, 210, 255, 0.3);
     color: #ffffff;
 }
 
@@ -367,6 +475,93 @@ QDialogButtonBox QPushButton {
     min-width: 100px;
 }
 """
+
+# Stylesheet für StyledComboBox
+COMBOBOX_STYLE = """
+QComboBox {
+    background-color: rgba(15, 18, 30, 0.7);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 12px;
+    padding: 10px 42px 10px 14px;
+    color: #e8eefc;
+    font-weight: 600;
+}
+QComboBox:hover, QComboBox:focus {
+    border: 1px solid rgba(0, 210, 255, 0.7);
+    background-color: rgba(20, 24, 36, 0.85);
+}
+QComboBox::drop-down {
+    subcontrol-origin: padding;
+    subcontrol-position: top right;
+    width: 34px;
+    border-left: 1px solid rgba(255, 255, 255, 0.08);
+    border-top-right-radius: 12px;
+    border-bottom-right-radius: 12px;
+    background: transparent;
+}
+QComboBox::down-arrow {
+    width: 0; height: 0;
+    border-left: 5px solid transparent;
+    border-right: 5px solid transparent;
+    border-top: 6px solid #8ecff9;
+    margin-right: 10px;
+}
+QComboBox QAbstractItemView {
+    background-color: rgb(20, 22, 35);
+    border: 1px solid rgba(0, 210, 255, 0.4);
+    border-radius: 8px;
+    selection-background-color: rgba(0, 210, 255, 0.3);
+    selection-color: #ffffff;
+    color: #e0e6f6;
+    outline: none;
+    padding: 4px;
+}
+QComboBox QAbstractItemView::item {
+    padding: 8px 12px;
+    min-height: 24px;
+    background-color: transparent;
+    color: #e0e6f6;
+}
+QComboBox QAbstractItemView::item:hover {
+    background-color: rgba(255, 255, 255, 0.1);
+}
+QComboBox QAbstractItemView::item:selected {
+    background-color: rgba(0, 210, 255, 0.3);
+    color: #ffffff;
+}
+"""
+
+# Stylesheet für das Popup-Frame
+POPUP_FRAME_STYLE = """
+QFrame {
+    background-color: rgb(20, 22, 35);
+    border: 1px solid rgba(0, 210, 255, 0.4);
+    border-radius: 8px;
+}
+"""
+
+
+class StyledComboBox(QComboBox):
+    """ComboBox mit korrekter Popup-Positionierung für frameless Windows"""
+    
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setStyleSheet(COMBOBOX_STYLE)
+        # Zeige alle Einträge ohne Scrollen
+        self.setMaxVisibleItems(20)
+    
+    def showPopup(self):
+        """Zeigt das Popup direkt unter der ComboBox an"""
+        super().showPopup()
+        # Korrigiere die Popup-Position und Style
+        popup = self.findChild(QFrame)
+        if popup:
+            # Style den Frame-Container
+            popup.setStyleSheet(POPUP_FRAME_STYLE)
+            # Berechne die globale Position der ComboBox
+            global_pos = self.mapToGlobal(QPoint(0, self.height()))
+            popup.move(global_pos)
+
 
 class ModernTitleBar(QWidget):
     """Custom Title Bar für das Liquid Design"""
@@ -917,6 +1112,21 @@ class MainWindow(QMainWindow):
         # Stelle sicher, dass Fenster nicht maximiert ist
         self.setWindowState(Qt.WindowNoState)
         
+        # Setze Fenster-Icon
+        icon_path = get_resource_path("dv2plex_logo.png")
+        if icon_path.exists():
+            try:
+                icon = QIcon(str(icon_path))
+                if not icon.isNull():
+                    self.setWindowIcon(icon)
+                    logging.info(f"Fenster-Icon erfolgreich gesetzt: {icon_path}")
+                else:
+                    logging.warning(f"Icon konnte nicht geladen werden (ist null): {icon_path}")
+            except Exception as e:
+                logging.error(f"Fehler beim Laden des Icons: {e}")
+        else:
+            logging.warning(f"Icon-Datei nicht gefunden: {icon_path}")
+        
         # Frameless Window Setup
         self.setWindowFlags(Qt.FramelessWindowHint)
         self.setAttribute(Qt.WA_TranslucentBackground)
@@ -1103,7 +1313,8 @@ class MainWindow(QMainWindow):
         # Upscaling-Profil-Auswahl (nur im Upscaling-Tab)
         profile_row = QHBoxLayout()
         profile_row.addWidget(QLabel("Upscaling-Profil:"))
-        self.profile_combo = QComboBox()
+        self.profile_combo = StyledComboBox()
+        self.profile_combo.setFixedWidth(250)
         profiles = self.config.get("upscaling.profiles", {})
         for profile_name in profiles.keys():
             self.profile_combo.addItem(profile_name)
@@ -1111,7 +1322,8 @@ class MainWindow(QMainWindow):
         index = self.profile_combo.findText(default_profile)
         if index >= 0:
             self.profile_combo.setCurrentIndex(index)
-        profile_row.addWidget(self.profile_combo, stretch=1)
+        profile_row.addWidget(self.profile_combo)
+        profile_row.addStretch()
         layout.addLayout(profile_row)
         
         self.postprocess_list = QListWidget()
@@ -2622,11 +2834,13 @@ class SettingsDialog(QDialog):
         upscaling_group = QGroupBox("Upscaling")
         upscaling_layout = QHBoxLayout()
         upscaling_layout.addWidget(QLabel("Standard-Profil:"))
-        self.profile_combo = QComboBox()
+        self.profile_combo = StyledComboBox()
+        self.profile_combo.setFixedWidth(250)
         profiles = self.config.get("upscaling.profiles", {})
         for profile_name in profiles.keys():
             self.profile_combo.addItem(profile_name)
         upscaling_layout.addWidget(self.profile_combo)
+        upscaling_layout.addStretch()
         upscaling_group.setLayout(upscaling_layout)
         scroll_layout.addWidget(upscaling_group)
         
@@ -2788,21 +3002,45 @@ class SettingsDialog(QDialog):
 
 def main():
     """Hauptfunktion"""
-    # Prüfe und lade fehlende Komponenten beim Start
+    # Dependency-Check läuft bereits in start.py VOR den Imports
+    # Hier nur noch optional prüfen (ohne Installation), falls start.py nicht verwendet wurde
     try:
         from .download_manager import check_and_download_on_startup
         from pathlib import Path
         base_dir = Path(__file__).parent.parent
-        check_and_download_on_startup(base_dir, auto_download=False)
+        
+        # Nur prüfen, nicht installieren (Installation sollte bereits in start.py passiert sein)
+        # check_python_deps=False: Keine Installation hier, nur Status prüfen
+        check_and_download_on_startup(
+            base_dir, 
+            auto_download=False,
+            check_python_deps=False  # Keine Installation, da bereits in start.py gemacht
+        )
     except ImportError:
         # Fallback wenn download_manager nicht verfügbar
         pass
     except Exception as e:
         # Fehler beim Download-Manager sollten die Anwendung nicht blockieren
-        logging.warning(f"Fehler beim Prüfen der Komponenten: {e}")
+        logging.debug(f"Dependency-Check Info: {e}")
     
     app = QApplication(sys.argv)
     app.setApplicationName("DV2Plex")
+    app.setStyleSheet(LIQUID_STYLESHEET)
+    
+    # Setze Anwendungs-Icon
+    icon_path = get_resource_path("dv2plex_logo.png")
+    if icon_path.exists():
+        try:
+            icon = QIcon(str(icon_path))
+            if not icon.isNull():
+                app.setWindowIcon(icon)
+                logging.info(f"Anwendungs-Icon erfolgreich gesetzt: {icon_path}")
+            else:
+                logging.warning(f"Icon konnte nicht geladen werden (ist null): {icon_path}")
+        except Exception as e:
+            logging.error(f"Fehler beim Laden des Icons: {e}")
+    else:
+        logging.warning(f"Icon-Datei nicht gefunden: {icon_path}")
     
     window = MainWindow()
     window.show()

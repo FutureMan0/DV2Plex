@@ -1,7 +1,7 @@
 # -*- mode: python ; coding: utf-8 -*-
 """
-PyInstaller Spezifikation für DV2Plex
-Erstellt eine vollständige, eigenständige Distribution
+PyInstaller Spezifikation für DV2Plex (Linux)
+Erstellt eine vollständige, eigenständige Linux-Distribution
 """
 
 import os
@@ -89,38 +89,30 @@ a = Analysis(
         'realesrgan.data.realesrgan_paired_dataset',
         'realesrgan.utils',
         
-        # Basicsr (Real-ESRGAN Dependency)
-        'basicsr',
-        'basicsr.archs',
-        'basicsr.archs.rrdbnet_arch',
-        'basicsr.utils',
-        'basicsr.utils.download_util',
-        'basicsr.utils.registry',
-        'basicsr.data',
-        'basicsr.data.data_util',
-        'basicsr.data.transforms',
+        # Basicsr (Real-ESRGAN Dependency) - wird zur Laufzeit installiert
+        # 'basicsr',
+        # 'basicsr.archs',
+        # 'basicsr.archs.rrdbnet_arch',
         
-        # PyTorch
-        'torch',
-        'torchvision',
-        'torch.nn',
-        'torch.utils',
+        # PyTorch - wird zur Laufzeit installiert, nicht in PKG packen
+        # 'torch',
+        # 'torchvision',
         
-        # OpenCV
-        'cv2',
+        # OpenCV - wird zur Laufzeit installiert
+        # 'cv2',
         
-        # Andere wichtige Module
-        'numpy',
+        # Andere wichtige Module - nur minimale Core-Module
+        'numpy',  # Wird oft benötigt, aber klein
         'PIL',
         'PIL.Image',
-        'ffmpeg',
-        'ffmpeg_python',
-        'diffusers',
-        'transformers',
-        'accelerate',
-        'safetensors',
-        'facexlib',
-        'gfpgan',
+        # 'ffmpeg',  # System-Tool, nicht Python-Package
+        # 'ffmpeg_python',  # Wird zur Laufzeit installiert
+        # 'diffusers',  # Wird zur Laufzeit installiert
+        # 'transformers',  # Wird zur Laufzeit installiert
+        # 'accelerate',  # Wird zur Laufzeit installiert
+        # 'safetensors',  # Wird zur Laufzeit installiert
+        # 'facexlib',  # Wird zur Laufzeit installiert
+        # 'gfpgan',  # Wird zur Laufzeit installiert
         'tqdm',
         'yaml',
     ],
@@ -134,34 +126,54 @@ a = Analysis(
         'jupyter',
         'notebook',
         'IPython',
+        # Große Bibliotheken, die zur Laufzeit installiert werden können
+        'torch',
+        'torchvision',
+        'nvidia.cuda_nvrtc',
+        'nvidia.cuda_runtime',
+        'nvidia.cudnn',
+        'nvidia.cublas',
+        'nvidia.cufft',
+        'nvidia.curand',
+        'nvidia.cusolver',
+        'nvidia.cusparse',
+        'nvidia.nccl',
+        'nvidia.nvtx',
+        'nvidia.nvjitlink',
+        'nvidia.cufile',
+        'triton',
     ],
-    win_no_prefer_redirects=False,
-    win_private_assemblies=False,
     cipher=block_cipher,
     noarchive=True,  # True, um Größenprobleme mit großen Bibliotheken (PyTorch) zu vermeiden
 )
 
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 
+# Verwende onedir Modus statt onefile, um Größenprobleme zu vermeiden
+# Dependencies werden zur Laufzeit installiert/geprüft
 exe = EXE(
     pyz,
     a.scripts,
-    a.binaries,
-    a.zipfiles,
-    a.datas,
     [],
+    exclude_binaries=True,  # Wichtig für onedir Modus
     name='DV2Plex',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=False,  # Deaktiviert, da UPX bei großen Bibliotheken problematisch sein kann
-    upx_exclude=[],
-    runtime_tmpdir=None,
+    upx=False,
     console=False,  # Keine Konsole für GUI-Anwendung
     disable_windowed_traceback=False,
-    argv_emulation=False,
     target_arch=None,
-    codesign_identity=None,
-    entitlements_file=None,
-    icon=None,  # Kann später ein Icon hinzugefügt werden
+    icon=None,  # Optional: Icon für Linux-Desktop-Integration
+)
+
+# COLLECT für onedir Modus - erstellt ein Verzeichnis statt einer einzelnen Datei
+coll = COLLECT(
+    exe,
+    a.binaries,
+    a.zipfiles,
+    a.datas,
+    strip=False,
+    upx=False,
+    name='DV2Plex',
 )

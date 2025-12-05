@@ -1,7 +1,7 @@
 {
   "version": "1.0",
   "paths": {
-    "plex_movies_root": "/root/Plex/Movies",
+    "plex_movies_root": "/media/luis/EveryThing/Projects/linux/ACR/PlexMovies",
     "dv_import_root": "dv2plex/DV_Import",
     "ffmpeg_path": "",
     "realesrgan_path": ""
@@ -10,7 +10,7 @@
     "firewire_device": ""
   },
   "upscaling": {
-    "default_profile": "realesrgan_2x",
+    "default_profile": "ffmpeg_fast",
     "profiles": {
       "realesrgan_4x_hq": {
         "backend": "realesrgan",

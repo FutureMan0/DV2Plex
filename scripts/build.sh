@@ -265,9 +265,9 @@ if [ -f "$PROJECT_ROOT/README.md" ]; then
     print_success "README.md copied"
 fi
 
-# Example configuration
-if [ -f "$PROJECT_ROOT/Konfiguration_Beispiel.json" ]; then
-    cp "$PROJECT_ROOT/Konfiguration_Beispiel.json" "$DIST_DIR/"
+# Example configuration (correct path inside config/examples)
+if [ -f "$PROJECT_ROOT/config/examples/Konfiguration_Beispiel.json" ]; then
+    cp "$PROJECT_ROOT/config/examples/Konfiguration_Beispiel.json" "$DIST_DIR/"
     print_success "Konfiguration_Beispiel.json copied"
 fi
 

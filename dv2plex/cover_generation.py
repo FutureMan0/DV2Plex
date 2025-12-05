@@ -2,11 +2,19 @@
 Cover-Generierung Engine für die Erstellung von Plex Movie Covers mit Stable Diffusion
 """
 
-import torch
 from pathlib import Path
 from typing import Optional, Callable
 import logging
 from PIL import Image
+
+# Lazy Import für torch - wird erst beim ersten Gebrauch importiert
+# Falls torch fehlt, wird es vom Dependency-Check installiert
+try:
+    import torch
+    TORCH_AVAILABLE = True
+except ImportError:
+    TORCH_AVAILABLE = False
+    torch = None
 
 try:
     from diffusers import StableDiffusionImg2ImgPipeline
@@ -47,6 +55,12 @@ class CoverGenerationEngine:
         self.model_id = model_id
         self.log_callback = log_callback
         self.logger = logging.getLogger(__name__)
+        
+        # Prüfe ob torch verfügbar ist
+        if not TORCH_AVAILABLE:
+            raise ImportError(
+                "torch ist nicht installiert. Bitte installiere es mit: pip install torch"
+            )
         
         # Device-Auswahl
         if device is None:
