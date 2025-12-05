@@ -172,6 +172,60 @@ class PlexExporter:
         target_file = target_dir / f"{movie_name}.mp4"
         return target_file
     
+    def save_cover(
+        self,
+        cover_path: Path,
+        movie_title: str,
+        year: str,
+        overwrite: bool = True
+    ) -> Optional[Path]:
+        """
+        Speichert ein Cover als poster.jpg im entsprechenden Plex Movies Ordner
+        
+        Args:
+            cover_path: Pfad zum generierten Cover
+            movie_title: Filmtitel
+            year: Jahr
+            overwrite: Überschreibe vorhandenes Cover
+        
+        Returns:
+            Pfad zum gespeicherten Cover oder None bei Fehler
+        """
+        if not cover_path.exists():
+            self.log(f"Cover nicht gefunden: {cover_path}")
+            return None
+        
+        # Erstelle Filmname im Plex-Format: "Titel (Jahr)"
+        movie_name = f"{movie_title} ({year})"
+        
+        # Erstelle Zielordner und -datei
+        target_dir = self.plex_movies_root / movie_name
+        target_file = target_dir / "poster.jpg"
+        
+        # Prüfe ob Datei bereits existiert
+        if target_file.exists() and not overwrite:
+            self.log(f"Cover existiert bereits: {target_file}")
+            self.log("Setze overwrite=True zum Überschreiben")
+            return None
+        
+        try:
+            # Erstelle Zielordner
+            target_dir.mkdir(parents=True, exist_ok=True)
+            
+            self.log(f"Speichere Cover für: {movie_name}")
+            self.log(f"Quelle: {cover_path}")
+            self.log(f"Ziel: {target_file}")
+            
+            # Kopiere Cover
+            shutil.copy2(cover_path, target_file)
+            
+            self.log(f"Cover erfolgreich gespeichert: {target_file}")
+            return target_file
+            
+        except Exception as e:
+            self.log(f"Fehler beim Speichern des Covers: {e}")
+            return None
+    
     def log(self, message: str):
         """Loggt eine Nachricht"""
         self.logger.info(message)

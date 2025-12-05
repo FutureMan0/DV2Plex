@@ -18,7 +18,7 @@ class UpscaleEngine:
         
         Args:
             realesrgan_path: Pfad zu inference_realesrgan_video.py
-            ffmpeg_path: Pfad zu ffmpeg.exe (wird vom Skript benötigt)
+            ffmpeg_path: Pfad zu ffmpeg (wird vom Skript benötigt)
             log_callback: Optionaler Callback für Log-Nachrichten
         """
         self.realesrgan_path = realesrgan_path

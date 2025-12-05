@@ -1,1 +1,0 @@
-int GetDVRecordingTime(BYTE *buf, int len);

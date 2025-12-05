@@ -1,13 +1,13 @@
 {
   "version": "1.0",
   "paths": {
-    "plex_movies_root": "C:\\Users\\luisb\\PycharmProjects\\ACR\\PlexMovies",
-    "dv_import_root": "C:\\Users\\luisb\\PycharmProjects\\ACR\\DV",
-    "ffmpeg_path": "C:\\Users\\luisb\\PycharmProjects\\ACR\\dv2plex\\bin\\ffmpeg\\bin\\ffmpeg.exe",
-    "realesrgan_path": "C:\\Users\\luisb\\PycharmProjects\\ACR\\dv2plex\\bin\\realesrgan\\inference_realesrgan_video.py"
+    "plex_movies_root": "/root/Plex/Movies",
+    "dv_import_root": "dv2plex/DV_Import",
+    "ffmpeg_path": "",
+    "realesrgan_path": ""
   },
   "device": {
-    "dshow_video_device": "JVC GR-D245"
+    "firewire_device": ""
   },
   "upscaling": {
     "default_profile": "realesrgan_2x",
@@ -82,9 +82,12 @@
   },
   "capture": {
     "auto_merge": true,
-    "auto_upscale": true,
+    "auto_upscale": false,
     "auto_export": false,
-    "auto_postprocess": false
+    "auto_postprocess": false,
+    "auto_rewind_play": true,
+    "timestamp_overlay": true,
+    "timestamp_duration": 7
   },
   "ui": {
     "window_width": 1280,
@@ -95,6 +98,13 @@
     "level": "INFO",
     "log_directory": "",
     "max_log_files": 10
+  },
+  "cover": {
+    "default_model": "runwayml/stable-diffusion-v1-5",
+    "default_prompt": "cinematic movie poster, dramatic lighting, vintage film look, high detail, professional photography",
+    "strength": 0.6,
+    "guidance_scale": 8.0,
+    "output_size": "1000x1500",
+    "num_inference_steps": 50
   }
 }
-

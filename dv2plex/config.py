@@ -4,6 +4,7 @@ Konfigurations-Management für DV2Plex
 
 import json
 import os
+import shutil
 from pathlib import Path
 from typing import Dict, Any, Optional
 
@@ -35,16 +36,22 @@ class Config:
         base_dir = Path(__file__).parent.parent
         dv2plex_dir = base_dir / "dv2plex"
         
+        # Linux-Pfade (ohne .exe)
+        ffmpeg_default = shutil.which("ffmpeg") or str(dv2plex_dir / "bin" / "ffmpeg")
+        
+        # Linux Standard-Pfade
+        home_dir = Path.home()
+        
         return {
             "version": "1.0",
             "paths": {
-                "plex_movies_root": str(dv2plex_dir / "PlexMovies"),
+                "plex_movies_root": str(home_dir / "Plex" / "Movies"),
                 "dv_import_root": str(dv2plex_dir / "DV_Import"),
-                "ffmpeg_path": str(dv2plex_dir / "bin" / "ffmpeg.exe"),
-                "realesrgan_path": str(dv2plex_dir / "bin" / "realesrgan" / "inference_realesrgan_video.py")
+                "ffmpeg_path": "",  # Leer = System-PATH verwenden
+                "realesrgan_path": ""  # Leer = System-PATH verwenden
             },
             "device": {
-                "dshow_video_device": ""
+                "firewire_device": ""  # Leer = Auto-Detection
             },
             "upscaling": {
                 "default_profile": "realesrgan_2x",
@@ -121,7 +128,10 @@ class Config:
                 "auto_merge": True,
                 "auto_upscale": True,
                 "auto_export": False,
-                "auto_postprocess": False
+                "auto_postprocess": False,
+                "auto_rewind_play": True,
+                "timestamp_overlay": True,
+                "timestamp_duration": 4
             },
             "ui": {
                 "window_width": 1280,
@@ -132,6 +142,14 @@ class Config:
                 "level": "INFO",
                 "log_directory": str(dv2plex_dir / "logs"),
                 "max_log_files": 10
+            },
+            "cover": {
+                "default_model": "runwayml/stable-diffusion-v1-5",
+                "default_prompt": "cinematic movie poster, dramatic lighting, vintage film look, high detail, professional photography",
+                "strength": 0.6,
+                "guidance_scale": 8.0,
+                "output_size": "1000x1500",
+                "num_inference_steps": 50
             }
         }
     
@@ -143,6 +161,8 @@ class Config:
                     config = json.load(f)
                 # Merge mit Defaults für fehlende Schlüssel
                 merged = self._merge_dicts(self.default_config, config)
+                # Migriere Windows-Pfade zu Linux-Pfaden
+                merged = self._migrate_windows_paths(merged)
                 return merged
             except Exception as e:
                 print(f"Fehler beim Laden der Konfiguration: {e}")
@@ -151,6 +171,65 @@ class Config:
             # Erstelle Standard-Konfiguration
             self.save_config(self.default_config)
             return self.default_config.copy()
+    
+    def _migrate_windows_paths(self, config: Dict[str, Any]) -> Dict[str, Any]:
+        """Migriert Windows-Pfade zu Linux-Standard-Pfaden"""
+        import os
+        home_dir = Path.home()
+        
+        # Prüfe ob wir auf Linux sind
+        if os.name != 'posix':
+            return config  # Keine Migration auf Windows
+        
+        paths = config.get("paths", {})
+        migrated = False
+        
+        # Plex Movies Root: Wenn Windows-Pfad, auf Linux-Standard setzen
+        plex_root = paths.get("plex_movies_root", "")
+        if plex_root and ("C:\\" in plex_root or "C:/" in plex_root):
+            paths["plex_movies_root"] = str(home_dir / "Plex" / "Movies")
+            migrated = True
+        elif plex_root and plex_root.startswith("~"):
+            # Expandiere ~ zu vollständigem Pfad
+            paths["plex_movies_root"] = str(Path(plex_root).expanduser())
+            migrated = True
+        
+        # DV Import Root: Wenn Windows-Pfad, auf Linux-Standard setzen
+        dv_root = paths.get("dv_import_root", "")
+        if dv_root and ("C:\\" in dv_root or "C:/" in dv_root):
+            paths["dv_import_root"] = str(self.base_dir / "dv2plex" / "DV_Import")
+            migrated = True
+        
+        # ffmpeg Path: Wenn Windows-Pfad oder .exe, auf leer setzen (System-PATH)
+        ffmpeg_path = paths.get("ffmpeg_path", "")
+        if ffmpeg_path and (".exe" in ffmpeg_path or "C:\\" in ffmpeg_path or "C:/" in ffmpeg_path):
+            paths["ffmpeg_path"] = ""
+            migrated = True
+        
+        # RealESRGAN Path: Wenn Windows-Pfad, auf leer setzen (System-PATH)
+        realesrgan_path = paths.get("realesrgan_path", "")
+        if realesrgan_path and ("C:\\" in realesrgan_path or "C:/" in realesrgan_path):
+            paths["realesrgan_path"] = ""
+            migrated = True
+        
+        # Entferne auto_detect_device aus device (nicht mehr benötigt)
+        device = config.get("device", {})
+        if "auto_detect_device" in device:
+            del device["auto_detect_device"]
+            migrated = True
+        
+        # Entferne dshow_video_device (Windows-spezifisch)
+        if "dshow_video_device" in device:
+            del device["dshow_video_device"]
+            migrated = True
+        
+        # Speichere migrierte Config
+        if migrated:
+            config["paths"] = paths
+            config["device"] = device
+            self.save_config(config)
+        
+        return config
     
     def _merge_dicts(self, default: Dict, user: Dict) -> Dict:
         """Merge zwei verschachtelte Dictionaries"""
@@ -209,16 +288,27 @@ class Config:
     
     def get_ffmpeg_path(self) -> Path:
         """Gibt den Pfad zu ffmpeg zurück"""
-        path = self.get("paths.ffmpeg_path")
-        if path:
+        path = self.get("paths.ffmpeg_path", "")
+        if path and path.strip():
             return Path(path)
-        return self.base_dir / "dv2plex" / "bin" / "ffmpeg.exe"
+        # Leer = Suche ffmpeg im System-PATH
+        import shutil
+        ffmpeg_system = shutil.which("ffmpeg")
+        if ffmpeg_system:
+            return Path(ffmpeg_system)
+        return Path("ffmpeg")  # Verwende System-PATH
     
     def get_realesrgan_path(self) -> Path:
         """Gibt den Pfad zu inference_realesrgan_video.py zurück"""
-        path = self.get("paths.realesrgan_path")
-        if path:
+        path = self.get("paths.realesrgan_path", "")
+        if path and path.strip():
             return Path(path)
+        # Leer = Suche im System-PATH
+        import shutil
+        realesrgan_system = shutil.which("inference_realesrgan_video.py")
+        if realesrgan_system:
+            return Path(realesrgan_system)
+        # Fallback: Lokaler Pfad
         return self.base_dir / "dv2plex" / "bin" / "realesrgan" / "inference_realesrgan_video.py"
     
     def get_dv_import_root(self) -> Path:
@@ -232,17 +322,31 @@ class Config:
         """Gibt den Root-Pfad für Plex-Movies zurück"""
         path = self.get("paths.plex_movies_root")
         if path:
-            return Path(path)
-        return self.base_dir / "dv2plex" / "PlexMovies"
+            # Expandiere ~ zu vollständigem Pfad
+            return Path(path).expanduser()
+        # Linux Standard: ~/Plex/Movies
+        return Path.home() / "Plex" / "Movies"
     
     def get_device_name(self) -> str:
-        """Gibt den DirectShow-Device-Namen zurück"""
-        return self.get("device.dshow_video_device", "")
+        """Gibt den FireWire-Gerätepfad zurück (für Kompatibilität)"""
+        return self.get_firewire_device()
+    
+    def get_firewire_device(self) -> Optional[str]:
+        """Gibt den FireWire-Gerätepfad zurück"""
+        device = self.get("device.firewire_device", "")
+        if device and device.strip():
+            return device
+        # Leer = Auto-Detection
+        return None
+    
+    def set_firewire_device(self, device: str):
+        """Setzt den FireWire-Gerätepfad"""
+        self.set("device.firewire_device", device)
+        self.save_config()
     
     def set_device_name(self, name: str):
-        """Setzt den DirectShow-Device-Namen"""
-        self.set("device.dshow_video_device", name)
-        self.save_config()
+        """Setzt den FireWire-Gerätepfad (für Kompatibilität)"""
+        self.set_firewire_device(name)
     
     def get_upscaling_profile(self, profile_name: Optional[str] = None) -> Dict[str, Any]:
         """Gibt ein Upscaling-Profil zurück"""
