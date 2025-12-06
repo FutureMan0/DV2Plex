@@ -884,12 +884,25 @@ class PreviewThread(QThread):
         """Startet den Preview-Stream"""
         import subprocess
         import time
+        from pathlib import Path
+        
+        # ffmpeg benötigt einen Gerätepfad
+        # Wenn device_name eine Karten-Nummer ist, konvertiere zu /dev/raw1394
+        # oder verwende die Karten-Nummer direkt (je nach ffmpeg-Version)
+        ffmpeg_device = self.device_name
+        if self.device_name.isdigit():
+            # Für moderne Systeme: Versuche /dev/raw1394, sonst verwende Karten-Nummer
+            if Path("/dev/raw1394").exists():
+                ffmpeg_device = "/dev/raw1394"
+            else:
+                # Manche ffmpeg-Versionen akzeptieren Karten-Nummern direkt
+                ffmpeg_device = self.device_name
         
         # Linux: Use dv1394 instead of dshow
         cmd = [
             str(self.ffmpeg_path),
             "-f", "dv1394",
-            "-i", self.device_name,  # device_name is now the device path (e.g. /dev/raw1394)
+            "-i", ffmpeg_device,
             "-vf", f"fps={self.fps},scale=640:-1",
             "-f", "mjpeg",
             "-q:v", "5",

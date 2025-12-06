@@ -48,35 +48,47 @@ class CaptureEngine:
         Erkennt automatisch das erste verfügbare FireWire-Gerät
         
         Returns:
-            Gerätepfad (z.B. /dev/raw1394) oder None
+            Gerätepfad (z.B. /dev/raw1394) oder Karten-Nummer (z.B. "0") oder None
         """
         try:
-            # Versuche dvgrab --list
-            result = subprocess.run(
-                [self.dvgrab_path, "--list"],
-                capture_output=True,
-                text=True,
-                timeout=5
-            )
+            # Methode 1: Prüfe /sys/bus/firewire/devices/ für moderne Linux-Systeme
+            sys_firewire_path = Path("/sys/bus/firewire/devices")
+            if sys_firewire_path.exists():
+                # Finde alle FireWire-Geräte (fw0, fw1, etc.)
+                devices = []
+                for device_dir in sys_firewire_path.iterdir():
+                    device_name = device_dir.name
+                    # Ignoriere Untergeräte (z.B. fw1.0), nur Hauptgeräte (fw0, fw1)
+                    if device_name.startswith("fw") and "." not in device_name:
+                        # Prüfe ob es ein Verzeichnis ist und ein gültiges Gerät
+                        if device_dir.is_dir():
+                            # Extrahiere Karten-Nummer (fw0 -> 0, fw1 -> 1)
+                            try:
+                                card_num = int(device_name[2:])
+                                devices.append((card_num, device_name))
+                            except ValueError:
+                                continue
+                
+                if devices:
+                    # Sortiere nach Karten-Nummer und nimm das erste
+                    devices.sort(key=lambda x: x[0])
+                    card_num, device_name = devices[0]
+                    self.log(f"FireWire-Gerät erkannt in /sys: {device_name} (Karte {card_num})")
+                    # dvgrab verwendet -card Option mit Nummer, aber wir geben den Gerätenamen zurück
+                    # für Kompatibilität geben wir die Karten-Nummer als String zurück
+                    return str(card_num)
             
-            if result.returncode == 0 and result.stdout:
-                # Parse dvgrab --list Ausgabe
-                # Format: "Device 0: /dev/raw1394"
-                lines = result.stdout.strip().split('\n')
-                for line in lines:
-                    if "Device" in line and "/dev/" in line:
-                        # Extrahiere Gerätepfad
-                        parts = line.split()
-                        for part in parts:
-                            if part.startswith("/dev/"):
-                                self.log(f"FireWire-Gerät erkannt: {part}")
-                                return part
-            
-            # Fallback: Prüfe Standard-Geräte
+            # Methode 2: Prüfe Standard-Gerätepfade
             for device in ["/dev/raw1394", "/dev/video1394"]:
                 if Path(device).exists():
-                    self.log(f"FireWire-Gerät gefunden (Fallback): {device}")
+                    self.log(f"FireWire-Gerät gefunden: {device}")
                     return device
+            
+            # Methode 3: Versuche dvgrab mit -card 0 (Standard)
+            # Wenn dvgrab verfügbar ist, versuche einfach Karte 0
+            if shutil.which(self.dvgrab_path):
+                self.log("FireWire-Gerät: Verwende Standard-Karte 0")
+                return "0"
             
             self.log("Kein FireWire-Gerät gefunden")
             return None
@@ -93,6 +105,22 @@ class CaptureEngine:
         if self.device_path:
             return self.device_path
         return self.detect_firewire_device()
+    
+    def _format_device_for_dvgrab(self, device: str) -> list[str]:
+        """
+        Formatiert das Gerät für dvgrab-Kommandos
+        
+        Args:
+            device: Gerätepfad (z.B. /dev/raw1394) oder Karten-Nummer (z.B. "0")
+        
+        Returns:
+            Liste von Argumenten für dvgrab (z.B. ["-card", "0"] oder ["-i", "/dev/raw1394"])
+        """
+        # Wenn es eine reine Zahl ist, verwende -card Option
+        if device.isdigit():
+            return ["-card", device]
+        # Sonst verwende -i mit dem Gerätepfad
+        return ["-i", device]
 
     def rewind(self) -> bool:
         """Spult die Kassette zurück"""
@@ -103,7 +131,7 @@ class CaptureEngine:
         
         try:
             # dvgrab unterstützt -R für Rewind (falls von Kamera unterstützt)
-            cmd = [self.dvgrab_path, "-i", device, "-R"]
+            cmd = [self.dvgrab_path] + self._format_device_for_dvgrab(device) + ["-R"]
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
             
             if result.returncode == 0:
@@ -127,7 +155,7 @@ class CaptureEngine:
         
         try:
             # dvgrab unterstützt -P für Play (falls von Kamera unterstützt)
-            cmd = [self.dvgrab_path, "-i", device, "-P"]
+            cmd = [self.dvgrab_path] + self._format_device_for_dvgrab(device) + ["-P"]
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
             
             if result.returncode == 0:
@@ -151,7 +179,7 @@ class CaptureEngine:
         
         try:
             # dvgrab unterstützt -S für Stop (falls von Kamera unterstützt)
-            cmd = [self.dvgrab_path, "-i", device, "-S"]
+            cmd = [self.dvgrab_path] + self._format_device_for_dvgrab(device) + ["-S"]
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
             
             if result.returncode == 0:
@@ -219,10 +247,9 @@ class CaptureEngine:
         # Starte dvgrab Capture
         # -a: Audio aktivieren (Type-2 AVI)
         # -t: Timestamp-Format (wir verwenden einfaches Format)
-        # -i: Gerät
         cmd = [
             self.dvgrab_path,
-            "-i", device,
+        ] + self._format_device_for_dvgrab(device) + [
             "-a",  # Audio aktivieren
             "-t", "%Y%m%d_%H%M%S",  # Timestamp-Format
             str(self.current_output_path.parent / f"part_{part_number:03d}"),  # Basisname (ohne Extension)
@@ -260,11 +287,23 @@ class CaptureEngine:
     def _start_preview(self, device: str, fps: int):
         """Startet Preview-Stream mit ffmpeg"""
         try:
+            # ffmpeg benötigt einen Gerätepfad
+            # Wenn device eine Karten-Nummer ist, konvertiere zu /dev/raw1394
+            # oder verwende die Karten-Nummer direkt (je nach ffmpeg-Version)
+            ffmpeg_device = device
+            if device.isdigit():
+                # Für moderne Systeme: Versuche /dev/raw1394, sonst verwende Karten-Nummer
+                if Path("/dev/raw1394").exists():
+                    ffmpeg_device = "/dev/raw1394"
+                else:
+                    # Manche ffmpeg-Versionen akzeptieren Karten-Nummern direkt
+                    ffmpeg_device = device
+            
             # ffmpeg liest direkt vom FireWire-Gerät
             cmd = [
                 str(self.ffmpeg_path),
                 "-f", "dv1394",
-                "-i", device,
+                "-i", ffmpeg_device,
                 "-vf", f"fps={fps},scale=640:-1",
                 "-f", "mjpeg",
                 "-q:v", "5",

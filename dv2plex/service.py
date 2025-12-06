@@ -1,0 +1,581 @@
+"""
+Service-Layer für DV2Plex - GUI-unabhängige Business-Logik
+Wird sowohl von der GUI als auch vom Webserver verwendet
+"""
+
+import re
+import logging
+import tempfile
+from pathlib import Path
+from typing import Optional, List, Tuple, Callable
+from threading import Thread, Event
+
+from .config import Config
+from .capture import CaptureEngine
+from .merge import MergeEngine
+from .upscale import UpscaleEngine
+from .plex_export import PlexExporter
+from .frame_extraction import FrameExtractionEngine
+from .cover_generation import CoverGenerationEngine
+
+
+logger = logging.getLogger(__name__)
+
+
+def parse_movie_folder_name(folder_name: str) -> Tuple[str, str]:
+    """Extrahiert Titel und Jahr aus Ordnernamen"""
+    match = re.match(r"^(.+?)\s*\((\d{4})\)$", folder_name)
+    if match:
+        return match.group(1).strip(), match.group(2)
+    return folder_name, ""
+
+
+def find_pending_movies(config: Config) -> List[Path]:
+    """Findet alle Filme, die noch verarbeitet werden müssen"""
+    pending: List[Path] = []
+    dv_root = config.get_dv_import_root()
+    if not dv_root.exists():
+        return pending
+    
+    for movie_dir in sorted(dv_root.iterdir()):
+        if not movie_dir.is_dir():
+            continue
+        lowres_dir = movie_dir / "LowRes"
+        if not lowres_dir.exists():
+            continue
+        parts = list(lowres_dir.glob("part_*.avi"))
+        if not parts:
+            continue
+        highres_dir = movie_dir / "HighRes"
+        expected_file = highres_dir / f"{movie_dir.name}_4k.mp4"
+        if not expected_file.exists():
+            pending.append(movie_dir)
+    
+    return pending
+
+
+def find_upscaled_videos(config: Config) -> List[Tuple[Path, str, str]]:
+    """
+    Findet alle upscaled Videos in HighRes-Ordnern
+    
+    Returns:
+        Liste von Tupeln: (video_path, title, year)
+    """
+    videos = []
+    dv_root = config.get_dv_import_root()
+    if not dv_root.exists():
+        return videos
+    
+    for movie_dir in sorted(dv_root.iterdir()):
+        if not movie_dir.is_dir():
+            continue
+        highres_dir = movie_dir / "HighRes"
+        if not highres_dir.exists():
+            continue
+        
+        # Search for *_4k.mp4 files
+        for video_file in highres_dir.glob("*_4k.mp4"):
+            title, year = parse_movie_folder_name(movie_dir.name)
+            videos.append((video_file, title, year))
+    
+    return videos
+
+
+def find_available_videos(config: Config) -> List[Tuple[Path, str, str]]:
+    """
+    Findet alle verfügbaren Videos für Cover-Generierung
+    Sucht in HighRes-Ordnern nach *_4k.mp4 Dateien
+    
+    Returns:
+        Liste von Tupeln: (video_path, title, year)
+    """
+    return find_upscaled_videos(config)
+
+
+class PostprocessingService:
+    """Service für Postprocessing-Operationen"""
+    
+    def __init__(self, config: Config, log_callback: Optional[Callable[[str], None]] = None):
+        self.config = config
+        self.log_callback = log_callback or (lambda msg: logger.info(msg))
+        self._running = False
+        self._stop_event = Event()
+    
+    def _log(self, message: str):
+        """Log-Nachricht ausgeben"""
+        self.log_callback(message)
+    
+    def process_movie(
+        self,
+        movie_dir: Path,
+        profile_name: str,
+        progress_callback: Optional[Callable[[int], None]] = None,
+        status_callback: Optional[Callable[[str], None]] = None
+    ) -> Tuple[bool, str]:
+        """
+        Verarbeitet einen Film (Merge → Upscale → optional Export)
+        
+        Returns:
+            (success, message)
+        """
+        if self._running:
+            return False, "Postprocessing läuft bereits"
+        
+        self._running = True
+        self._stop_event.clear()
+        
+        try:
+            title, year = parse_movie_folder_name(movie_dir.name)
+            movie_name = movie_dir.name
+            title = title or movie_name
+            display_name = f"{title} ({year})" if year else movie_name
+            
+            if status_callback:
+                status_callback(f"Postprocessing: {display_name}")
+            if progress_callback:
+                progress_callback(0)
+            
+            # Merge
+            self._log(f"=== Starte Merge: {display_name} ===")
+            lowres_dir = movie_dir / "LowRes"
+            merge_engine = MergeEngine(
+                self.config.get_ffmpeg_path(),
+                log_callback=self._log
+            )
+            merged_file = merge_engine.merge_parts(lowres_dir)
+            
+            if not merged_file or not merged_file.exists():
+                return False, f"Merge fehlgeschlagen für {display_name}!"
+            
+            if progress_callback:
+                progress_callback(20)
+            
+            # Timestamp overlay (if enabled)
+            timestamp_overlay = self.config.get("capture.timestamp_overlay", True)
+            if timestamp_overlay:
+                self._log("=== Füge Timestamp-Overlays hinzu ===")
+                # Timestamp overlay logic would go here
+                # For now, we'll skip it as it's complex
+            
+            if progress_callback:
+                progress_callback(25)
+            
+            # Upscale
+            auto_upscale = self.config.get("capture.auto_upscale", True)
+            if auto_upscale:
+                self._log("=== Starte Upscaling ===")
+                highres_dir = movie_dir / "HighRes"
+                highres_dir.mkdir(parents=True, exist_ok=True)
+                
+                profile = self.config.get_upscaling_profile(profile_name)
+                output_file = highres_dir / f"{movie_name}_4k.mp4"
+                
+                upscale_engine = UpscaleEngine(
+                    self.config.get_realesrgan_path(),
+                    ffmpeg_path=self.config.get_ffmpeg_path(),
+                    log_callback=self._log
+                )
+                
+                if upscale_engine.upscale(merged_file, output_file, profile):
+                    if progress_callback:
+                        progress_callback(75)
+                    
+                    # Export
+                    auto_export = self.config.get("capture.auto_export", False)
+                    if auto_export:
+                        self._log("=== Starte Plex-Export ===")
+                        plex_exporter = PlexExporter(
+                            self.config.get_plex_movies_root(),
+                            log_callback=self._log
+                        )
+                        
+                        result = plex_exporter.export_movie(
+                            output_file,
+                            title,
+                            year or ""
+                        )
+                        
+                        if result:
+                            if progress_callback:
+                                progress_callback(100)
+                            return True, f"Film erfolgreich verarbeitet und nach Plex exportiert:\n{result}"
+                        else:
+                            return True, f"Postprocessing abgeschlossen (Export fehlgeschlagen)"
+                    else:
+                        if progress_callback:
+                            progress_callback(100)
+                        return True, f"Film erfolgreich verarbeitet:\n{output_file}"
+                else:
+                    return False, "Upscaling fehlgeschlagen!"
+            else:
+                if progress_callback:
+                    progress_callback(100)
+                return True, "Merge abgeschlossen (Upscaling übersprungen)"
+        
+        except Exception as e:
+            logger.exception("Fehler beim Postprocessing")
+            return False, f"Fehler beim Postprocessing: {e}"
+        finally:
+            self._running = False
+    
+    def is_running(self) -> bool:
+        """Prüft ob Postprocessing läuft"""
+        return self._running
+
+
+class CaptureService:
+    """Service für Capture-Operationen"""
+    
+    def __init__(self, config: Config, log_callback: Optional[Callable[[str], None]] = None):
+        self.config = config
+        self.log_callback = log_callback or (lambda msg: logger.info(msg))
+        self.capture_engine: Optional[CaptureEngine] = None
+        self._capture_running = False
+    
+    def _log(self, message: str):
+        """Log-Nachricht ausgeben"""
+        self.log_callback(message)
+    
+    def get_device(self) -> Optional[str]:
+        """Ermittelt das verfügbare FireWire-Gerät"""
+        ffmpeg_path = self.config.get_ffmpeg_path()
+        device_path = self.config.get_firewire_device()
+        
+        capture_engine = CaptureEngine(
+            ffmpeg_path,
+            device_path=device_path,
+            log_callback=self._log,
+        )
+        
+        return capture_engine.get_device()
+    
+    def start_capture(
+        self,
+        title: str,
+        year: str,
+        preview_callback: Optional[Callable] = None,
+        auto_rewind_play: bool = True
+    ) -> Tuple[bool, Optional[str]]:
+        """
+        Startet eine Capture-Session
+        
+        Returns:
+            (success, error_message)
+        """
+        if not title or not year:
+            return False, "Titel und Jahr müssen angegeben werden"
+        
+        # Check device
+        device = self.get_device()
+        if not device:
+            return False, "Kein FireWire-Gerät gefunden"
+        
+        # Check ffmpeg
+        import shutil
+        ffmpeg_path = self.config.get_ffmpeg_path()
+        if not ffmpeg_path.exists() and not shutil.which("ffmpeg"):
+            return False, f"ffmpeg nicht gefunden: {ffmpeg_path}"
+        
+        # Create work directory
+        movie_name = f"{title} ({year})"
+        dv_import_root = self.config.get_dv_import_root()
+        movie_dir = dv_import_root / movie_name
+        lowres_dir = movie_dir / "LowRes"
+        lowres_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Find next part number
+        existing_parts = list(lowres_dir.glob("part_*.avi"))
+        if existing_parts:
+            numbers = [int(p.stem.split('_')[1]) for p in existing_parts]
+            part_number = max(numbers) + 1
+        else:
+            part_number = 1
+        
+        # Create capture engine
+        self.capture_engine = CaptureEngine(
+            ffmpeg_path,
+            device_path=self.config.get_firewire_device(),
+            log_callback=self._log,
+        )
+        
+        preview_fps = self.config.get("ui.preview_fps", 10)
+        
+        capture_started = self.capture_engine.start_capture(
+            lowres_dir,
+            part_number,
+            preview_callback=preview_callback,
+            preview_fps=preview_fps,
+            auto_rewind_play=auto_rewind_play,
+        )
+        
+        if capture_started:
+            self._capture_running = True
+            return True, None
+        else:
+            return False, "Aufnahme konnte nicht gestartet werden"
+    
+    def stop_capture(self) -> bool:
+        """Stoppt die laufende Capture-Session"""
+        if self.capture_engine:
+            if self.capture_engine.stop_capture():
+                self._capture_running = False
+                return True
+        return False
+    
+    def is_capturing(self) -> bool:
+        """Prüft ob Capture läuft"""
+        return self._capture_running
+    
+    def rewind_camera(self):
+        """Spult die Kamera zurück"""
+        if self.capture_engine:
+            self.capture_engine.rewind()
+    
+    def play_camera(self):
+        """Startet Wiedergabe auf der Kamera"""
+        if self.capture_engine:
+            self.capture_engine.play()
+    
+    def pause_camera(self):
+        """Pausiert die Kamera"""
+        if self.capture_engine:
+            self.capture_engine.pause()
+
+
+class MovieModeService:
+    """Service für Movie Mode Operationen"""
+    
+    def __init__(self, config: Config, log_callback: Optional[Callable[[str], None]] = None):
+        self.config = config
+        self.log_callback = log_callback or (lambda msg: logger.info(msg))
+    
+    def _log(self, message: str):
+        """Log-Nachricht ausgeben"""
+        self.log_callback(message)
+    
+    def merge_videos(
+        self,
+        video_paths: List[Path],
+        title: str,
+        year: str
+    ) -> Tuple[bool, Optional[Path], Optional[str]]:
+        """
+        Merged mehrere Videos zu einem Film
+        
+        Returns:
+            (success, merged_file_path, error_message)
+        """
+        if len(video_paths) < 2:
+            return False, None, "Mindestens 2 Videos erforderlich"
+        
+        if not title or not year:
+            return False, None, "Titel und Jahr müssen angegeben werden"
+        
+        # Create temporary output file
+        temp_dir = Path(tempfile.gettempdir()) / "dv2plex_merge"
+        temp_dir.mkdir(parents=True, exist_ok=True)
+        temp_output = temp_dir / f"{title}_{year}_merged.mp4"
+        
+        try:
+            # Merge
+            merge_engine = MergeEngine(
+                self.config.get_ffmpeg_path(),
+                log_callback=self._log
+            )
+            
+            self._log(f"=== Starte Merge: {len(video_paths)} Videos ===")
+            merged_file = merge_engine.merge_videos(video_paths, temp_output)
+            
+            if not merged_file or not merged_file.exists():
+                return False, None, "Merge fehlgeschlagen!"
+            
+            return True, merged_file, None
+        
+        except Exception as e:
+            logger.exception("Fehler beim Mergen")
+            return False, None, f"Fehler beim Mergen: {e}"
+    
+    def export_to_plex(
+        self,
+        video_path: Path,
+        title: Optional[str] = None,
+        year: Optional[str] = None,
+        overwrite: bool = True
+    ) -> Tuple[bool, Optional[Path], Optional[str]]:
+        """
+        Exportiert ein Video nach PlexMovies
+        
+        Returns:
+            (success, exported_path, error_message)
+        """
+        if not video_path.exists():
+            return False, None, f"Video nicht gefunden: {video_path}"
+        
+        try:
+            plex_exporter = PlexExporter(
+                self.config.get_plex_movies_root(),
+                log_callback=self._log
+            )
+            
+            result = plex_exporter.export_single_video(
+                video_path,
+                title,
+                year,
+                overwrite=overwrite
+            )
+            
+            if result:
+                return True, Path(result), None
+            else:
+                return False, None, "Export fehlgeschlagen"
+        
+        except Exception as e:
+            logger.exception("Fehler beim Export")
+            return False, None, f"Fehler beim Export: {e}"
+
+
+class CoverService:
+    """Service für Cover-Generierung"""
+    
+    def __init__(self, config: Config, log_callback: Optional[Callable[[str], None]] = None):
+        self.config = config
+        self.log_callback = log_callback or (lambda msg: logger.info(msg))
+    
+    def _log(self, message: str):
+        """Log-Nachricht ausgeben"""
+        self.log_callback(message)
+    
+    def extract_frames(
+        self,
+        video_path: Path,
+        count: int = 4
+    ) -> Tuple[bool, List[Path], Optional[str]]:
+        """
+        Extrahiert zufällige Frames aus einem Video
+        
+        Returns:
+            (success, frame_paths, error_message)
+        """
+        if not video_path.exists():
+            return False, [], f"Video nicht gefunden: {video_path}"
+        
+        try:
+            frame_engine = FrameExtractionEngine(
+                self.config.get_ffmpeg_path(),
+                log_callback=self._log
+            )
+            
+            frames = frame_engine.extract_random_frames(video_path, count=count)
+            
+            if not frames:
+                return False, [], "Konnte keine Frames extrahieren"
+            
+            return True, frames, None
+        
+        except Exception as e:
+            logger.exception("Fehler bei Frame-Extraktion")
+            return False, [], f"Fehler bei Frame-Extraktion: {e}"
+    
+    def generate_cover(
+        self,
+        frame_path: Path,
+        title: str,
+        year: Optional[str] = None,
+        progress_callback: Optional[Callable[[int], None]] = None,
+        status_callback: Optional[Callable[[str], None]] = None
+    ) -> Tuple[bool, Optional[Path], Optional[str]]:
+        """
+        Generiert ein Cover aus einem Frame
+        
+        Returns:
+            (success, cover_path, error_message)
+        """
+        if not frame_path.exists():
+            return False, None, f"Frame nicht gefunden: {frame_path}"
+        
+        try:
+            import tempfile
+            from .plex_export import PlexExporter
+            
+            if progress_callback:
+                progress_callback(10)
+            
+            if status_callback:
+                status_callback("Lade Stable Diffusion Model...")
+            
+            # Get config values
+            model_id = self.config.get("cover.default_model", "runwayml/stable-diffusion-v1-5")
+            prompt = self.config.get("cover.default_prompt", "cinematic movie poster, dramatic lighting, vintage film look, high detail, professional photography")
+            strength = self.config.get("cover.strength", 0.6)
+            guidance_scale = self.config.get("cover.guidance_scale", 8.0)
+            num_steps = self.config.get("cover.num_inference_steps", 50)
+            
+            # Parse output_size
+            size_str = self.config.get("cover.output_size", "1000x1500")
+            try:
+                width, height = map(int, size_str.split("x"))
+                output_size = (width, height)
+            except:
+                output_size = (1000, 1500)
+            
+            # Create CoverGenerationEngine
+            cover_engine = CoverGenerationEngine(
+                model_id=model_id,
+                log_callback=self._log
+            )
+            
+            if progress_callback:
+                progress_callback(30)
+            
+            if status_callback:
+                status_callback("Generiere Cover...")
+            
+            # Create temporary output directory
+            temp_dir = Path(tempfile.gettempdir()) / "dv2plex_covers"
+            temp_dir.mkdir(parents=True, exist_ok=True)
+            temp_cover = temp_dir / f"cover_{frame_path.stem}.jpg"
+            
+            # Generate cover
+            result_path = cover_engine.generate_cover(
+                frame_path,
+                temp_cover,
+                prompt=prompt,
+                strength=strength,
+                guidance_scale=guidance_scale,
+                num_inference_steps=num_steps,
+                output_size=output_size
+            )
+            
+            if not result_path or not result_path.exists():
+                return False, None, "Cover-Generierung fehlgeschlagen!"
+            
+            if progress_callback:
+                progress_callback(80)
+            
+            if status_callback:
+                status_callback("Speichere Cover...")
+            
+            # Save cover in Plex Movies folder
+            plex_exporter = PlexExporter(
+                self.config.get_plex_movies_root(),
+                log_callback=self._log
+            )
+            
+            saved_path = plex_exporter.save_cover(
+                result_path,
+                title,
+                year or "",
+                overwrite=True
+            )
+            
+            if saved_path:
+                if progress_callback:
+                    progress_callback(100)
+                return True, Path(saved_path), f"Cover erfolgreich generiert und gespeichert:\n{saved_path}"
+            else:
+                return False, None, "Cover generiert, aber Speicherung fehlgeschlagen!"
+        
+        except Exception as e:
+            logger.exception("Fehler bei Cover-Generierung")
+            return False, None, f"Fehler bei Cover-Generierung: {e}"
+

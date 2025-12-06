@@ -192,11 +192,41 @@ fi
 # Activate venv and install dependencies (if venv exists)
 if [ -d "venv" ] && [ -f "venv/bin/activate" ]; then
     echo "Activating virtual environment and installing dependencies..."
+    
+    # Activate venv
     source venv/bin/activate
-    pip install --upgrade pip
-    pip install -r requirements.txt
-    deactivate
-    echo "✓ Python dependencies installed"
+    
+    # Verify venv is activated
+    if [ -z "$VIRTUAL_ENV" ]; then
+        echo "⚠ Venv activation failed, using venv Python directly..."
+        VENV_PYTHON="$(pwd)/venv/bin/python"
+        VENV_PIP="$(pwd)/venv/bin/pip"
+    else
+        echo "✓ Virtual environment activated: $VIRTUAL_ENV"
+        VENV_PYTHON="python"
+        VENV_PIP="pip"
+    fi
+    
+    # Upgrade pip
+    echo "Upgrading pip..."
+    "$VENV_PIP" install --upgrade pip
+    
+    # Install dependencies
+    echo "Installing Python dependencies..."
+    "$VENV_PIP" install -r requirements.txt
+    
+    # Verify installation
+    if [ $? -eq 0 ]; then
+        echo "✓ Python dependencies installed successfully"
+    else
+        echo "✗ Installation failed"
+        exit 1
+    fi
+    
+    # Deactivate venv (only if it was activated via source)
+    if [ -n "$VIRTUAL_ENV" ]; then
+        deactivate
+    fi
 else
     echo "⚠ Virtual environment could not be created"
     echo "Trying installation with --user flag..."
@@ -260,16 +290,27 @@ echo "10. Creating default configuration..."
 if [ ! -f dv2plex/config/settings.json ]; then
     echo "Creating default configuration..."
     # Use venv if available
-    if [ -d "venv" ]; then
-        source venv/bin/activate
-        python -c "
+    if [ -d "venv" ] && [ -f "venv/bin/python" ]; then
+        # Try to activate venv, fallback to direct venv Python
+        if source venv/bin/activate 2>/dev/null && [ -n "$VIRTUAL_ENV" ]; then
+            python -c "
 from pathlib import Path
 from dv2plex.config import Config
 config = Config()
 config.save_config()
 print('Default configuration created.')
 "
-        deactivate
+            deactivate
+        else
+            # Use venv Python directly
+            venv/bin/python -c "
+from pathlib import Path
+from dv2plex.config import Config
+config = Config()
+config.save_config()
+print('Default configuration created.')
+"
+        fi
     else
         python3 -c "
 from pathlib import Path
@@ -301,8 +342,37 @@ echo "=========================================="
 echo "Setup completed!"
 echo "=========================================="
 echo ""
+
+# Check if script was sourced (not executed directly)
+if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
+    # Script was executed directly
+    echo "⚠ WICHTIG: Das virtuelle Environment wurde erstellt, ist aber noch nicht aktiviert."
+    echo ""
+    echo "Um das venv zu aktivieren, führen Sie einen der folgenden Befehle aus:"
+    echo "  source venv/bin/activate"
+    echo "  . venv/bin/activate"
+    echo ""
+    echo "Oder rufen Sie das Setup-Skript mit 'source' auf, um das venv automatisch zu aktivieren:"
+    echo "  source setup.sh"
+    echo ""
+else
+    # Script was sourced
+    if [ -d "venv" ] && [ -f "venv/bin/activate" ]; then
+        echo "Aktiviere virtuelles Environment..."
+        source venv/bin/activate
+        echo "✓ Virtuelles Environment ist jetzt aktiviert!"
+        echo ""
+    fi
+fi
+
 echo "Next steps:"
 echo "1. Connect your MiniDV camera via FireWire"
-echo "2. Start the application with: ./run.sh"
-echo "3. Or: python3 -m dv2plex.app"
+if [ "${BASH_SOURCE[0]}" != "${0}" ] && [ -d "venv" ]; then
+    echo "2. Start the application with: ./run.sh"
+    echo "3. Or: python -m dv2plex.app (venv ist bereits aktiviert)"
+else
+    echo "2. Aktivieren Sie das venv: source venv/bin/activate"
+    echo "3. Start the application with: ./run.sh"
+    echo "4. Or: python -m dv2plex.app"
+fi
 echo ""
