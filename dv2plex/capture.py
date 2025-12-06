@@ -42,6 +42,7 @@ class CaptureEngine:
         self.preview_callback: Optional[Callable[[QImage], None]] = None
         self.current_output_path: Optional[Path] = None
         self.logger = logging.getLogger(__name__)
+        self.interactive_process: Optional[subprocess.Popen] = None  # Für interaktiven Modus
 
     def detect_firewire_device(self) -> Optional[str]:
         """
@@ -122,74 +123,97 @@ class CaptureEngine:
         # Sonst verwende -i mit dem Gerätepfad
         return ["-i", device]
 
-    def rewind(self) -> bool:
-        """Spult die Kassette zurück"""
-        device = self.get_device()
-        if not device:
-            self.log("Kein Gerät verfügbar für Rewind")
+    def _start_interactive_mode(self, device: str, output_base: str) -> bool:
+        """
+        Startet dvgrab im interaktiven Modus für Kamerasteuerung
+        
+        Returns:
+            True wenn erfolgreich gestartet
+        """
+        if self.interactive_process:
+            return True  # Bereits gestartet
+        
+        try:
+            cmd = [
+                self.dvgrab_path,
+            ] + self._format_device_for_dvgrab(device) + [
+                "-i",  # Interaktiver Modus
+                "-a",  # Audio aktivieren
+                "-f", "dv2",  # DV2-Format
+                output_base,  # Ausgabebasisname
+            ]
+            
+            self.log("Starte dvgrab im interaktiven Modus...")
+            self.interactive_process = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                stdin=subprocess.PIPE,
+                text=True,  # Text-Modus für stdin
+                bufsize=1,
+            )
+            
+            # Warte kurz, damit der Prozess startet
+            time.sleep(0.5)
+            
+            if self.interactive_process.poll() is None:
+                self.log("Interaktiver Modus aktiviert")
+                return True
+            else:
+                self.log(f"Fehler beim Starten des interaktiven Modus: Return-Code {self.interactive_process.returncode}")
+                self.interactive_process = None
+                return False
+                
+        except Exception as e:
+            self.log(f"Fehler beim Starten des interaktiven Modus: {e}")
+            self.interactive_process = None
+            return False
+    
+    def _send_interactive_command(self, command: str) -> bool:
+        """
+        Sendet einen Befehl an dvgrab im interaktiven Modus
+        
+        Args:
+            command: Befehl (z.B. 'a' für rewind, 'p' für play, 'c' für capture, 'k' für pause)
+        """
+        if not self.interactive_process or self.interactive_process.poll() is not None:
+            self.log("Interaktiver Modus nicht aktiv")
             return False
         
         try:
-            # dvgrab unterstützt -R für Rewind (falls von Kamera unterstützt)
-            cmd = [self.dvgrab_path] + self._format_device_for_dvgrab(device) + ["-R"]
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
-            
-            if result.returncode == 0:
-                self.log("Kassette zurückgespult")
+            if self.interactive_process.stdin:
+                self.interactive_process.stdin.write(command + "\n")
+                self.interactive_process.stdin.flush()
                 return True
             else:
-                self.log(f"Rewind-Fehler: {result.stderr}")
-                # Hinweis: Nicht alle Kameras unterstützen Remote-Rewind
-                self.log("Hinweis: Bitte spulen Sie die Kassette manuell zurück")
+                self.log("stdin nicht verfügbar im interaktiven Modus")
                 return False
         except Exception as e:
-            self.log(f"Fehler beim Rewind: {e}")
+            self.log(f"Fehler beim Senden des Befehls '{command}': {e}")
+            return False
+    
+    def rewind(self) -> bool:
+        """Spult die Kassette zurück (interaktiver Modus: 'a')"""
+        if self.interactive_process:
+            return self._send_interactive_command("a")
+        else:
+            self.log("HINWEIS: Interaktiver Modus nicht aktiv. Starte Aufnahme, um Kamerasteuerung zu aktivieren.")
             return False
 
     def play(self) -> bool:
-        """Startet die Wiedergabe"""
-        device = self.get_device()
-        if not device:
-            self.log("Kein Gerät verfügbar für Play")
-            return False
-        
-        try:
-            # dvgrab unterstützt -P für Play (falls von Kamera unterstützt)
-            cmd = [self.dvgrab_path] + self._format_device_for_dvgrab(device) + ["-P"]
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
-            
-            if result.returncode == 0:
-                self.log("Wiedergabe gestartet")
-                return True
-            else:
-                self.log(f"Play-Fehler: {result.stderr}")
-                # Hinweis: Nicht alle Kameras unterstützen Remote-Play
-                self.log("Hinweis: Bitte drücken Sie Play auf der Kamera")
-                return False
-        except Exception as e:
-            self.log(f"Fehler beim Play: {e}")
+        """Startet die Wiedergabe (interaktiver Modus: 'p')"""
+        if self.interactive_process:
+            return self._send_interactive_command("p")
+        else:
+            self.log("HINWEIS: Interaktiver Modus nicht aktiv. Starte Aufnahme, um Kamerasteuerung zu aktivieren.")
             return False
 
     def pause(self) -> bool:
-        """Pausiert die Wiedergabe"""
-        device = self.get_device()
-        if not device:
-            self.log("Kein Gerät verfügbar für Pause")
-            return False
-        
-        try:
-            # dvgrab unterstützt -S für Stop (falls von Kamera unterstützt)
-            cmd = [self.dvgrab_path] + self._format_device_for_dvgrab(device) + ["-S"]
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
-            
-            if result.returncode == 0:
-                self.log("Wiedergabe pausiert")
-                return True
-            else:
-                self.log(f"Pause-Fehler: {result.stderr}")
-                return False
-        except Exception as e:
-            self.log(f"Fehler beim Pause: {e}")
+        """Pausiert die Wiedergabe (interaktiver Modus: 'k')"""
+        if self.interactive_process:
+            return self._send_interactive_command("k")
+        else:
+            self.log("HINWEIS: Interaktiver Modus nicht aktiv. Starte Aufnahme, um Kamerasteuerung zu aktivieren.")
             return False
 
     def start_capture(
@@ -229,54 +253,71 @@ class CaptureEngine:
         self.preview_fps = preview_fps
         enable_preview = preview_callback is not None
 
-        # Automatischer Workflow: Rewind → Play → Aufnahme
+        # Starte interaktiven Modus für Kamerasteuerung
+        output_base = str(self.current_output_path.parent / f"part_{part_number:03d}")
+        interactive_started = self._start_interactive_mode(device, output_base)
+        
+        if not interactive_started:
+            self.log("WARNUNG: Interaktiver Modus konnte nicht gestartet werden")
+            return False
+        
+        # Automatischer Workflow: Rewind → Play → Capture
         if auto_rewind_play:
-            self.log("Automatischer Workflow: Rewind → Play → Aufnahme")
-            if not self.rewind():
-                self.log("Warnung: Rewind fehlgeschlagen, fahre fort...")
-            time.sleep(2)  # Warte 2 Sekunden nach Rewind
+            self.log("=== Automatischer Workflow: Rewind → Play → Capture ===")
+            time.sleep(1)  # Kurze Pause nach Start, damit dvgrab bereit ist
             
-            if not self.play():
-                self.log("Warnung: Play fehlgeschlagen, fahre fort...")
-            time.sleep(1)  # Warte 1 Sekunde nach Play
+            # Rewind
+            self.log("Spule Kassette zurück...")
+            if self._send_interactive_command("a"):
+                time.sleep(4)  # Warte auf Rewind (kann einige Sekunden dauern)
+            else:
+                self.log("Warnung: Rewind-Befehl fehlgeschlagen")
+            
+            # Play
+            self.log("Starte Wiedergabe...")
+            if self._send_interactive_command("p"):
+                time.sleep(2)  # Warte auf Play-Start
+            else:
+                self.log("Warnung: Play-Befehl fehlgeschlagen")
+            
+            # Capture starten
+            self.log("Starte Aufnahme...")
+            if not self._send_interactive_command("c"):
+                self.log("Warnung: Capture-Befehl fehlgeschlagen")
+                return False
+        else:
+            self.log("=== Manueller Modus ===")
+            self.log("Bitte steuern Sie die Kamera manuell oder verwenden Sie die Steuerungs-Buttons.")
+            self.log("Drücken Sie 'c' im interaktiven Modus oder verwenden Sie den Capture-Button.")
 
         # Starte Preview (separater ffmpeg-Prozess)
         if enable_preview:
             self._start_preview(device, preview_fps)
 
-        # Starte dvgrab Capture
-        # -a: Audio aktivieren (Type-2 AVI)
-        # -t: Timestamp-Format (wir verwenden einfaches Format)
-        cmd = [
-            self.dvgrab_path,
-        ] + self._format_device_for_dvgrab(device) + [
-            "-a",  # Audio aktivieren
-            "-t", "%Y%m%d_%H%M%S",  # Timestamp-Format
-            str(self.current_output_path.parent / f"part_{part_number:03d}"),  # Basisname (ohne Extension)
-        ]
-
-        try:
-            self.log(f"Starte Aufnahme: {self.current_output_path.name}")
-            self.log(f"dvgrab-Befehl: {' '.join(cmd)}")
-
-            self.process = subprocess.Popen(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                stdin=subprocess.PIPE,
-                text=False,
-                bufsize=0,
-            )
-
+        # Verwende den interaktiven Prozess für Capture
+        if self.interactive_process and self.interactive_process.poll() is None:
+            # Capture wurde bereits gestartet (wenn auto_rewind_play), sonst starte jetzt
+            if not auto_rewind_play:
+                self.log("Starte Aufnahme im interaktiven Modus...")
+                if not self._send_interactive_command("c"):
+                    self.log("Fehler: Capture-Befehl konnte nicht gesendet werden")
+                    return False
+            
+            # Verwende den interaktiven Prozess als Capture-Prozess
+            self.process = self.interactive_process
             self.is_capturing = True
-
+            
             self.capture_thread = threading.Thread(
                 target=self._monitor_capture,
                 daemon=True,
             )
             self.capture_thread.start()
-
+            
             return True
+        else:
+            # Sollte nicht passieren, da interaktiver Modus bereits gestartet wurde
+            self.log("FEHLER: Interaktiver Modus nicht verfügbar")
+            return False
 
         except Exception as e:
             self.log(f"Fehler beim Starten der Aufnahme: {e}")
@@ -297,9 +338,14 @@ class CaptureEngine:
                     ffmpeg_device = "/dev/raw1394"
                 else:
                     # Manche ffmpeg-Versionen akzeptieren Karten-Nummern direkt
-                    ffmpeg_device = device
+                    # Versuche auch /dev/video1394
+                    if Path("/dev/video1394").exists():
+                        ffmpeg_device = "/dev/video1394"
+                    else:
+                        ffmpeg_device = device
             
             # ffmpeg liest direkt vom FireWire-Gerät
+            # WICHTIG: Die Kamera muss im Play-Modus sein, damit ffmpeg Signal empfängt
             cmd = [
                 str(self.ffmpeg_path),
                 "-f", "dv1394",
@@ -311,6 +357,9 @@ class CaptureEngine:
             ]
 
             self.log("Starte Preview-Stream...")
+            self.log(f"Preview-Gerät: {ffmpeg_device}")
+            self.log("HINWEIS: Preview funktioniert nur, wenn die Kamera im Play-Modus ist und Signal sendet.")
+            
             self.preview_process = subprocess.Popen(
                 cmd,
                 stdout=subprocess.PIPE,
@@ -333,10 +382,12 @@ class CaptureEngine:
 
         except Exception as e:
             self.log(f"Fehler beim Starten des Preview-Streams: {e}")
+            self.log("HINWEIS: Preview erfordert, dass die Kamera im Play-Modus ist.")
+            self.log("HINWEIS: Preview erfordert, dass die Kamera im Play-Modus ist.")
 
     def stop_capture(self) -> bool:
         """Stoppt die Aufnahme"""
-        if not self.is_capturing or self.process is None:
+        if not self.is_capturing:
             return False
 
         try:
@@ -345,14 +396,32 @@ class CaptureEngine:
             # Stoppe Preview
             self._stop_preview()
 
-            # Stoppe dvgrab (sende SIGTERM)
-            try:
-                self.process.terminate()
-                self.process.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                self.log("dvgrab beendet sich nicht automatisch, erzwinge Beendigung...")
-                self.process.kill()
-                self.process.wait(timeout=2)
+            # Wenn im interaktiven Modus: Sende Stop-Befehl (Esc)
+            if self.interactive_process and self.interactive_process.poll() is None:
+                self.log("Sende Stop-Befehl an dvgrab...")
+                self._send_interactive_command("\x1b")  # ESC für Stop
+                time.sleep(1)  # Warte auf Stop
+            
+            # Stoppe dvgrab-Prozess
+            process_to_stop = self.process if self.process else self.interactive_process
+            if process_to_stop:
+                try:
+                    process_to_stop.terminate()
+                    process_to_stop.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    self.log("dvgrab beendet sich nicht automatisch, erzwinge Beendigung...")
+                    process_to_stop.kill()
+                    process_to_stop.wait(timeout=2)
+            
+            # Cleanup interaktiven Prozess
+            if self.interactive_process:
+                try:
+                    if self.interactive_process.poll() is None:
+                        self.interactive_process.terminate()
+                        self.interactive_process.wait(timeout=2)
+                except:
+                    pass
+                self.interactive_process = None
 
             self.is_capturing = False
             self.log("Aufnahme gestoppt.")
@@ -426,13 +495,26 @@ class CaptureEngine:
             stderr_thread.start()
 
             # Warte auf Prozess-Ende
-            self.process.wait()
+            return_code = self.process.wait()
+            
+            # Log return code für Debugging
+            self.log(f"dvgrab-Prozess beendet mit Return-Code: {return_code}")
 
             # Warte kurz, damit stderr-Thread fertig wird
             stderr_thread.join(timeout=1)
 
-            self.is_capturing = False
-            self._stop_preview()
+            # Nur als beendet markieren, wenn nicht manuell gestoppt
+            # (wenn stop_capture() aufgerufen wurde, wird is_capturing bereits False sein)
+            if self.is_capturing:
+                self.is_capturing = False
+                self._stop_preview()
+                
+                # Wenn der Prozess sofort beendet wurde (z.B. kein Signal), logge Warnung
+                if return_code != 0 and return_code not in [130, 143]:
+                    self.log(f"WARNUNG: Aufnahme wurde unerwartet beendet (Return-Code: {return_code}). Mögliche Ursachen:")
+                    self.log("  - Kein Signal von der Kamera (Bitte Play auf der Kamera drücken)")
+                    self.log("  - Kamera nicht richtig verbunden")
+                    self.log("  - dvgrab-Fehler (siehe stderr-Logs)")
 
         except Exception as e:
             self.log(f"Fehler beim Überwachen der Aufnahme: {e}")
@@ -462,15 +544,37 @@ class CaptureEngine:
     def _process_stderr(self, stderr_bytes: bytes):
         """Verarbeitet stderr-Ausgabe"""
         return_code = self.process.returncode if self.process else None
+        stderr_text = stderr_bytes.decode("utf-8", errors="ignore") if stderr_bytes else ""
+        
+        # Log stderr für Debugging (nur relevante Teile)
+        if stderr_text:
+            # Zeige wichtige Meldungen
+            if "Waiting for DV" in stderr_text:
+                self.log("dvgrab wartet auf DV-Signal...")
+            elif "Capture Started" in stderr_text:
+                self.log("dvgrab: Aufnahme gestartet!")
+            elif "Capture Stopped" in stderr_text:
+                self.log("dvgrab: Aufnahme gestoppt.")
+            elif len(stderr_text) > 0:
+                # Zeige nur die letzten 300 Zeichen, um nicht zu viel zu loggen
+                self.log(f"dvgrab: {stderr_text[-300:]}")
 
         if return_code == 0 or return_code is None:
             self.log(f"Aufnahme erfolgreich beendet: {self.current_output_path}")
         elif return_code in [1, 130, 143]:  # Normal beendet (SIGTERM/SIGINT)
             self.log(f"Aufnahme erfolgreich gestoppt: {self.current_output_path}")
         else:
-            stderr_text = stderr_bytes.decode("utf-8", errors="ignore") if stderr_bytes else ""
             if "End of file" in stderr_text or "Interrupted" in stderr_text:
                 self.log(f"Aufnahme beendet (Bandende oder manuell): {self.current_output_path}")
+            elif "No input" in stderr_text or "Cannot open" in stderr_text or "Device" in stderr_text or "Waiting for DV" in stderr_text:
+                self.log(f"WARNUNG: dvgrab konnte kein DV-Signal empfangen.")
+                self.log(f"Mögliche Ursachen:")
+                self.log(f"  - Kamera ist nicht im Play-Modus")
+                self.log(f"  - Kamera sendet kein Signal")
+                self.log(f"  - FireWire-Verbindung problematisch")
+                self.log(f"Bitte stellen Sie die Kamera in den 'Edit/Play'-Modus und drücken Sie Play.")
+                if stderr_text:
+                    self.log(f"dvgrab-Ausgabe: {stderr_text[-500:]}")
             else:
                 self.log(f"dvgrab-Fehler (Code {return_code}): {stderr_text[-500:]}")
 
