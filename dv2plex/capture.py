@@ -848,28 +848,28 @@ class CaptureEngine:
                         if self.preview_process.poll() is not None:
                             # Prozess beendet - lese stderr für Fehler
                             try:
-                    if self.preview_process.stderr:
-                        # Warte kurz, damit stderr vollständig geschrieben wird
-                        time.sleep(0.2)
-                        # Lese alle verfügbaren Daten in mehreren Chunks
-                        stderr_data = b""
-                        while True:
-                            chunk = self.preview_process.stderr.read(4096)
-                            if not chunk:
-                                break
-                            if isinstance(chunk, bytes):
-                                stderr_data += chunk
-                            else:
-                                stderr_data += chunk.encode('utf-8', errors='ignore')
-                        
-                        if stderr_data:
+                                if self.preview_process.stderr:
+                                    # Warte kurz, damit stderr vollständig geschrieben wird
+                                    time.sleep(0.2)
+                                    # Lese alle verfügbaren Daten in mehreren Chunks
+                                    stderr_data = b""
+                                    while True:
+                                        chunk = self.preview_process.stderr.read(4096)
+                                        if not chunk:
+                                            break
+                                        if isinstance(chunk, bytes):
+                                            stderr_data += chunk
+                                        else:
+                                            stderr_data += chunk.encode('utf-8', errors='ignore')
+                                    
+                                    if stderr_data:
                                         if isinstance(stderr_data, bytes):
                                             stderr_text = stderr_data.decode('utf-8', errors='ignore')
                                         else:
                                             stderr_text = str(stderr_data)
                                         if "Permission denied" in stderr_text or "Cannot open" in stderr_text:
                                             self.log("Preview-Fehler: Keine Berechtigung für FireWire-Gerät")
-                                            self.log("HINWEIS: ffmpeg benötigt root-Rechte. Starten Sie die Anwendung mit sudo.")
+                                            self.log("HINWEIS: dvgrab benötigt root-Rechte. Starten Sie die Anwendung mit sudo.")
                                         elif "No such file" in stderr_text or "Device" in stderr_text:
                                             self.log(f"Preview-Fehler: Gerät nicht gefunden: {stderr_text[:200]}")
                                         else:
