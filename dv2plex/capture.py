@@ -334,6 +334,12 @@ class CaptureEngine:
                 self.log("Starte Wiedergabe...")
                 if self._send_interactive_command("p"):
                     time.sleep(2)  # Warte auf Play-Start
+                    
+                    # Starte Preview NACH Play-Befehl, damit die Kamera Signal sendet
+                    if enable_preview:
+                        self.log("Starte Preview nach Play-Befehl...")
+                        self._start_preview(device, preview_fps)
+                        time.sleep(1)  # Kurze Pause, damit Preview initialisiert wird
                 else:
                     self.log("Warnung: Play-Befehl fehlgeschlagen")
                 
@@ -346,10 +352,10 @@ class CaptureEngine:
                 self.log("=== Manueller Modus ===")
                 self.log("Bitte steuern Sie die Kamera manuell oder verwenden Sie die Steuerungs-Buttons.")
                 self.log("Verwenden Sie 'c' um die Aufnahme zu starten.")
-
-            # Starte Preview (separater ffmpeg-Prozess)
-            if enable_preview:
-                self._start_preview(device, preview_fps)
+                
+                # Im manuellen Modus: Starte Preview sofort (falls aktiviert)
+                if enable_preview:
+                    self._start_preview(device, preview_fps)
 
             # Verwende den interaktiven Prozess für Capture
             if self.interactive_process and self.interactive_process.poll() is None:
@@ -403,7 +409,7 @@ class CaptureEngine:
             
             # ffmpeg liest direkt vom FireWire-Gerät
             # WICHTIG: Die Kamera muss im Play-Modus sein, damit ffmpeg Signal empfängt
-            cmd = [
+            ffmpeg_cmd = [
                 str(self.ffmpeg_path),
                 "-f", "dv1394",
                 "-i", ffmpeg_device,
@@ -412,6 +418,14 @@ class CaptureEngine:
                 "-q:v", "5",
                 "-",
             ]
+            
+            # Prüfe, ob wir root sind - ffmpeg benötigt auch root für FireWire
+            is_root = os.geteuid() == 0
+            if not is_root:
+                cmd = ["sudo"] + ffmpeg_cmd
+                self.log("HINWEIS: ffmpeg benötigt root-Rechte für FireWire-Zugriff. Verwende sudo...")
+            else:
+                cmd = ffmpeg_cmd
 
             self.log("Starte Preview-Stream...")
             self.log(f"Preview-Gerät: {ffmpeg_device}")
@@ -690,6 +704,26 @@ class CaptureEngine:
                     chunk = self.preview_process.stdout.read(8192)
 
                     if not chunk:
+                        # Prüfe, ob der Prozess beendet wurde
+                        if self.preview_process.poll() is not None:
+                            # Prozess beendet - lese stderr für Fehler
+                            try:
+                                if self.preview_process.stderr:
+                                    stderr_data = self.preview_process.stderr.read()
+                                    if stderr_data:
+                                        if isinstance(stderr_data, bytes):
+                                            stderr_text = stderr_data.decode('utf-8', errors='ignore')
+                                        else:
+                                            stderr_text = str(stderr_data)
+                                        if "Permission denied" in stderr_text or "Cannot open" in stderr_text:
+                                            self.log("Preview-Fehler: Keine Berechtigung für FireWire-Gerät")
+                                            self.log("HINWEIS: ffmpeg benötigt root-Rechte. Starten Sie die Anwendung mit sudo.")
+                                        elif "No such file" in stderr_text or "Device" in stderr_text:
+                                            self.log(f"Preview-Fehler: Gerät nicht gefunden: {stderr_text[:200]}")
+                                        else:
+                                            self.log(f"Preview-Fehler: {stderr_text[:300]}")
+                            except:
+                                pass
                         current_time = time.time()
                         if current_time - last_frame_time < target_frame_interval:
                             time.sleep(0.01)
