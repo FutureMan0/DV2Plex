@@ -439,9 +439,37 @@ class CaptureEngine:
                 text=False,
                 bufsize=0,
             )
+            
+            # Warte kurz und prüfe, ob der Prozess sofort beendet wurde
+            time.sleep(0.5)
+            if self.preview_process.poll() is not None:
+                # Prozess wurde sofort beendet - lese stderr für Fehler
+                try:
+                    if self.preview_process.stderr:
+                        stderr_data = self.preview_process.stderr.read()
+                        if stderr_data:
+                            if isinstance(stderr_data, bytes):
+                                stderr_text = stderr_data.decode('utf-8', errors='ignore')
+                            else:
+                                stderr_text = str(stderr_data)
+                            self.log(f"Preview-Fehler (Prozess beendet): {stderr_text[:500]}")
+                            if "Permission denied" in stderr_text or "Cannot open" in stderr_text:
+                                self.log("HINWEIS: ffmpeg benötigt root-Rechte. Starten Sie die Anwendung mit sudo.")
+                            elif "No such file" in stderr_text or "Device" in stderr_text:
+                                self.log(f"HINWEIS: FireWire-Gerät nicht gefunden. Versuchen Sie /dev/raw1394 oder /dev/video1394")
+                except Exception as e:
+                    self.log(f"Fehler beim Lesen von Preview-stderr: {e}")
+                return
 
             if self.preview_process.stdout:
                 self.preview_stop_event = threading.Event()
+                # Starte auch einen Thread zum Lesen von stderr für besseres Error-Handling
+                self.preview_stderr_thread = threading.Thread(
+                    target=self._read_preview_stderr,
+                    daemon=True,
+                )
+                self.preview_stderr_thread.start()
+                
                 self.preview_reader_thread = threading.Thread(
                     target=self._read_preview_stream,
                     daemon=True,
@@ -534,6 +562,58 @@ class CaptureEngine:
             self.is_capturing = False
             self._stop_preview()
             return False
+
+    def _read_preview_stderr(self):
+        """Liest stderr vom Preview-ffmpeg-Prozess für Fehlerdiagnose"""
+        if not self.preview_process or not self.preview_process.stderr:
+            return
+        
+        try:
+            while (
+                self.preview_process
+                and self.preview_process.poll() is None
+                and (not self.preview_stop_event or not self.preview_stop_event.is_set())
+            ):
+                chunk = self.preview_process.stderr.read(1024)
+                if chunk:
+                    if isinstance(chunk, bytes):
+                        stderr_text = chunk.decode('utf-8', errors='ignore')
+                    else:
+                        stderr_text = str(chunk)
+                    # Logge nur wichtige Fehler
+                    if "error" in stderr_text.lower() or "failed" in stderr_text.lower() or "cannot" in stderr_text.lower():
+                        self.log(f"Preview-ffmpeg: {stderr_text[:200]}")
+                else:
+                    time.sleep(0.1)
+        except Exception as e:
+            # Ignoriere Fehler beim Lesen von stderr
+            pass
+
+    def _read_preview_stderr(self):
+        """Liest stderr vom Preview-ffmpeg-Prozess für Fehlerdiagnose"""
+        if not self.preview_process or not self.preview_process.stderr:
+            return
+        
+        try:
+            while (
+                self.preview_process
+                and self.preview_process.poll() is None
+                and (not self.preview_stop_event or not self.preview_stop_event.is_set())
+            ):
+                chunk = self.preview_process.stderr.read(1024)
+                if chunk:
+                    if isinstance(chunk, bytes):
+                        stderr_text = chunk.decode('utf-8', errors='ignore')
+                    else:
+                        stderr_text = str(chunk)
+                    # Logge nur wichtige Fehler
+                    if "error" in stderr_text.lower() or "failed" in stderr_text.lower() or "cannot" in stderr_text.lower():
+                        self.log(f"Preview-ffmpeg: {stderr_text[:200]}")
+                else:
+                    time.sleep(0.1)
+        except Exception as e:
+            # Ignoriere Fehler beim Lesen von stderr
+            pass
 
     def _stop_preview(self):
         """Stoppt den Preview-Stream"""
