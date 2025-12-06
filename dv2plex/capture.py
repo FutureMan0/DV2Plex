@@ -394,17 +394,20 @@ class CaptureEngine:
         try:
             # Verwende dvgrab -> ffmpeg Pipeline für Preview
             # dvgrab liest vom FireWire-Gerät und sendet an ffmpeg
+            # WICHTIG: -noavc deaktiviert Kamera-Steuerung, damit dvgrab sofort streamt
+            # -f dv2 sollte mit stdout funktionieren, aber wir versuchen auch RAW
             dvgrab_cmd = [
                 self.dvgrab_path,
             ] + self._format_device_for_dvgrab(device) + [
+                "-noavc",  # Deaktiviere Kamera-Steuerung (streamt sofort)
                 "-a",  # Audio aktivieren
-                "-f", "dv2",  # DV2-Format
+                "-f", "raw",  # RAW-Format für stdout (ffmpeg kann DV-RAW lesen)
                 "-",  # Ausgabe nach stdout
             ]
             
             ffmpeg_cmd = [
                 str(self.ffmpeg_path),
-                "-f", "dv",  # DV-Format vom stdin
+                "-f", "dv",  # DV-Format vom stdin (RAW-DV-Daten)
                 "-i", "-",  # Input von stdin
                 "-vf", f"fps={fps},scale=640:-1",
                 "-f", "mjpeg",
