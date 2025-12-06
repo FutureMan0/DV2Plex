@@ -323,7 +323,10 @@ class CaptureEngine:
                 # Rewind
                 self.log("Spule Band zurück...")
                 if self._send_interactive_command("a"):
-                    time.sleep(3)  # Warte, damit Rewind abgeschlossen wird
+                    # Warte länger für vollständiges Rewind (10-15 Sekunden)
+                    # MiniDV-Bänder können 60-90 Minuten lang sein
+                    self.log("Warte auf vollständiges Rewind (15 Sekunden)...")
+                    time.sleep(15)  # Längere Wartezeit für vollständiges Rewind
                 else:
                     self.log("Warnung: Rewind-Befehl fehlgeschlagen")
                 
@@ -582,15 +585,40 @@ class CaptureEngine:
     def _read_stderr(self):
         """Liest stderr in einem separaten Thread"""
         try:
+            if not self.process or not self.process.stderr:
+                return
+                
+            # Prüfe, ob stderr im Text- oder Binärmodus ist
+            # Wenn text=True in subprocess.Popen, ist stderr ein Text-Stream
+            # Wenn text=False, ist stderr ein Bytes-Stream
+            stderr_data = ""
             stderr_bytes = b""
-            if self.process and self.process.stderr:
+            is_text_mode = hasattr(self.process.stderr, 'encoding')
+            
+            if is_text_mode:
+                # Text-Modus: Lese als String
+                while self.process.poll() is None:
+                    chunk = self.process.stderr.read(4096)
+                    if chunk:
+                        stderr_data += chunk
+                    else:
+                        time.sleep(0.1)
+                
+                remaining = self.process.stderr.read()
+                if remaining:
+                    stderr_data += remaining
+                
+                # Konvertiere zu Bytes für _process_stderr
+                stderr_bytes = stderr_data.encode('utf-8', errors='ignore')
+            else:
+                # Binärmodus: Lese als Bytes
                 while self.process.poll() is None:
                     chunk = self.process.stderr.read(4096)
                     if chunk:
                         stderr_bytes += chunk
                     else:
                         time.sleep(0.1)
-
+                
                 remaining = self.process.stderr.read()
                 if remaining:
                     stderr_bytes += remaining
