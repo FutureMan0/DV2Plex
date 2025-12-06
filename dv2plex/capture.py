@@ -44,6 +44,7 @@ class CaptureEngine:
         self.current_output_path: Optional[Path] = None
         self.logger = logging.getLogger(__name__)
         self.interactive_process: Optional[subprocess.Popen] = None  # Für interaktiven Modus
+        self.preview_dvgrab_process: Optional[subprocess.Popen] = None  # dvgrab-Prozess für Preview
 
     def detect_firewire_device(self) -> Optional[str]:
         """
@@ -389,64 +390,63 @@ class CaptureEngine:
             return False
 
     def _start_preview(self, device: str, fps: int):
-        """Startet Preview-Stream mit ffmpeg"""
+        """Startet Preview-Stream mit dvgrab -> ffmpeg Pipeline"""
         try:
-            # ffmpeg benötigt einen Gerätepfad
-            # Wenn device eine Karten-Nummer ist, konvertiere zu /dev/raw1394
-            # oder verwende die Karten-Nummer direkt (je nach ffmpeg-Version)
-            ffmpeg_device = device
-            if device.isdigit():
-                # Für moderne Systeme: Versuche /dev/raw1394, sonst verwende Karten-Nummer
-                if Path("/dev/raw1394").exists():
-                    ffmpeg_device = "/dev/raw1394"
-                else:
-                    # Manche ffmpeg-Versionen akzeptieren Karten-Nummern direkt
-                    # Versuche auch /dev/video1394
-                    if Path("/dev/video1394").exists():
-                        ffmpeg_device = "/dev/video1394"
-                    else:
-                        ffmpeg_device = device
+            # Verwende dvgrab -> ffmpeg Pipeline für Preview
+            # dvgrab liest vom FireWire-Gerät und sendet an ffmpeg
+            dvgrab_cmd = [
+                self.dvgrab_path,
+            ] + self._format_device_for_dvgrab(device) + [
+                "-a",  # Audio aktivieren
+                "-f", "dv2",  # DV2-Format
+                "-",  # Ausgabe nach stdout
+            ]
             
-            # ffmpeg liest direkt vom FireWire-Gerät
-            # WICHTIG: Die Kamera muss im Play-Modus sein, damit ffmpeg Signal empfängt
-            # ffmpeg mit dv1394 benötigt die Karten-Nummer direkt (nicht als String "0")
-            # oder /dev/raw1394
-            if ffmpeg_device.isdigit():
-                # Verwende die Karten-Nummer direkt (ffmpeg erwartet Integer)
-                ffmpeg_input = ffmpeg_device
-            else:
-                ffmpeg_input = ffmpeg_device
-                
             ffmpeg_cmd = [
                 str(self.ffmpeg_path),
-                "-f", "dv1394",
-                "-i", ffmpeg_input,
+                "-f", "dv",  # DV-Format vom stdin
+                "-i", "-",  # Input von stdin
                 "-vf", f"fps={fps},scale=640:-1",
                 "-f", "mjpeg",
                 "-q:v", "5",
-                "-",
+                "-",  # Ausgabe nach stdout
             ]
             
-            # Prüfe, ob wir root sind - ffmpeg benötigt auch root für FireWire
+            # Prüfe, ob wir root sind - dvgrab benötigt root für FireWire
             is_root = os.geteuid() == 0
             if not is_root:
-                cmd = ["sudo"] + ffmpeg_cmd
-                self.log("HINWEIS: ffmpeg benötigt root-Rechte für FireWire-Zugriff. Verwende sudo...")
-            else:
-                cmd = ffmpeg_cmd
-
-            self.log("Starte Preview-Stream...")
-            self.log(f"Preview-Gerät: {ffmpeg_device}")
+                dvgrab_cmd = ["sudo"] + dvgrab_cmd
+                self.log("HINWEIS: dvgrab benötigt root-Rechte für FireWire-Zugriff. Verwende sudo...")
+            
+            self.log("Starte Preview-Stream (dvgrab -> ffmpeg Pipeline)...")
+            self.log(f"Preview-Gerät: {device}")
             self.log("HINWEIS: Preview funktioniert nur, wenn die Kamera im Play-Modus ist und Signal sendet.")
             
-            self.preview_process = subprocess.Popen(
-                cmd,
+            # Starte dvgrab-Prozess
+            dvgrab_process = subprocess.Popen(
+                dvgrab_cmd,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 stdin=subprocess.PIPE,
                 text=False,
                 bufsize=0,
             )
+            
+            # Starte ffmpeg-Prozess mit stdin von dvgrab
+            self.preview_process = subprocess.Popen(
+                ffmpeg_cmd,
+                stdin=dvgrab_process.stdout,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=False,
+                bufsize=0,
+            )
+            
+            # Schließe dvgrab stdout in ffmpeg
+            dvgrab_process.stdout.close()
+            
+            # Speichere dvgrab-Prozess für späteres Stoppen
+            self.preview_dvgrab_process = dvgrab_process
             
             # Warte länger und prüfe, ob der Prozess sofort beendet wurde
             # ffmpeg braucht etwas Zeit, um das Gerät zu öffnen und Fehler zu melden
@@ -455,7 +455,16 @@ class CaptureEngine:
                 # Prozess wurde sofort beendet - lese stderr für Fehler
                 try:
                     if self.preview_process.stderr:
-                        stderr_data = self.preview_process.stderr.read()
+                        # Warte kurz, damit stderr vollständig geschrieben wird
+                        time.sleep(0.2)
+                        # Lese alle verfügbaren Daten
+                        stderr_data = b""
+                        while True:
+                            chunk = self.preview_process.stderr.read(4096)
+                            if not chunk:
+                                break
+                            stderr_data += chunk if isinstance(chunk, bytes) else chunk.encode()
+                        
                         if stderr_data:
                             if isinstance(stderr_data, bytes):
                                 stderr_text = stderr_data.decode('utf-8', errors='ignore')
@@ -658,6 +667,19 @@ class CaptureEngine:
         if self.preview_stop_event:
             self.preview_stop_event.set()
         
+        # Stoppe dvgrab-Prozess für Preview
+        if self.preview_dvgrab_process:
+            try:
+                self.preview_dvgrab_process.terminate()
+                self.preview_dvgrab_process.wait(timeout=2)
+            except:
+                try:
+                    self.preview_dvgrab_process.kill()
+                except:
+                    pass
+            self.preview_dvgrab_process = None
+        
+        # Stoppe ffmpeg-Prozess
         if self.preview_process:
             try:
                 self.preview_process.terminate()
@@ -826,9 +848,21 @@ class CaptureEngine:
                         if self.preview_process.poll() is not None:
                             # Prozess beendet - lese stderr für Fehler
                             try:
-                                if self.preview_process.stderr:
-                                    stderr_data = self.preview_process.stderr.read()
-                                    if stderr_data:
+                    if self.preview_process.stderr:
+                        # Warte kurz, damit stderr vollständig geschrieben wird
+                        time.sleep(0.2)
+                        # Lese alle verfügbaren Daten in mehreren Chunks
+                        stderr_data = b""
+                        while True:
+                            chunk = self.preview_process.stderr.read(4096)
+                            if not chunk:
+                                break
+                            if isinstance(chunk, bytes):
+                                stderr_data += chunk
+                            else:
+                                stderr_data += chunk.encode('utf-8', errors='ignore')
+                        
+                        if stderr_data:
                                         if isinstance(stderr_data, bytes):
                                             stderr_text = stderr_data.decode('utf-8', errors='ignore')
                                         else:
