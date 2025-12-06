@@ -279,9 +279,22 @@ class CaptureService:
         # Create work directory
         movie_name = f"{title} ({year})"
         dv_import_root = self.config.get_dv_import_root()
+        # Ensure absolute path
+        if not dv_import_root.is_absolute():
+            dv_import_root = dv_import_root.resolve()
+        
+        # Ensure parent directory exists
+        dv_import_root.mkdir(parents=True, exist_ok=True)
+        
         movie_dir = dv_import_root / movie_name
         lowres_dir = movie_dir / "LowRes"
-        lowres_dir.mkdir(parents=True, exist_ok=True)
+        
+        try:
+            lowres_dir.mkdir(parents=True, exist_ok=True)
+        except PermissionError as e:
+            return False, f"Keine Berechtigung zum Erstellen des Verzeichnisses: {lowres_dir}. Fehler: {e}"
+        except Exception as e:
+            return False, f"Fehler beim Erstellen des Verzeichnisses: {lowres_dir}. Fehler: {e}"
         
         # Find next part number
         existing_parts = list(lowres_dir.glob("part_*.avi"))

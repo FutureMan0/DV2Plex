@@ -315,8 +315,16 @@ class Config:
         """Gibt den Root-Pfad für DV-Importe zurück"""
         path = self.get("paths.dv_import_root")
         if path:
-            return Path(path)
-        return self.base_dir / "dv2plex" / "DV_Import"
+            p = Path(path)
+            # Ensure absolute path
+            if not p.is_absolute():
+                p = p.resolve()
+            return p
+        result = self.base_dir / "dv2plex" / "DV_Import"
+        # Ensure absolute path
+        if not result.is_absolute():
+            result = result.resolve()
+        return result
     
     def get_plex_movies_root(self) -> Path:
         """Gibt den Root-Pfad für Plex-Movies zurück"""
