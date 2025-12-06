@@ -258,85 +258,86 @@ class CaptureEngine:
             preview_fps: FPS für Preview
             auto_rewind_play: Automatisch Rewind und Play vor Aufnahme
         """
-        if self.is_capturing:
-            self.log("Aufnahme läuft bereits!")
-            return False
-
-        device = self.get_device()
-        if not device:
-            self.log("Kein FireWire-Gerät verfügbar!")
-            return False
-
-        output_dir = Path(output_path)
-        output_dir.mkdir(parents=True, exist_ok=True)
-        # dvgrab erstellt Dateien mit Timestamp-Format
-        # Wir verwenden ein einfaches Format für Part-Namen
-        self.current_output_path = output_dir / f"part_{part_number:03d}.avi"
-
-        self.preview_callback = preview_callback
-        self.preview_fps = preview_fps
-        enable_preview = preview_callback is not None
-
-        # Starte interaktiven Modus für Kamerasteuerung
-        output_base = str(self.current_output_path.parent / f"part_{part_number:03d}")
-        # Verwende -rewind Option wenn auto_rewind_play aktiviert ist
-        interactive_started = self._start_interactive_mode(device, output_base, auto_rewind=auto_rewind_play)
-        
-        if not interactive_started:
-            self.log("WARNUNG: Interaktiver Modus konnte nicht gestartet werden")
-            return False
-        
-        # Automatischer Workflow: Play → Capture
-        # (Rewind wird bereits durch -rewind Option gemacht, wenn auto_rewind_play aktiviert ist)
-        if auto_rewind_play:
-            self.log("=== Automatischer Workflow: Rewind (via -rewind) → Play → Capture ===")
-            time.sleep(2)  # Warte, damit -rewind abgeschlossen wird
-            
-            # Play
-            self.log("Starte Wiedergabe...")
-            if self._send_interactive_command("p"):
-                time.sleep(2)  # Warte auf Play-Start
-            else:
-                self.log("Warnung: Play-Befehl fehlgeschlagen")
-            
-            # Capture starten
-            self.log("Starte Aufnahme...")
-            if not self._send_interactive_command("c"):
-                self.log("Warnung: Capture-Befehl fehlgeschlagen")
+        try:
+            if self.is_capturing:
+                self.log("Aufnahme läuft bereits!")
                 return False
-        else:
-            self.log("=== Manueller Modus ===")
-            self.log("Bitte steuern Sie die Kamera manuell oder verwenden Sie die Steuerungs-Buttons.")
-            self.log("Verwenden Sie 'c' um die Aufnahme zu starten.")
 
-        # Starte Preview (separater ffmpeg-Prozess)
-        if enable_preview:
-            self._start_preview(device, preview_fps)
+            device = self.get_device()
+            if not device:
+                self.log("Kein FireWire-Gerät verfügbar!")
+                return False
 
-        # Verwende den interaktiven Prozess für Capture
-        if self.interactive_process and self.interactive_process.poll() is None:
-            # Capture wurde bereits gestartet (wenn auto_rewind_play), sonst starte jetzt
-            if not auto_rewind_play:
-                self.log("Starte Aufnahme im interaktiven Modus...")
+            output_dir = Path(output_path)
+            output_dir.mkdir(parents=True, exist_ok=True)
+            # dvgrab erstellt Dateien mit Timestamp-Format
+            # Wir verwenden ein einfaches Format für Part-Namen
+            self.current_output_path = output_dir / f"part_{part_number:03d}.avi"
+
+            self.preview_callback = preview_callback
+            self.preview_fps = preview_fps
+            enable_preview = preview_callback is not None
+
+            # Starte interaktiven Modus für Kamerasteuerung
+            output_base = str(self.current_output_path.parent / f"part_{part_number:03d}")
+            # Verwende -rewind Option wenn auto_rewind_play aktiviert ist
+            interactive_started = self._start_interactive_mode(device, output_base, auto_rewind=auto_rewind_play)
+            
+            if not interactive_started:
+                self.log("WARNUNG: Interaktiver Modus konnte nicht gestartet werden")
+                return False
+            
+            # Automatischer Workflow: Play → Capture
+            # (Rewind wird bereits durch -rewind Option gemacht, wenn auto_rewind_play aktiviert ist)
+            if auto_rewind_play:
+                self.log("=== Automatischer Workflow: Rewind (via -rewind) → Play → Capture ===")
+                time.sleep(2)  # Warte, damit -rewind abgeschlossen wird
+                
+                # Play
+                self.log("Starte Wiedergabe...")
+                if self._send_interactive_command("p"):
+                    time.sleep(2)  # Warte auf Play-Start
+                else:
+                    self.log("Warnung: Play-Befehl fehlgeschlagen")
+                
+                # Capture starten
+                self.log("Starte Aufnahme...")
                 if not self._send_interactive_command("c"):
-                    self.log("Fehler: Capture-Befehl konnte nicht gesendet werden")
+                    self.log("Warnung: Capture-Befehl fehlgeschlagen")
                     return False
-            
-            # Verwende den interaktiven Prozess als Capture-Prozess
-            self.process = self.interactive_process
-            self.is_capturing = True
-            
-            self.capture_thread = threading.Thread(
-                target=self._monitor_capture,
-                daemon=True,
-            )
-            self.capture_thread.start()
-            
-            return True
-        else:
-            # Sollte nicht passieren, da interaktiver Modus bereits gestartet wurde
-            self.log("FEHLER: Interaktiver Modus nicht verfügbar")
-            return False
+            else:
+                self.log("=== Manueller Modus ===")
+                self.log("Bitte steuern Sie die Kamera manuell oder verwenden Sie die Steuerungs-Buttons.")
+                self.log("Verwenden Sie 'c' um die Aufnahme zu starten.")
+
+            # Starte Preview (separater ffmpeg-Prozess)
+            if enable_preview:
+                self._start_preview(device, preview_fps)
+
+            # Verwende den interaktiven Prozess für Capture
+            if self.interactive_process and self.interactive_process.poll() is None:
+                # Capture wurde bereits gestartet (wenn auto_rewind_play), sonst starte jetzt
+                if not auto_rewind_play:
+                    self.log("Starte Aufnahme im interaktiven Modus...")
+                    if not self._send_interactive_command("c"):
+                        self.log("Fehler: Capture-Befehl konnte nicht gesendet werden")
+                        return False
+                
+                # Verwende den interaktiven Prozess als Capture-Prozess
+                self.process = self.interactive_process
+                self.is_capturing = True
+                
+                self.capture_thread = threading.Thread(
+                    target=self._monitor_capture,
+                    daemon=True,
+                )
+                self.capture_thread.start()
+                
+                return True
+            else:
+                # Sollte nicht passieren, da interaktiver Modus bereits gestartet wurde
+                self.log("FEHLER: Interaktiver Modus nicht verfügbar")
+                return False
 
         except Exception as e:
             self.log(f"Fehler beim Starten der Aufnahme: {e}")
