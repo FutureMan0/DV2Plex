@@ -130,7 +130,7 @@ class CaptureEngine:
         Args:
             device: FireWire-Gerät
             output_base: Basisname für Ausgabedateien
-            auto_rewind: Verwende -rewind Option für automatisches Zurückspulen
+            auto_rewind: Wenn True, wird automatisch Rewind-Befehl gesendet (nach Start)
         
         Returns:
             True wenn erfolgreich gestartet
@@ -145,13 +145,8 @@ class CaptureEngine:
                 "-i",  # Interaktiver Modus
                 "-a",  # Audio aktivieren
                 "-f", "dv2",  # DV2-Format (AVI-kompatibel)
+                output_base,  # Ausgabebasisname
             ]
-            
-            # Optionale Rewind-Option
-            if auto_rewind:
-                cmd.append("-rewind")
-            
-            cmd.append(output_base)  # Ausgabebasisname
             
             self.log("Starte dvgrab im interaktiven Modus...")
             self.log(f"dvgrab-Befehl: {' '.join(cmd)}")
@@ -176,12 +171,15 @@ class CaptureEngine:
                 error_output = ""
                 if self.interactive_process.stderr:
                     try:
+                        # Da text=True, ist stderr bereits ein String
                         error_output = self.interactive_process.stderr.read()
-                    except:
-                        pass
+                        if isinstance(error_output, bytes):
+                            error_output = error_output.decode('utf-8', errors='ignore')
+                    except Exception as e:
+                        self.log(f"Fehler beim Lesen von stderr: {e}")
                 self.log(f"Fehler beim Starten des interaktiven Modus: Return-Code {self.interactive_process.returncode}")
                 if error_output:
-                    self.log(f"Fehler-Ausgabe: {error_output.decode('utf-8', errors='ignore')[:200]}")
+                    self.log(f"Fehler-Ausgabe: {error_output[:500]}")
                 self.interactive_process = None
                 return False
                 
@@ -287,11 +285,16 @@ class CaptureEngine:
                 self.log("WARNUNG: Interaktiver Modus konnte nicht gestartet werden")
                 return False
             
-            # Automatischer Workflow: Play → Capture
-            # (Rewind wird bereits durch -rewind Option gemacht, wenn auto_rewind_play aktiviert ist)
+            # Automatischer Workflow: Rewind → Play → Capture
             if auto_rewind_play:
-                self.log("=== Automatischer Workflow: Rewind (via -rewind) → Play → Capture ===")
-                time.sleep(2)  # Warte, damit -rewind abgeschlossen wird
+                self.log("=== Automatischer Workflow: Rewind → Play → Capture ===")
+                
+                # Rewind
+                self.log("Spule Band zurück...")
+                if self._send_interactive_command("a"):
+                    time.sleep(3)  # Warte, damit Rewind abgeschlossen wird
+                else:
+                    self.log("Warnung: Rewind-Befehl fehlgeschlagen")
                 
                 # Play
                 self.log("Starte Wiedergabe...")
