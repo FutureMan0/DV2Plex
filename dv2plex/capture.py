@@ -5,6 +5,7 @@ Capture-Engine für DV-Aufnahmen über dvgrab (Linux)
 from __future__ import annotations
 
 import logging
+import os
 import subprocess
 import threading
 import time
@@ -138,8 +139,12 @@ class CaptureEngine:
         if self.interactive_process:
             return True  # Bereits gestartet
         
+        # Prüfe, ob wir root sind
+        is_root = os.geteuid() == 0
+        
         try:
-            cmd = [
+            # Baue dvgrab-Befehl
+            dvgrab_cmd = [
                 self.dvgrab_path,
             ] + self._format_device_for_dvgrab(device) + [
                 "-i",  # Interaktiver Modus
@@ -147,6 +152,13 @@ class CaptureEngine:
                 "-f", "dv2",  # DV2-Format (AVI-kompatibel)
                 output_base,  # Ausgabebasisname
             ]
+            
+            # Wenn nicht root, versuche mit sudo
+            if not is_root:
+                cmd = ["sudo"] + dvgrab_cmd
+                self.log("HINWEIS: dvgrab benötigt root-Rechte. Versuche mit sudo...")
+            else:
+                cmd = dvgrab_cmd
             
             self.log("Starte dvgrab im interaktiven Modus...")
             self.log(f"dvgrab-Befehl: {' '.join(cmd)}")
@@ -180,6 +192,25 @@ class CaptureEngine:
                 self.log(f"Fehler beim Starten des interaktiven Modus: Return-Code {self.interactive_process.returncode}")
                 if error_output:
                     self.log(f"Fehler-Ausgabe: {error_output[:500]}")
+                
+                # Wenn raw1394-Fehler und nicht root, gebe Hinweis
+                if "raw1394" in error_output.lower() and not is_root:
+                    self.log("")
+                    self.log("=" * 60)
+                    self.log("FEHLER: dvgrab benötigt root-Rechte für FireWire-Zugriff!")
+                    self.log("")
+                    self.log("Lösungen:")
+                    self.log("1. Starten Sie die Anwendung mit sudo:")
+                    self.log("   sudo python start.py --no-gui")
+                    self.log("")
+                    self.log("2. Oder konfigurieren Sie udev-Regeln für FireWire:")
+                    self.log("   sudo nano /etc/udev/rules.d/99-raw1394.rules")
+                    self.log("   Fügen Sie hinzu:")
+                    self.log('   KERNEL=="raw1394", MODE="0666"')
+                    self.log("   Dann: sudo udevadm control --reload-rules")
+                    self.log("=" * 60)
+                    self.log("")
+                
                 self.interactive_process = None
                 return False
                 
