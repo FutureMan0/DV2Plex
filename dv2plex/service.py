@@ -6,6 +6,7 @@ Wird sowohl von der GUI als auch vom Webserver verwendet
 import re
 import logging
 import tempfile
+import os
 from pathlib import Path
 from typing import Optional, List, Tuple, Callable
 from threading import Thread, Event
@@ -283,8 +284,33 @@ class CaptureService:
         if not dv_import_root.is_absolute():
             dv_import_root = dv_import_root.resolve()
         
-        # Ensure parent directory exists
-        dv_import_root.mkdir(parents=True, exist_ok=True)
+        # Ensure parent directory exists with proper permissions
+        try:
+            dv_import_root.mkdir(parents=True, exist_ok=True)
+            # Check if we can write to the directory
+            if not os.access(dv_import_root, os.W_OK):
+                # Suggest alternative path in home directory
+                import pathlib
+                home_dv_import = Path.home() / "DV2Plex" / "DV_Import"
+                return False, (
+                    f"Keine Schreibberechtigung für: {dv_import_root}\n\n"
+                    f"Lösung: Ändere den DV_Import-Pfad in den Einstellungen zu:\n"
+                    f"{home_dv_import}\n\n"
+                    f"Oder ändere die Berechtigungen mit:\n"
+                    f"sudo chown -R $USER:$USER {dv_import_root}"
+                )
+        except PermissionError as e:
+            import pathlib
+            home_dv_import = Path.home() / "DV2Plex" / "DV_Import"
+            return False, (
+                f"Keine Berechtigung zum Erstellen des Verzeichnisses: {dv_import_root}\n\n"
+                f"Lösung: Ändere den DV_Import-Pfad in den Einstellungen zu:\n"
+                f"{home_dv_import}\n\n"
+                f"Oder ändere die Berechtigungen mit:\n"
+                f"sudo chown -R $USER:$USER {dv_import_root}"
+            )
+        except Exception as e:
+            return False, f"Fehler beim Erstellen des Root-Verzeichnisses: {dv_import_root}. Fehler: {e}"
         
         movie_dir = dv_import_root / movie_name
         lowres_dir = movie_dir / "LowRes"
@@ -292,7 +318,7 @@ class CaptureService:
         try:
             lowres_dir.mkdir(parents=True, exist_ok=True)
         except PermissionError as e:
-            return False, f"Keine Berechtigung zum Erstellen des Verzeichnisses: {lowres_dir}. Fehler: {e}"
+            return False, f"Keine Berechtigung zum Erstellen des Verzeichnisses: {lowres_dir}. Bitte prüfe die Berechtigungen oder ändere den DV_Import-Pfad in den Einstellungen."
         except Exception as e:
             return False, f"Fehler beim Erstellen des Verzeichnisses: {lowres_dir}. Fehler: {e}"
         

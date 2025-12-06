@@ -284,23 +284,30 @@ async def start_capture(request: CaptureStartRequest):
     if capture_service.is_capturing():
         raise HTTPException(status_code=400, detail="Capture läuft bereits")
     
-    success, error = capture_service.start_capture(
-        request.title,
-        request.year,
-        preview_callback=preview_callback,
-        auto_rewind_play=request.auto_rewind_play
-    )
-    
-    if success:
-        active_capture = {
-            "title": request.title,
-            "year": request.year,
-            "started_at": datetime.now().isoformat()
-        }
-        await broadcast_message({"type": "status", "status": "capture_started"})
-        return {"success": True, "message": "Capture gestartet"}
-    else:
-        raise HTTPException(status_code=400, detail=error or "Capture konnte nicht gestartet werden")
+    try:
+        success, error = capture_service.start_capture(
+            request.title,
+            request.year,
+            preview_callback=preview_callback,
+            auto_rewind_play=request.auto_rewind_play
+        )
+        
+        if success:
+            active_capture = {
+                "title": request.title,
+                "year": request.year,
+                "started_at": datetime.now().isoformat()
+            }
+            await broadcast_message({"type": "status", "status": "capture_started"})
+            return {"success": True, "message": "Capture gestartet"}
+        else:
+            error_msg = error or "Capture konnte nicht gestartet werden"
+            logger.error(f"Capture-Fehler: {error_msg}")
+            raise HTTPException(status_code=400, detail=error_msg)
+    except Exception as e:
+        error_msg = f"Unerwarteter Fehler beim Starten der Aufnahme: {str(e)}"
+        logger.exception("Fehler in start_capture")
+        raise HTTPException(status_code=500, detail=error_msg)
 
 
 @app.post("/api/capture/stop")
