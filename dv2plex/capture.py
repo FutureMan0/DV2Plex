@@ -123,9 +123,14 @@ class CaptureEngine:
         # Sonst verwende -i mit dem Gerätepfad
         return ["-i", device]
 
-    def _start_interactive_mode(self, device: str, output_base: str) -> bool:
+    def _start_interactive_mode(self, device: str, output_base: str, auto_rewind: bool = False) -> bool:
         """
         Startet dvgrab im interaktiven Modus für Kamerasteuerung
+        
+        Args:
+            device: FireWire-Gerät
+            output_base: Basisname für Ausgabedateien
+            auto_rewind: Verwende -rewind Option für automatisches Zurückspulen
         
         Returns:
             True wenn erfolgreich gestartet
@@ -139,11 +144,18 @@ class CaptureEngine:
             ] + self._format_device_for_dvgrab(device) + [
                 "-i",  # Interaktiver Modus
                 "-a",  # Audio aktivieren
-                "-f", "dv2",  # DV2-Format
-                output_base,  # Ausgabebasisname
+                "-f", "dv2",  # DV2-Format (AVI-kompatibel)
             ]
             
+            # Optionale Rewind-Option
+            if auto_rewind:
+                cmd.append("-rewind")
+            
+            cmd.append(output_base)  # Ausgabebasisname
+            
             self.log("Starte dvgrab im interaktiven Modus...")
+            self.log(f"dvgrab-Befehl: {' '.join(cmd)}")
+            
             self.interactive_process = subprocess.Popen(
                 cmd,
                 stdout=subprocess.PIPE,
@@ -154,13 +166,22 @@ class CaptureEngine:
             )
             
             # Warte kurz, damit der Prozess startet
-            time.sleep(0.5)
+            time.sleep(1)
             
             if self.interactive_process.poll() is None:
                 self.log("Interaktiver Modus aktiviert")
+                self.log("Verfügbare Befehle: a=rewind, p=play, c=capture, k=pause, Esc=stop")
                 return True
             else:
+                error_output = ""
+                if self.interactive_process.stderr:
+                    try:
+                        error_output = self.interactive_process.stderr.read()
+                    except:
+                        pass
                 self.log(f"Fehler beim Starten des interaktiven Modus: Return-Code {self.interactive_process.returncode}")
+                if error_output:
+                    self.log(f"Fehler-Ausgabe: {error_output.decode('utf-8', errors='ignore')[:200]}")
                 self.interactive_process = None
                 return False
                 
@@ -174,7 +195,8 @@ class CaptureEngine:
         Sendet einen Befehl an dvgrab im interaktiven Modus
         
         Args:
-            command: Befehl (z.B. 'a' für rewind, 'p' für play, 'c' für capture, 'k' für pause)
+            command: Befehl (z.B. 'a' für rewind, 'p' für play, 'c' für capture, 'k' für pause, '\x1b' für Esc/Stop)
+                    Im interaktiven Modus werden einzelne Zeichen ohne Newline gesendet
         """
         if not self.interactive_process or self.interactive_process.poll() is not None:
             self.log("Interaktiver Modus nicht aktiv")
@@ -182,7 +204,9 @@ class CaptureEngine:
         
         try:
             if self.interactive_process.stdin:
-                self.interactive_process.stdin.write(command + "\n")
+                # Sende Befehl (ohne Newline für einzelne Zeichen)
+                # Im interaktiven Modus von dvgrab werden einzelne Zeichen direkt verarbeitet
+                self.interactive_process.stdin.write(command)
                 self.interactive_process.stdin.flush()
                 return True
             else:
@@ -255,23 +279,18 @@ class CaptureEngine:
 
         # Starte interaktiven Modus für Kamerasteuerung
         output_base = str(self.current_output_path.parent / f"part_{part_number:03d}")
-        interactive_started = self._start_interactive_mode(device, output_base)
+        # Verwende -rewind Option wenn auto_rewind_play aktiviert ist
+        interactive_started = self._start_interactive_mode(device, output_base, auto_rewind=auto_rewind_play)
         
         if not interactive_started:
             self.log("WARNUNG: Interaktiver Modus konnte nicht gestartet werden")
             return False
         
-        # Automatischer Workflow: Rewind → Play → Capture
+        # Automatischer Workflow: Play → Capture
+        # (Rewind wird bereits durch -rewind Option gemacht, wenn auto_rewind_play aktiviert ist)
         if auto_rewind_play:
-            self.log("=== Automatischer Workflow: Rewind → Play → Capture ===")
-            time.sleep(1)  # Kurze Pause nach Start, damit dvgrab bereit ist
-            
-            # Rewind
-            self.log("Spule Kassette zurück...")
-            if self._send_interactive_command("a"):
-                time.sleep(4)  # Warte auf Rewind (kann einige Sekunden dauern)
-            else:
-                self.log("Warnung: Rewind-Befehl fehlgeschlagen")
+            self.log("=== Automatischer Workflow: Rewind (via -rewind) → Play → Capture ===")
+            time.sleep(2)  # Warte, damit -rewind abgeschlossen wird
             
             # Play
             self.log("Starte Wiedergabe...")
@@ -288,7 +307,7 @@ class CaptureEngine:
         else:
             self.log("=== Manueller Modus ===")
             self.log("Bitte steuern Sie die Kamera manuell oder verwenden Sie die Steuerungs-Buttons.")
-            self.log("Drücken Sie 'c' im interaktiven Modus oder verwenden Sie den Capture-Button.")
+            self.log("Verwenden Sie 'c' um die Aufnahme zu starten.")
 
         # Starte Preview (separater ffmpeg-Prozess)
         if enable_preview:
@@ -383,7 +402,6 @@ class CaptureEngine:
         except Exception as e:
             self.log(f"Fehler beim Starten des Preview-Streams: {e}")
             self.log("HINWEIS: Preview erfordert, dass die Kamera im Play-Modus ist.")
-            self.log("HINWEIS: Preview erfordert, dass die Kamera im Play-Modus ist.")
 
     def stop_capture(self) -> bool:
         """Stoppt die Aufnahme"""
@@ -396,10 +414,15 @@ class CaptureEngine:
             # Stoppe Preview
             self._stop_preview()
 
-            # Wenn im interaktiven Modus: Sende Stop-Befehl (Esc)
+            # Wenn im interaktiven Modus: Sende Stop-Befehl (Esc oder 'q' für quit)
             if self.interactive_process and self.interactive_process.poll() is None:
                 self.log("Sende Stop-Befehl an dvgrab...")
+                # Versuche zuerst ESC, dann 'q' für quit
                 self._send_interactive_command("\x1b")  # ESC für Stop
+                time.sleep(0.5)
+                # Falls ESC nicht funktioniert, versuche 'q'
+                if self.interactive_process.poll() is None:
+                    self._send_interactive_command("q")  # 'q' für quit
                 time.sleep(1)  # Warte auf Stop
             
             # Stoppe dvgrab-Prozess
