@@ -448,8 +448,9 @@ class CaptureEngine:
                 bufsize=0,
             )
             
-            # Warte kurz und prüfe, ob der Prozess sofort beendet wurde
-            time.sleep(0.5)
+            # Warte länger und prüfe, ob der Prozess sofort beendet wurde
+            # ffmpeg braucht etwas Zeit, um das Gerät zu öffnen und Fehler zu melden
+            time.sleep(1.5)
             if self.preview_process.poll() is not None:
                 # Prozess wurde sofort beendet - lese stderr für Fehler
                 try:
@@ -476,11 +477,20 @@ class CaptureEngine:
                             if not error_found:
                                 # Falls kein Fehler gefunden, zeige die letzten Zeilen (nach Versionsinfo)
                                 # Versionsinfo ist normalerweise am Anfang
-                                lines_after_version = [line for line in error_lines if 'ffmpeg version' not in line.lower() and line.strip()]
+                                lines_after_version = [line for line in error_lines if 'ffmpeg version' not in line.lower() and 'libav' not in line.lower() and line.strip()]
                                 if lines_after_version:
                                     self.log(f"Preview-Fehler (Prozess beendet, letzte Zeilen):\n{chr(10).join(lines_after_version[-10:])}")
                                 else:
-                                    self.log(f"Preview-Fehler (Prozess beendet, vollständige Ausgabe):\n{stderr_text[-1000:]}")
+                                    # Zeige die vollständige Ausgabe, aber filtere Versionsinfo
+                                    important_lines = [line for line in error_lines if any(keyword in line.lower() for keyword in ['input', 'output', 'stream', 'error', 'failed', 'cannot', 'device', 'permission'])]
+                                    if important_lines:
+                                        self.log(f"Preview-Fehler (Prozess beendet, wichtige Zeilen):\n{chr(10).join(important_lines)}")
+                                    else:
+                                        self.log(f"Preview-Fehler: Prozess wurde sofort beendet. Mögliche Ursachen:")
+                                        self.log(f"  - Gerät bereits von dvgrab verwendet (dvgrab blockiert FireWire-Gerät)")
+                                        self.log(f"  - Keine Berechtigung für {ffmpeg_device}")
+                                        self.log(f"  - Gerät nicht gefunden: {ffmpeg_device}")
+                                        self.log(f"Vollständige stderr-Ausgabe (letzte 500 Zeichen):\n{stderr_text[-500:]}")
                             if "Permission denied" in stderr_text or "Cannot open" in stderr_text:
                                 self.log("HINWEIS: ffmpeg benötigt root-Rechte. Starten Sie die Anwendung mit sudo.")
                             elif "No such file" in stderr_text or "Device" in stderr_text:
