@@ -409,10 +409,18 @@ class CaptureEngine:
             
             # ffmpeg liest direkt vom FireWire-Gerät
             # WICHTIG: Die Kamera muss im Play-Modus sein, damit ffmpeg Signal empfängt
+            # ffmpeg mit dv1394 benötigt die Karten-Nummer direkt (nicht als String "0")
+            # oder /dev/raw1394
+            if ffmpeg_device.isdigit():
+                # Verwende die Karten-Nummer direkt (ffmpeg erwartet Integer)
+                ffmpeg_input = ffmpeg_device
+            else:
+                ffmpeg_input = ffmpeg_device
+                
             ffmpeg_cmd = [
                 str(self.ffmpeg_path),
                 "-f", "dv1394",
-                "-i", ffmpeg_device,
+                "-i", ffmpeg_input,
                 "-vf", f"fps={fps},scale=640:-1",
                 "-f", "mjpeg",
                 "-q:v", "5",
@@ -452,7 +460,27 @@ class CaptureEngine:
                                 stderr_text = stderr_data.decode('utf-8', errors='ignore')
                             else:
                                 stderr_text = str(stderr_data)
-                            self.log(f"Preview-Fehler (Prozess beendet): {stderr_text[:500]}")
+                            # Zeige vollständige Fehlermeldung - suche nach dem eigentlichen Fehler
+                            # (nach der Versionsinfo)
+                            error_lines = stderr_text.split('\n')
+                            error_found = False
+                            for i, line in enumerate(error_lines):
+                                if any(keyword in line.lower() for keyword in ['error', 'failed', 'cannot', 'invalid', 'permission', 'no such', 'device']):
+                                    # Zeige diese Zeile und Kontext
+                                    start_idx = max(0, i-2)
+                                    end_idx = min(len(error_lines), i+5)
+                                    error_section = '\n'.join(error_lines[start_idx:end_idx])
+                                    self.log(f"Preview-Fehler (Prozess beendet):\n{error_section}")
+                                    error_found = True
+                                    break
+                            if not error_found:
+                                # Falls kein Fehler gefunden, zeige die letzten Zeilen (nach Versionsinfo)
+                                # Versionsinfo ist normalerweise am Anfang
+                                lines_after_version = [line for line in error_lines if 'ffmpeg version' not in line.lower() and line.strip()]
+                                if lines_after_version:
+                                    self.log(f"Preview-Fehler (Prozess beendet, letzte Zeilen):\n{chr(10).join(lines_after_version[-10:])}")
+                                else:
+                                    self.log(f"Preview-Fehler (Prozess beendet, vollständige Ausgabe):\n{stderr_text[-1000:]}")
                             if "Permission denied" in stderr_text or "Cannot open" in stderr_text:
                                 self.log("HINWEIS: ffmpeg benötigt root-Rechte. Starten Sie die Anwendung mit sudo.")
                             elif "No such file" in stderr_text or "Device" in stderr_text:
