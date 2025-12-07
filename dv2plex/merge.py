@@ -436,7 +436,7 @@ class MergeEngine:
                     f"drawtext=text='{timestamp_str}'"
                     f":fontsize=24"
                     f":x=10"
-                    f":y=10"
+                    f":y=h-th-10"
                     f":fontcolor=white"
                     f":box=1"
                     f":boxcolor=black@0.5"
@@ -461,7 +461,7 @@ class MergeEngine:
                             f"{current_input}drawtext=text='{timestamp_str}'"
                             f":fontsize=24"
                             f":x=10"
-                            f":y=10"
+                            f":y=h-th-10"
                             f":fontcolor=white"
                             f":box=1"
                             f":boxcolor=black@0.5"
@@ -475,7 +475,7 @@ class MergeEngine:
                             f"{current_input}drawtext=text='{timestamp_str}'"
                             f":fontsize=24"
                             f":x=10"
-                            f":y=10"
+                            f":y=h-th-10"
                             f":fontcolor=white"
                             f":box=1"
                             f":boxcolor=black@0.5"
@@ -565,13 +565,25 @@ class MergeEngine:
                 else:
                     # Anderes Format, konvertiere mit ffmpeg
                     self.log(f"Konvertiere {source_ext} zu {target_ext}...")
-                    cmd = [
-                        str(self.ffmpeg_path),
-                        "-i", str(split_files[0]),
-                        "-c", "copy",  # Copy-Modus wenn möglich
-                        "-y",
-                        str(output_path)
-                    ]
+                    if target_ext == ".mp4":
+                        cmd = [
+                            str(self.ffmpeg_path),
+                            "-i", str(split_files[0]),
+                            "-c:v", "libx264",
+                            "-c:a", "aac",
+                            "-preset", "medium",
+                            "-crf", "20",
+                            "-y",
+                            str(output_path)
+                        ]
+                    else:
+                        cmd = [
+                            str(self.ffmpeg_path),
+                            "-i", str(split_files[0]),
+                            "-c", "copy",
+                            "-y",
+                            str(output_path)
+                        ]
                     result = subprocess.run(
                         cmd,
                         stdout=subprocess.PIPE,
@@ -649,16 +661,31 @@ class MergeEngine:
                     output_path = output_path.with_suffix(".mp4")
             
             # ffmpeg concat-Befehl
-            # Versuche zuerst -c copy (schnell), falls das fehlschlägt, re-encode
-            cmd = [
-                str(self.ffmpeg_path),
-                "-f", "concat",
-                "-safe", "0",
-                "-i", str(list_file),
-                "-c", "copy",  # Copy-Modus für schnelles Zusammenfügen
-                "-y",  # Überschreibe vorhandene Datei
-                str(output_path)
-            ]
+            if output_format == "mp4":
+                # Für MP4 direkt re-encoden (DV-Streams sind nicht MP4-kompatibel)
+                cmd = [
+                    str(self.ffmpeg_path),
+                    "-f", "concat",
+                    "-safe", "0",
+                    "-i", str(list_file),
+                    "-c:v", "libx264",
+                    "-c:a", "aac",
+                    "-preset", "medium",
+                    "-crf", "20",
+                    "-y",
+                    str(output_path)
+                ]
+            else:
+                # AVI: Versuche Copy, bei Fehler erfolgt weiter unten Re-Encode
+                cmd = [
+                    str(self.ffmpeg_path),
+                    "-f", "concat",
+                    "-safe", "0",
+                    "-i", str(list_file),
+                    "-c", "copy",
+                    "-y",
+                    str(output_path)
+                ]
             
             self.log(f"Starte Merge mit ffmpeg...")
             self.log(f"Befehl: {' '.join(cmd)}")
@@ -709,7 +736,7 @@ class MergeEngine:
                     self.log(f"Fehler: {error_msg}")
                     return None
                 
-                # Versuche Re-Encoding als Fallback
+                # Versuche Re-Encoding als Fallback (immer mp4/mp2 passt)
                 cmd_reencode = [
                     str(self.ffmpeg_path),
                     "-f", "concat",
@@ -718,7 +745,7 @@ class MergeEngine:
                     "-c:v", "libx264",
                     "-c:a", "aac",
                     "-preset", "medium",
-                    "-crf", "23",
+                    "-crf", "20",
                     "-y",
                     str(output_path)
                 ]

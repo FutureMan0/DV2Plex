@@ -1626,7 +1626,7 @@ class MainWindow(QMainWindow):
             msg_box.setStandardButtons(QMessageBox.Ok | QMessageBox.Cancel)
             
             # Checkbox for deactivation
-            checkbox = QCheckBox("Automatisches Rewind/Play deaktivieren")
+            checkbox = QCheckBox("Automatisches Rewind deaktivieren")
             msg_box.setCheckBox(checkbox)
             
             reply = msg_box.exec()
@@ -2812,7 +2812,7 @@ class SettingsDialog(QDialog):
         self.auto_export_checkbox = QCheckBox("Auto-Export")
         capture_layout.addWidget(self.auto_export_checkbox)
         
-        self.auto_rewind_play_checkbox = QCheckBox("Auto-Rewind/Play")
+        self.auto_rewind_play_checkbox = QCheckBox("Auto-Rewind")
         capture_layout.addWidget(self.auto_rewind_play_checkbox)
         
         self.timestamp_overlay_checkbox = QCheckBox("Timestamp Overlay")

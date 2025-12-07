@@ -1672,7 +1672,7 @@ def get_html_interface() -> str:
                     <div class="form-group">
                         <label style="display: flex; align-items: center; cursor: pointer;">
                             <input type="checkbox" id="auto-rewind" checked>
-                            <span>Automatisches Rewind/Play</span>
+                            <span>Automatisches Rewind</span>
                         </label>
                     </div>
                     <div class="form-group button-group">

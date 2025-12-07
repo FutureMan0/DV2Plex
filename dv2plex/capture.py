@@ -217,7 +217,7 @@ class CaptureEngine:
             self.interactive_dvgrab_process = None
             return False
 
-    def _start_recording_dvgrab(self, device: str, splits_dir: Path) -> bool:
+    def _start_recording_dvgrab(self, device: str, splits_dir: Path, use_rewind: bool = True) -> bool:
         """
         Startet non-interaktiven dvgrab für Aufnahme mit autosplit
         
@@ -238,18 +238,19 @@ class CaptureEngine:
             # Erstelle splits-Ordner
             splits_dir.mkdir(parents=True, exist_ok=True)
             
-            # Baue dvgrab-Befehl: -rewind -autosplit -t -f dv1
+            # Baue dvgrab-Befehl: optional -rewind, immer -autosplit -t -f dv1
             # Ausgabe-Präfix: dvgrab fügt automatisch Timestamp hinzu (dvgrab-YYYY.MM.DD_HH-MM-SS.avi)
             output_prefix = str(splits_dir / "dvgrab")
-            dvgrab_cmd = [
-                self.dvgrab_path,
-            ] + self._format_device_for_dvgrab(device) + [
-                "-rewind",  # Automatisches Rewind
+            base_cmd = [self.dvgrab_path] + self._format_device_for_dvgrab(device)
+            if use_rewind:
+                base_cmd.append("-rewind")  # Automatisches Rewind (optional)
+            base_cmd += [
                 "-autosplit",  # Autosplit bei Szenenänderungen
                 "-t",  # Timestamp im Dateinamen
                 "-f", "dv1",  # DV Type 1 Format
                 output_prefix,  # Ausgabe-Präfix (dvgrab fügt Timestamp hinzu)
             ]
+            dvgrab_cmd = base_cmd
             
             # Wenn nicht root, versuche mit sudo
             if not is_root:
@@ -843,7 +844,7 @@ class CaptureEngine:
             part_number: Part-Nummer (wird nicht mehr verwendet, aber für Kompatibilität behalten)
             preview_callback: Optionaler Callback für Preview-Frames
             preview_fps: FPS für Preview
-            auto_rewind_play: Automatisch Rewind und Play vor Aufnahme
+            auto_rewind_play: Setzt -rewind (automatisches Rewind vor Aufnahme)
         """
         try:
             if self.is_capturing:
@@ -863,7 +864,8 @@ class CaptureEngine:
             self.splits_dir.mkdir(parents=True, exist_ok=True)
             
             # Setze Ausgabepfad für Merge (wird nach dem Stoppen erstellt)
-            self.current_output_path = output_dir / "movie_merged.avi"
+            # Standard jetzt MP4
+            self.current_output_path = output_dir / "movie_merged.mp4"
 
             self.preview_callback = preview_callback
             # Begrenze Preview-FPS für stabileres Bild (zu hohe FPS flackern gern)
@@ -894,7 +896,7 @@ class CaptureEngine:
             
             # 2. Starte non-interaktiven dvgrab für Aufnahme
             self.log("=== Starte non-interaktiven dvgrab für Aufnahme ===")
-            if not self._start_recording_dvgrab(device, self.splits_dir):
+            if not self._start_recording_dvgrab(device, self.splits_dir, use_rewind=auto_rewind_play):
                 self.log("FEHLER: Recording dvgrab konnte nicht gestartet werden")
                 return False
             
