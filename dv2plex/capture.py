@@ -501,8 +501,13 @@ class CaptureEngine:
                         stderr_text = chunk.decode('utf-8', errors='ignore')
                     else:
                         stderr_text = str(chunk)
-                    # Logge wichtige Fehler und Fortschrittsmeldungen
-                    if any(keyword in stderr_text.lower() for keyword in ['error', 'failed', 'cannot', 'invalid']):
+                    # Filtere "Concealing bitstream errors" - das ist normal bei DV
+                    if 'concealing bitstream errors' in stderr_text.lower():
+                        # Ignoriere diese Warnungen
+                        continue
+                    
+                    # Logge wichtige Fehler
+                    if any(keyword in stderr_text.lower() for keyword in ['error', 'failed', 'cannot', 'invalid']) and 'concealing' not in stderr_text.lower():
                         self.log(f"Recording-ffmpeg: {stderr_text[:300]}")
                     # Logge auch Fortschrittsmeldungen (frame=, time=, bitrate=)
                     elif any(keyword in stderr_text.lower() for keyword in ['frame=', 'time=', 'bitrate=']):

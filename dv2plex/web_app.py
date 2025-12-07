@@ -138,9 +138,7 @@ def qimage_to_base64(image) -> Optional[str]:
         return None
     
     try:
-        # Convert QImage to bytes
-        buffer = image.bits().asarray(image.byteCount())
-        # For JPEG, we need to save it
+        # Convert QImage to JPEG bytes
         from io import BytesIO
         import io
         ba = io.BytesIO()
