@@ -1360,11 +1360,10 @@ def get_html_interface() -> str:
         
         /* Grid layout for capture */
         .capture-grid {
-            display: grid;
-            grid-template-columns: 1fr;
-            gap: 15px;
-            max-width: 1000px;
-            margin: 0 auto;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+            align-items: center;
         }
         
         /* Button groups */
@@ -1553,9 +1552,20 @@ def get_html_interface() -> str:
             }
             
             .capture-grid {
-                grid-template-columns: minmax(400px, 600px) minmax(280px, 380px);
-                gap: 30px;
+                flex-direction: row;
                 justify-content: center;
+                gap: 40px;
+                align-items: flex-start;
+            }
+            
+            .capture-grid > div:first-child {
+                flex: 0 0 auto;
+                width: clamp(450px, 50vw, 650px);
+            }
+            
+            .capture-grid > div:last-child {
+                flex: 0 0 auto;
+                width: clamp(300px, 25vw, 400px);
             }
             
             .preview-container {
