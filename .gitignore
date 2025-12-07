@@ -121,6 +121,8 @@ dv2plex/PlexMovies/
 dv2plex/bin/ffmpeg.exe
 dv2plex/bin/video2x/
 
+assets/
+
 # Build
 build/
 dist/

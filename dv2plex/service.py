@@ -162,56 +162,50 @@ class PostprocessingService:
                 progress_callback(25)
             
             # Upscale
-            auto_upscale = self.config.get("capture.auto_upscale", True)
-            if auto_upscale:
-                self._log("=== Starte Upscaling ===")
-                highres_dir = movie_dir / "HighRes"
-                highres_dir.mkdir(parents=True, exist_ok=True)
+            self._log("=== Starte Upscaling ===")
+            highres_dir = movie_dir / "HighRes"
+            highres_dir.mkdir(parents=True, exist_ok=True)
+            
+            profile = self.config.get_upscaling_profile(profile_name)
+            output_file = highres_dir / f"{movie_name}_4k.mp4"
+            
+            upscale_engine = UpscaleEngine(
+                self.config.get_realesrgan_path(),
+                ffmpeg_path=self.config.get_ffmpeg_path(),
+                log_callback=self._log
+            )
+            
+            if upscale_engine.upscale(merged_file, output_file, profile):
+                if progress_callback:
+                    progress_callback(75)
                 
-                profile = self.config.get_upscaling_profile(profile_name)
-                output_file = highres_dir / f"{movie_name}_4k.mp4"
-                
-                upscale_engine = UpscaleEngine(
-                    self.config.get_realesrgan_path(),
-                    ffmpeg_path=self.config.get_ffmpeg_path(),
-                    log_callback=self._log
-                )
-                
-                if upscale_engine.upscale(merged_file, output_file, profile):
-                    if progress_callback:
-                        progress_callback(75)
+                # Export
+                auto_export = self.config.get("capture.auto_export", False)
+                if auto_export:
+                    self._log("=== Starte Plex-Export ===")
+                    plex_exporter = PlexExporter(
+                        self.config.get_plex_movies_root(),
+                        log_callback=self._log
+                    )
                     
-                    # Export
-                    auto_export = self.config.get("capture.auto_export", False)
-                    if auto_export:
-                        self._log("=== Starte Plex-Export ===")
-                        plex_exporter = PlexExporter(
-                            self.config.get_plex_movies_root(),
-                            log_callback=self._log
-                        )
-                        
-                        result = plex_exporter.export_movie(
-                            output_file,
-                            title,
-                            year or ""
-                        )
-                        
-                        if result:
-                            if progress_callback:
-                                progress_callback(100)
-                            return True, f"Film erfolgreich verarbeitet und nach Plex exportiert:\n{result}"
-                        else:
-                            return True, f"Postprocessing abgeschlossen (Export fehlgeschlagen)"
-                    else:
+                    result = plex_exporter.export_movie(
+                        output_file,
+                        title,
+                        year or ""
+                    )
+                    
+                    if result:
                         if progress_callback:
                             progress_callback(100)
-                        return True, f"Film erfolgreich verarbeitet:\n{output_file}"
+                        return True, f"Film erfolgreich verarbeitet und nach Plex exportiert:\n{result}"
+                    else:
+                        return True, f"Postprocessing abgeschlossen (Export fehlgeschlagen)"
                 else:
-                    return False, "Upscaling fehlgeschlagen!"
+                    if progress_callback:
+                        progress_callback(100)
+                    return True, f"Film erfolgreich verarbeitet:\n{output_file}"
             else:
-                if progress_callback:
-                    progress_callback(100)
-                return True, "Merge abgeschlossen (Upscaling übersprungen)"
+                return False, "Upscaling fehlgeschlagen!"
         
         except Exception as e:
             logger.exception("Fehler beim Postprocessing")
