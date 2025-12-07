@@ -594,9 +594,21 @@ class CaptureEngine:
         except Exception as e:
             self.log(f"Preview: Fehler: {e}")
         finally:
+            # Wenn keine Frames gefunden wurden, logge Stderr für Diagnose
+            if frame_count == 0 and process:
+                try:
+                    if process.stderr:
+                        err = process.stderr.read()
+                        if err:
+                            err_txt = err.decode("utf-8", errors="ignore")
+                            self.log(f"Preview: Keine Frames, ffmpeg stderr: {err_txt[:500]}")
+                except Exception:
+                    pass
             try:
                 if process and process.stdout:
                     process.stdout.close()
+                if process and process.stderr:
+                    process.stderr.close()
             except Exception:
                 pass
 
