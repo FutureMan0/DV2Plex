@@ -356,7 +356,12 @@ class CaptureEngine:
         Thread-Funktion: Überwacht splits-Ordner für Preview
         Liest kontinuierlich die neueste Datei und zeigt Frames an
         """
-        if not self.splits_dir or not self.preview_callback:
+        if not self.splits_dir:
+            self.log("Preview-Monitor: splits_dir nicht gesetzt")
+            return
+        
+        if not self.preview_callback:
+            self.log("Preview-Monitor: preview_callback nicht gesetzt")
             return
         
         self.log("Preview-Monitor: Starte Überwachung...")
@@ -914,7 +919,27 @@ class CaptureEngine:
         if self.preview_stop_event:
             self.preview_stop_event.set()
         
-        # Stoppe Preview-ffmpeg-Prozess
+        # Stoppe Preview-Monitor-Thread
+        if self.preview_monitor_thread and self.preview_monitor_thread.is_alive():
+            self.preview_monitor_thread.join(timeout=2)
+        self.preview_monitor_thread = None
+        
+        # Stoppe Preview-Datei-Prozess
+        if self.preview_file_process:
+            try:
+                self.preview_file_process.terminate()
+                self.preview_file_process.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                try:
+                    self.preview_file_process.kill()
+                    self.preview_file_process.wait(timeout=1)
+                except:
+                    pass
+            except Exception:
+                pass
+            self.preview_file_process = None
+        
+        # Stoppe Preview-ffmpeg-Prozess (für Kompatibilität mit alter Architektur)
         if self.preview_process:
             try:
                 # Schließe stdin, damit ffmpeg sauber beendet wird
@@ -932,13 +957,16 @@ class CaptureEngine:
                 pass
             self.preview_process = None
 
-        if self.preview_reader_thread and self.preview_reader_thread.is_alive():
-            self.preview_reader_thread.join(timeout=1)
-        self.preview_reader_thread = None
+        # Alte Threads (nur wenn sie noch existieren)
+        if hasattr(self, 'preview_reader_thread') and self.preview_reader_thread:
+            if self.preview_reader_thread.is_alive():
+                self.preview_reader_thread.join(timeout=1)
+            self.preview_reader_thread = None
         
-        if self.preview_stderr_thread and self.preview_stderr_thread.is_alive():
-            self.preview_stderr_thread.join(timeout=1)
-        self.preview_stderr_thread = None
+        if hasattr(self, 'preview_stderr_thread') and self.preview_stderr_thread:
+            if self.preview_stderr_thread.is_alive():
+                self.preview_stderr_thread.join(timeout=1)
+            self.preview_stderr_thread = None
         
         self.preview_stop_event = None
 
