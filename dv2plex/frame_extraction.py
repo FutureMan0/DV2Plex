@@ -48,9 +48,9 @@ class FrameExtractionEngine:
             
             result = subprocess.run(
                 cmd,
-                capture_output=True,
-                text=True,
-                stderr=subprocess.STDOUT
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True
             )
             
             # Parse duration from stderr output
@@ -132,9 +132,9 @@ class FrameExtractionEngine:
                 
                 result = subprocess.run(
                     cmd,
-                    capture_output=True,
-                    text=True,
-                    stderr=subprocess.STDOUT
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    text=True
                 )
                 
                 if result.returncode == 0 and output_file.exists():
