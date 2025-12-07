@@ -326,7 +326,10 @@ class CaptureService:
         lowres_dir = movie_dir / "LowRes"
         
         try:
-            lowres_dir.mkdir(parents=True, exist_ok=True)
+            # Wenn der Zielordner bereits existiert, abbrechen und klare Fehlermeldung liefern
+            if lowres_dir.exists():
+                return False, f"Ausgabeverzeichnis existiert bereits: {lowres_dir}. Bitte anderen Titel/Jahr wählen."
+            lowres_dir.mkdir(parents=True, exist_ok=False)
         except PermissionError as e:
             return False, f"Keine Berechtigung zum Erstellen des Verzeichnisses: {lowres_dir}. Bitte prüfe die Berechtigungen oder ändere den DV_Import-Pfad in den Einstellungen."
         except Exception as e:
