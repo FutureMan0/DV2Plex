@@ -426,7 +426,7 @@ class CaptureEngine:
                 "-f", "dv",  # DV-Format vom stdin
                 "-i", "-",  # Input von stdin
                 "-map", "0:v",  # Video-Stream
-                "-map", "0:a",  # Audio-Stream (wichtig: Audio bleibt erhalten)
+                "-map", "0:a:0?",  # Nur erster Audiotrack (optional, falls vorhanden)
                 "-c:v", "libx264",  # H.264 Video-Codec
                 "-preset", "veryfast",  # Encoding-Preset
                 "-crf", "18",  # Qualität (niedrigere Werte = bessere Qualität)
@@ -1036,7 +1036,7 @@ class CaptureEngine:
 
         if return_code == 0 or return_code is None:
             self.log(f"Aufnahme erfolgreich beendet: {self.current_output_path}")
-        elif return_code in [1, 130, 143]:  # Normal beendet (SIGTERM/SIGINT)
+        elif return_code in [1, 130, 143, -9]:  # Normal beendet (SIGTERM/SIGINT/SIGKILL durch Stop)
             self.log(f"Aufnahme erfolgreich gestoppt: {self.current_output_path}")
         else:
             if "End of file" in stderr_text or "Interrupted" in stderr_text:
