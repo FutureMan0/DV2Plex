@@ -900,7 +900,11 @@ class CaptureEngine:
                 self.log("FEHLER: Recording dvgrab konnte nicht gestartet werden")
                 return False
             
-            # 3. Starte Preview-Queue-System (falls aktiviert)
+            # 3. Markiere als aktiv (vor Preview-Threads, sonst stoppen sie sofort)
+            self.is_capturing = True
+            self.process = self.recording_dvgrab_process  # Für Kompatibilität
+            
+            # 4. Starte Preview-Queue-System (falls aktiviert)
             if enable_preview:
                 self.log("=== Starte Preview-Queue-System ===")
                 self.preview_stop_event = threading.Event()
@@ -921,10 +925,7 @@ class CaptureEngine:
                 self.preview_worker_thread.start()
                 self.log("Preview-Queue-Worker: Thread gestartet")
             
-            # 4. Markiere als aktiv und starte Monitoring
-            self.is_capturing = True
-            self.process = self.recording_dvgrab_process  # Für Kompatibilität
-            
+            # 5. Starte Monitoring-Thread
             self.capture_thread = threading.Thread(
                 target=self._monitor_capture,
                 daemon=True,
