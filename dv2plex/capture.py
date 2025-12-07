@@ -345,12 +345,30 @@ class CaptureEngine:
                     return None
                 return proc
 
-            # Erste Variante: Standard-DV-AVI lesen
+            # Variante 1: Als Raw-DV lesen (für Dateien während des Schreibens)
+            # AVI-Index existiert noch nicht, aber DV-Daten sind selbst-beschreibend
+            raw_dv_cmd = [
+                str(self.ffmpeg_path),
+                "-hide_banner",
+                "-loglevel", "error",
+                "-f", "dv",  # Force DV format (ohne AVI-Container)
+                "-i", str(file_path),
+                "-vf", f"yadif,fps={fps},scale=640:-1",
+                "-vcodec", "mjpeg",
+                "-f", "image2pipe",
+                "-q:v", "5",
+                "-",
+            ]
+            process = launch("raw-dv", raw_dv_cmd)
+            if process:
+                return process
+
+            # Variante 2: Standard AVI lesen (für fertige Dateien)
             ffmpeg_cmd = [
                 str(self.ffmpeg_path),
                 "-hide_banner",
                 "-loglevel", "error",
-                "-fflags", "nobuffer",
+                "-fflags", "+genpts+igndts",
                 "-analyzeduration", "10000000",
                 "-probesize", "10000000",
                 "-i", str(file_path),
@@ -360,19 +378,18 @@ class CaptureEngine:
                 "-q:v", "5",
                 "-",
             ]
-            process = launch("std", ffmpeg_cmd)
+            process = launch("avi", ffmpeg_cmd)
             if process:
                 return process
 
-            # Fallback: Erzwinge DV-Decoder und ignoriere Fehler
+            # Variante 3: Ignoriere Fehler komplett
             fallback_cmd = [
                 str(self.ffmpeg_path),
                 "-hide_banner",
                 "-loglevel", "warning",
-                "-fflags", "nobuffer",
-                "-analyzeduration", "5000000",
-                "-probesize", "5000000",
                 "-err_detect", "ignore_err",
+                "-fflags", "+genpts+discardcorrupt",
+                "-f", "dv",
                 "-i", str(file_path),
                 "-vf", f"yadif,fps={fps},scale=640:-1",
                 "-vcodec", "mjpeg",
