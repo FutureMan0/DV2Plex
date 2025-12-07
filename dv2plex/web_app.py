@@ -37,9 +37,12 @@ from dv2plex.service import (
 # Try to import QImage for preview conversion
 try:
     from PySide6.QtGui import QImage
+    from PySide6.QtCore import QBuffer, QIODevice
     QIMAGE_AVAILABLE = True
 except ImportError:
     QImage = None
+    QBuffer = None
+    QIODevice = None
     QIMAGE_AVAILABLE = False
 
 
@@ -134,16 +137,16 @@ def broadcast_message_sync(message: Dict[str, Any]):
 
 def qimage_to_base64(image) -> Optional[str]:
     """Konvertiert QImage zu Base64-kodiertem JPEG"""
-    if not QIMAGE_AVAILABLE or image is None:
+    if not QIMAGE_AVAILABLE or image is None or QBuffer is None:
         return None
     
     try:
-        # Convert QImage to JPEG bytes
-        from io import BytesIO
-        import io
-        ba = io.BytesIO()
-        image.save(ba, format='JPEG')
-        jpeg_bytes = ba.getvalue()
+        # Convert QImage to JPEG bytes using QBuffer (QIODevice)
+        buffer = QBuffer()
+        buffer.open(QIODevice.OpenModeFlag.WriteOnly)
+        image.save(buffer, b'JPEG')
+        buffer.close()
+        jpeg_bytes = buffer.data()
         return base64.b64encode(jpeg_bytes).decode('utf-8')
     except Exception as e:
         logger.error(f"Fehler bei QImage-Konvertierung: {e}")
