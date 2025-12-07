@@ -242,23 +242,44 @@ class CaptureEngine:
 
     def _get_latest_split_file(self) -> Optional[Path]:
         """
-        Findet die neueste Datei im splits-Ordner (nach mtime)
+        Findet die neueste vollständig geschriebene Datei im splits-Ordner
         
         Returns:
-            Pfad zur neuesten Datei oder None
+            Pfad zur neuesten vollständigen Datei oder None
         """
         if not self.splits_dir or not self.splits_dir.exists():
             return None
         
         try:
-            # Finde alle AVI-Dateien im splits-Ordner
-            avi_files = list(self.splits_dir.glob("*.avi"))
-            if not avi_files:
+            # Finde alle Video-Dateien im splits-Ordner (avi, dv, etc.)
+            video_files = []
+            for pattern in ["*.avi", "*.dv", "*.AVI", "*.DV"]:
+                video_files.extend(self.splits_dir.glob(pattern))
+            
+            if not video_files:
                 return None
             
             # Sortiere nach mtime (neueste zuerst)
-            avi_files.sort(key=lambda p: p.stat().st_mtime, reverse=True)
-            return avi_files[0]
+            video_files.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+            
+            # Prüfe, ob die neueste Datei vollständig ist (nicht mehr wächst)
+            # Warte bis die Dateigröße stabil ist
+            latest = video_files[0]
+            if latest.exists():
+                # Prüfe ob Datei vollständig ist (nicht mehr wächst)
+                size1 = latest.stat().st_size
+                time.sleep(0.5)  # Warte 0.5 Sekunden
+                if latest.exists():
+                    size2 = latest.stat().st_size
+                    # Wenn Größe gleich ist, ist die Datei wahrscheinlich vollständig
+                    if size1 == size2 and size1 > 0:
+                        return latest
+                    # Wenn Datei noch wächst, ist sie noch nicht fertig
+                    # Nimm die vorherige Datei, falls vorhanden
+                    if len(video_files) > 1:
+                        return video_files[1]
+            
+            return latest
         except Exception as e:
             self.log(f"Fehler beim Finden der neuesten Split-Datei: {e}")
             return None
@@ -274,10 +295,22 @@ class CaptureEngine:
         Returns:
             subprocess.Popen oder None bei Fehler
         """
+        if not file_path.exists():
+            return None
+        
         try:
+            # Prüfe Dateigröße - muss > 0 sein
+            file_size = file_path.stat().st_size
+            if file_size == 0:
+                self.log(f"Preview: Datei ist leer: {file_path.name}")
+                return None
+            
             # ffmpeg liest Datei und konvertiert zu MJPEG
+            # Verwende -analyzeduration und -probesize für bessere Kompatibilität
             ffmpeg_cmd = [
                 str(self.ffmpeg_path),
+                "-analyzeduration", "10000000",
+                "-probesize", "10000000",
                 "-i", str(file_path),  # Input-Datei
                 "-vf", f"yadif,fps={fps},scale=640:-1",  # Deinterlace + FPS + Skalierung
                 "-f", "mjpeg",  # MJPEG-Format
@@ -294,7 +327,7 @@ class CaptureEngine:
             )
             
             # Warte kurz und prüfe ob Prozess gestartet wurde
-            time.sleep(0.3)
+            time.sleep(0.5)
             if process.poll() is not None:
                 # Prozess wurde sofort beendet
                 try:
@@ -307,7 +340,7 @@ class CaptureEngine:
                             stderr_data += chunk if isinstance(chunk, bytes) else chunk.encode()
                         if stderr_data:
                             stderr_text = stderr_data.decode('utf-8', errors='ignore')
-                            self.log(f"Preview-ffmpeg-Fehler: {stderr_text[:500]}")
+                            self.log(f"Preview-ffmpeg-Fehler für {file_path.name}: {stderr_text[:500]}")
                 except:
                     pass
                 return None
@@ -315,7 +348,7 @@ class CaptureEngine:
             return process
             
         except Exception as e:
-            self.log(f"Fehler beim Starten von Preview-ffmpeg aus Datei: {e}")
+            self.log(f"Fehler beim Starten von Preview-ffmpeg aus Datei {file_path.name}: {e}")
             return None
 
     def _monitor_splits_for_preview(self):
@@ -799,9 +832,31 @@ class CaptureEngine:
             self.is_capturing = False
             self.log("Aufnahme gestoppt.")
 
-            # Warte kurz, damit alle Dateien vollständig geschrieben sind
+            # Warte, damit alle Dateien vollständig geschrieben sind
             self.log("Warte auf vollständiges Schreiben der Split-Dateien...")
-            time.sleep(2)
+            # Warte bis Dateien nicht mehr wachsen
+            if self.splits_dir and self.splits_dir.exists():
+                max_wait = 10  # Maximal 10 Sekunden warten
+                waited = 0
+                while waited < max_wait:
+                    files = list(self.splits_dir.glob("*.avi")) + list(self.splits_dir.glob("*.dv"))
+                    if files:
+                        # Prüfe ob alle Dateien stabil sind
+                        all_stable = True
+                        for f in files:
+                            size1 = f.stat().st_size
+                            time.sleep(0.5)
+                            if f.exists():
+                                size2 = f.stat().st_size
+                                if size1 != size2:
+                                    all_stable = False
+                                    break
+                        if all_stable:
+                            break
+                    waited += 0.5
+                    time.sleep(0.5)
+            else:
+                time.sleep(2)
 
             # Führe automatisch Merge durch
             if self.splits_dir and self.splits_dir.exists():

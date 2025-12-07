@@ -322,22 +322,58 @@ class MergeEngine:
             self.log(f"splits-Ordner nicht gefunden: {splits_dir}")
             return None
         
-        # Finde alle AVI-Dateien im splits-Ordner
-        split_files = list(splits_dir.glob("*.avi"))
+        # Finde alle Video-Dateien im splits-Ordner (avi, dv, etc.)
+        split_files = []
+        for pattern in ["*.avi", "*.dv", "*.AVI", "*.DV"]:
+            split_files.extend(splits_dir.glob(pattern))
+        
         if not split_files:
             self.log("Keine Split-Dateien gefunden!")
             return None
         
+        # Filtere leere Dateien
+        split_files = [f for f in split_files if f.stat().st_size > 0]
+        if not split_files:
+            self.log("Keine gültigen Split-Dateien gefunden (alle Dateien sind leer)!")
+            return None
+        
         self.log(f"Gefunden: {len(split_files)} Split-Dateien")
         
-        # Wenn nur eine Datei, kopiere sie
+        # Wenn nur eine Datei, kopiere sie (aber prüfe Format)
         if len(split_files) == 1:
             self.log(f"Nur eine Split-Datei, kopiere zu {output_path.name}...")
             try:
                 import shutil
                 output_path.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(split_files[0], output_path)
-                self.log(f"Datei erfolgreich kopiert: {output_path}")
+                
+                # Wenn Ausgabeformat anders ist, konvertiere mit ffmpeg
+                source_ext = split_files[0].suffix.lower()
+                target_ext = output_path.suffix.lower()
+                
+                if source_ext == target_ext:
+                    # Gleiches Format, einfach kopieren
+                    shutil.copy2(split_files[0], output_path)
+                else:
+                    # Anderes Format, konvertiere mit ffmpeg
+                    self.log(f"Konvertiere {source_ext} zu {target_ext}...")
+                    cmd = [
+                        str(self.ffmpeg_path),
+                        "-i", str(split_files[0]),
+                        "-c", "copy",  # Copy-Modus wenn möglich
+                        "-y",
+                        str(output_path)
+                    ]
+                    result = subprocess.run(
+                        cmd,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                        text=True
+                    )
+                    if result.returncode != 0:
+                        self.log(f"Konvertierungs-Fehler: {result.stderr[-500:]}")
+                        return None
+                
+                self.log(f"Datei erfolgreich kopiert/konvertiert: {output_path}")
                 return output_path
             except Exception as e:
                 self.log(f"Fehler beim Kopieren: {e}")
@@ -377,7 +413,24 @@ class MergeEngine:
                     escaped_path = str(abs_path).replace("'", "'\\''")
                     f.write(f"file '{escaped_path}'\n")
             
-            # ffmpeg concat-Befehl (DV bleibt DV, daher -c copy)
+            # Bestimme Ausgabeformat basierend auf Input
+            output_ext = output_path.suffix.lower()
+            if output_ext == ".avi":
+                output_format = "avi"
+            elif output_ext == ".mp4":
+                output_format = "mp4"
+            else:
+                # Fallback: Verwende Format der ersten Datei
+                first_ext = sorted_files[0].suffix.lower()
+                if first_ext == ".avi":
+                    output_format = "avi"
+                    output_path = output_path.with_suffix(".avi")
+                else:
+                    output_format = "mp4"
+                    output_path = output_path.with_suffix(".mp4")
+            
+            # ffmpeg concat-Befehl
+            # Versuche zuerst -c copy (schnell), falls das fehlschlägt, re-encode
             cmd = [
                 str(self.ffmpeg_path),
                 "-f", "concat",
@@ -409,8 +462,43 @@ class MergeEngine:
                 self.log(f"Merge erfolgreich: {output_path}")
                 return output_path
             else:
-                self.log(f"ffmpeg-Fehler beim Merge: {result.stderr[-500:]}")
-                return None
+                # Copy-Modus fehlgeschlagen, versuche Re-Encoding
+                self.log("Copy-Modus fehlgeschlagen, versuche Re-Encoding...")
+                error_msg = result.stderr[-500:]
+                if "cannot find a valid video stream" in error_msg.lower() or "invalid data" in error_msg.lower():
+                    # Dateien sind möglicherweise beschädigt oder unvollständig
+                    self.log(f"WARNUNG: Dateien scheinen beschädigt oder unvollständig zu sein")
+                    self.log(f"Fehler: {error_msg}")
+                    return None
+                
+                # Versuche Re-Encoding als Fallback
+                cmd_reencode = [
+                    str(self.ffmpeg_path),
+                    "-f", "concat",
+                    "-safe", "0",
+                    "-i", str(list_file),
+                    "-c:v", "libx264",
+                    "-c:a", "aac",
+                    "-preset", "medium",
+                    "-crf", "23",
+                    "-y",
+                    str(output_path)
+                ]
+                
+                self.log(f"Re-Encoding-Befehl: {' '.join(cmd_reencode)}")
+                result2 = subprocess.run(
+                    cmd_reencode,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True
+                )
+                
+                if result2.returncode == 0:
+                    self.log(f"Merge erfolgreich (Re-Encoded): {output_path}")
+                    return output_path
+                else:
+                    self.log(f"ffmpeg-Fehler beim Re-Encoding: {result2.stderr[-500:]}")
+                    return None
                 
         except Exception as e:
             self.log(f"Fehler beim Merge: {e}")
