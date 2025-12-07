@@ -346,6 +346,17 @@ class MergeEngine:
         """
         hours, minutes, seconds, frames = timecode
         return hours * 3600 + minutes * 60 + seconds + frames / 30.0  # DV hat 30 FPS
+
+    def _escape_drawtext_text(self, text: str) -> str:
+        """
+        Escaped Text für ffmpeg drawtext (Doppelpunkt, Backslash, Prozent, Quotes)
+        """
+        return (
+            text.replace("\\", "\\\\")
+            .replace(":", "\\:")
+            .replace("'", "\\\\'")
+            .replace("%", "\\%")
+        )
     
     def _render_timestamps_to_video(
         self,
@@ -418,7 +429,9 @@ class MergeEngine:
                 # Einzelner Filter
                 start_time, timestamp = split_start_times[0]
                 end_time = start_time + duration
-                timestamp_str = timestamp.strftime("%Y-%m-%d %H:%M:%S")
+                timestamp_str = self._escape_drawtext_text(
+                    timestamp.strftime("%Y-%m-%d %H:%M:%S")
+                )
                 vf_filter = (
                     f"drawtext=text='{timestamp_str}'"
                     f":fontsize=24"
@@ -437,15 +450,15 @@ class MergeEngine:
                 
                 for i, (start_time, timestamp) in enumerate(split_start_times):
                     end_time = start_time + duration
-                    timestamp_str = timestamp.strftime("%Y-%m-%d %H:%M:%S")
-                    # Escape single quotes im Text
-                    timestamp_str_escaped = timestamp_str.replace("'", "\\'")
+                    timestamp_str = self._escape_drawtext_text(
+                        timestamp.strftime("%Y-%m-%d %H:%M:%S")
+                    )
                     
                     if i < len(split_start_times) - 1:
                         # Nicht der letzte Filter: hat Output-Label
                         output_label = f"[out{i}]"
                         filter_expr = (
-                            f"{current_input}drawtext=text='{timestamp_str_escaped}'"
+                            f"{current_input}drawtext=text='{timestamp_str}'"
                             f":fontsize=24"
                             f":x=10"
                             f":y=10"
@@ -459,7 +472,7 @@ class MergeEngine:
                     else:
                         # Letzter Filter: kein Output-Label (ist automatisch Output)
                         filter_expr = (
-                            f"{current_input}drawtext=text='{timestamp_str_escaped}'"
+                            f"{current_input}drawtext=text='{timestamp_str}'"
                             f":fontsize=24"
                             f":x=10"
                             f":y=10"
@@ -836,7 +849,9 @@ class MergeEngine:
                 # Einzelner Filter
                 start_time, timestamp = split_start_times[0]
                 end_time = start_time + duration
-                timestamp_str = timestamp.strftime("%Y-%m-%d %H:%M:%S")
+                timestamp_str = self._escape_drawtext_text(
+                    timestamp.strftime("%Y-%m-%d %H:%M:%S")
+                )
                 vf_filter = (
                     f"drawtext=text='{timestamp_str}'"
                     f":fontsize=24"
@@ -855,15 +870,15 @@ class MergeEngine:
                 
                 for i, (start_time, timestamp) in enumerate(split_start_times):
                     end_time = start_time + duration
-                    timestamp_str = timestamp.strftime("%Y-%m-%d %H:%M:%S")
-                    # Escape single quotes im Text
-                    timestamp_str_escaped = timestamp_str.replace("'", "\\'")
+                    timestamp_str = self._escape_drawtext_text(
+                        timestamp.strftime("%Y-%m-%d %H:%M:%S")
+                    )
                     
                     if i < len(split_start_times) - 1:
                         # Nicht der letzte Filter: hat Output-Label
                         output_label = f"[out{i}]"
                         filter_expr = (
-                            f"{current_input}drawtext=text='{timestamp_str_escaped}'"
+                            f"{current_input}drawtext=text='{timestamp_str}'"
                             f":fontsize=24"
                             f":x=10"
                             f":y=10"
@@ -877,7 +892,7 @@ class MergeEngine:
                     else:
                         # Letzter Filter: kein Output-Label (ist automatisch Output)
                         filter_expr = (
-                            f"{current_input}drawtext=text='{timestamp_str_escaped}'"
+                            f"{current_input}drawtext=text='{timestamp_str}'"
                             f":fontsize=24"
                             f":x=10"
                             f":y=10"
