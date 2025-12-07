@@ -605,6 +605,38 @@ async def apply_chown(request: ChownRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.post("/api/fix-config-permissions")
+async def fix_config_permissions():
+    """Korrigiert die Berechtigungen des Config-Ordners"""
+    import subprocess
+    import os
+    import pwd
+    
+    try:
+        config_dir = config.config_dir
+        current_user = pwd.getpwuid(os.getuid()).pw_name
+        
+        # sudo chown -R auf config-Ordner ausführen
+        result = subprocess.run(
+            ["sudo", "chown", "-R", f"{current_user}:{current_user}", str(config_dir)],
+            capture_output=True,
+            text=True,
+            timeout=30
+        )
+        
+        if result.returncode == 0:
+            logger.info(f"Config-Berechtigungen korrigiert: {config_dir}")
+            return {"success": True, "message": f"Berechtigungen für {config_dir} korrigiert"}
+        else:
+            error_msg = result.stderr or "Unbekannter Fehler"
+            raise HTTPException(status_code=500, detail=f"chown fehlgeschlagen: {error_msg}")
+    except subprocess.TimeoutExpired:
+        raise HTTPException(status_code=500, detail="Timeout bei chown-Ausführung")
+    except Exception as e:
+        logger.exception("Fehler bei Config-Berechtigungen")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.get("/api/browse")
 async def browse_directory(path: str = "/"):
     """Listet Verzeichnisse auf für den Datei-Browser"""
@@ -1659,6 +1691,15 @@ def get_html_interface() -> str:
                 </div>
             </div>
             
+            <div class="settings-section">
+                <h3>🔧 System</h3>
+                <div class="button-group">
+                    <button onclick="fixConfigPermissions()">
+                        <span>🔓 Config-Berechtigungen korrigieren</span>
+                    </button>
+                </div>
+            </div>
+            
             <div class="button-group">
                 <button class="btn-primary" onclick="saveSettings()">
                     <span>💾 Einstellungen speichern</span>
@@ -1796,7 +1837,7 @@ def get_html_interface() -> str:
         function switchTab(tabName) {
             document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
             document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
-            event.target.classList.add('active');
+            event.target.closest('.tab').classList.add('active');
             document.getElementById(tabName).classList.add('active');
             
             if (tabName === 'postprocess') {
@@ -1805,6 +1846,8 @@ def get_html_interface() -> str:
                 loadMovieList();
             } else if (tabName === 'cover') {
                 loadCoverVideoList();
+            } else if (tabName === 'settings') {
+                loadSettings();
             }
         }
         
@@ -2186,6 +2229,32 @@ def get_html_interface() -> str:
         // Settings functions
         let currentBrowserTarget = null;
         let currentBrowserPath = '/';
+        
+        async function fixConfigPermissions() {
+            if (!confirm('Config-Berechtigungen korrigieren?\\n\\nDies führt "sudo chown" auf den Config-Ordner aus.')) {
+                return;
+            }
+            
+            document.getElementById('settings-status').textContent = 'Korrigiere Berechtigungen...';
+            document.getElementById('settings-status').className = 'status';
+            
+            try {
+                const response = await fetch('/api/fix-config-permissions', {
+                    method: 'POST'
+                });
+                
+                const data = await response.json();
+                if (response.ok) {
+                    document.getElementById('settings-status').textContent = '✓ Berechtigungen korrigiert! Versuche erneut zu speichern.';
+                    document.getElementById('settings-status').className = 'status success';
+                } else {
+                    throw new Error(data.detail || 'Fehler');
+                }
+            } catch (error) {
+                document.getElementById('settings-status').textContent = 'Fehler: ' + error.message;
+                document.getElementById('settings-status').className = 'status error';
+            }
+        }
         
         async function loadSettings() {
             try {
