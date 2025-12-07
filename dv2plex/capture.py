@@ -427,7 +427,7 @@ class CaptureEngine:
                 "-i", "-",  # Input von stdin
                 "-map", "0:v",    # Video-Stream
                 "-map", "0:a:0",  # Erster Audiostream (DV-Original)
-                "-af", "alimiter=limit=0.8",  # Limiter: Peaks absenken, sonst unverändert
+                "-af", "alimiter=limit=0.4",  # Limiter: Peaks absenken, sonst unverändert
                 "-c:v", "libx264",  # H.264 Video-Codec
                 "-preset", "veryfast",  # Encoding-Preset
                 "-crf", "18",  # Qualität (niedrigere Werte = bessere Qualität)
