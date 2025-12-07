@@ -425,14 +425,14 @@ class MergeEngine:
             # Zeige Timestamp für 4 Sekunden nach Start jedes Splits
             duration = 4  # Sekunden
             
-            if len(split_start_times) == 1:
-                # Einzelner Filter
-                start_time, timestamp = split_start_times[0]
+            # Mehrere Timestamps: wende alle drawtext-Filter parallel an
+            filter_parts = []
+            for start_time, timestamp in split_start_times:
                 end_time = start_time + duration
                 timestamp_str = self._escape_drawtext_text(
                     timestamp.strftime("%Y-%m-%d %H:%M:%S")
                 )
-                vf_filter = (
+                filter_parts.append(
                     f"drawtext=text='{timestamp_str}'"
                     f":fontsize=24"
                     f":x=10"
@@ -442,50 +442,9 @@ class MergeEngine:
                     f":boxcolor=black@0.5"
                     f":enable='between(t,{start_time},{end_time})'"
                 )
-            else:
-                # Mehrere Filter: Verwende Filterkette mit [in] und [out]
-                # Jeder Filter nimmt den vorherigen Output als Input
-                filter_chain = []
-                current_input = "[0:v]"
-                
-                for i, (start_time, timestamp) in enumerate(split_start_times):
-                    end_time = start_time + duration
-                    timestamp_str = self._escape_drawtext_text(
-                        timestamp.strftime("%Y-%m-%d %H:%M:%S")
-                    )
-                    
-                    if i < len(split_start_times) - 1:
-                        # Nicht der letzte Filter: hat Output-Label
-                        output_label = f"[out{i}]"
-                        filter_expr = (
-                            f"{current_input}drawtext=text='{timestamp_str}'"
-                            f":fontsize=24"
-                            f":x=10"
-                            f":y=h-th-10"
-                            f":fontcolor=white"
-                            f":box=1"
-                            f":boxcolor=black@0.5"
-                            f":enable='between(t,{start_time},{end_time})'"
-                            f"{output_label}"
-                        )
-                        current_input = output_label
-                    else:
-                        # Letzter Filter: kein Output-Label (ist automatisch Output)
-                        filter_expr = (
-                            f"{current_input}drawtext=text='{timestamp_str}'"
-                            f":fontsize=24"
-                            f":x=10"
-                            f":y=h-th-10"
-                            f":fontcolor=white"
-                            f":box=1"
-                            f":boxcolor=black@0.5"
-                            f":enable='between(t,{start_time},{end_time})'"
-                        )
-                    
-                    filter_chain.append(filter_expr)
-                
-                # Kombiniere alle Filter mit Semikolon
-                vf_filter = ";".join(filter_chain)
+            
+            # Kombiniere alle Filter mit Komma (parallel)
+            vf_filter = ",".join(filter_parts)
             
             # Wende Filter an
             cmd = [
