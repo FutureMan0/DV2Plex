@@ -987,8 +987,7 @@ class CaptureEngine:
             "-y",
             str(self.current_output_path),
         ]
-
-            self.log(f"Transcode DV(AVI) -> MP4: {' '.join(ffmpeg_cmd)}")
+        self.log(f"Transcode DV(AVI) -> MP4: {' '.join(ffmpeg_cmd)}")
         try:
             result = subprocess.run(
                 ffmpeg_cmd,
