@@ -599,25 +599,31 @@ class CaptureEngine:
             return
         
         try:
+            process_finished = False
             while (
                 (not self.preview_stop_event or not self.preview_stop_event.is_set())
                 and process
-                and process.poll() is None
             ):
                 try:
+                    # Lese Daten (auch nachdem Prozess beendet ist, um Buffer zu leeren)
                     chunk = process.stdout.read(8192)
                     
                     if not chunk:
+                        # Prüfe ob Prozess beendet ist
                         if process.poll() is not None:
-                            self.log(f"Preview: Prozess beendet, {bytes_read} bytes gelesen, {frame_count} frames")
-                            break
-                        time.sleep(0.01)
-                        continue
-                    
-                    bytes_read += len(chunk)
-                    buffer.extend(chunk)
+                            process_finished = True
+                            # Verarbeite restliche Frames im Buffer bevor wir beenden
+                            if not buffer:
+                                break
+                        else:
+                            time.sleep(0.01)
+                            continue
+                    else:
+                        bytes_read += len(chunk)
+                        buffer.extend(chunk)
                     
                     # Suche nach vollständigen JPEGs
+                    found_frame = False
                     while True:
                         start_idx = buffer.find(jpeg_start)
                         if start_idx == -1:
@@ -632,6 +638,7 @@ class CaptureEngine:
                         
                         jpeg_data = bytes(buffer[: end_idx + 2])
                         buffer = buffer[end_idx + 2 :]
+                        found_frame = True
                         
                         if self.preview_callback:
                             try:
@@ -645,6 +652,10 @@ class CaptureEngine:
                                         self.log(f"Preview: Erstes Frame (Bytes) von {file_path.name}")
                             except Exception as e:
                                 self.log(f"Preview: Fehler bei Frame-Callback: {e}")
+                    
+                    # Wenn Prozess beendet und keine Frames mehr im Buffer, beenden
+                    if process_finished and not found_frame:
+                        break
                 
                 except Exception as e:
                     self.log(f"Preview: Fehler beim Lesen: {e}")
