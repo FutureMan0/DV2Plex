@@ -356,7 +356,7 @@ class CaptureEngine:
                 "-f", "dv",  # DV-Format vom stdin
                 "-i", "-",  # Input von stdin
                 "-map", "0:v",  # Nur Video-Stream (MJPEG unterstützt kein Audio)
-                "-vf", f"fps={fps},scale=640:-1",  # Video-Filter: FPS + Skalierung
+                "-vf", f"yadif,fps={fps},scale=640:-1",  # Deinterlace + FPS + Skalierung
                 "-f", "mjpeg",  # MJPEG-Format
                 "-q:v", "5",  # Qualität
                 "-",  # Ausgabe nach stdout
@@ -702,6 +702,8 @@ class CaptureEngine:
             self.current_output_path = output_dir / f"part_{part_number:03d}.mp4"
 
             self.preview_callback = preview_callback
+            # Begrenze Preview-FPS für stabileres Bild (zu hohe FPS flackern gern)
+            preview_fps = max(5, min(preview_fps, 15))
             self.preview_fps = preview_fps
             enable_preview = preview_callback is not None
 
