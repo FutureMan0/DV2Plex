@@ -12,6 +12,7 @@ import time
 import shutil
 from pathlib import Path
 from typing import Optional, Callable
+from queue import Queue
 
 try:
     from PySide6.QtGui import QImage
@@ -43,8 +44,15 @@ class CaptureEngine:
         self.preview_callback: Optional[Callable[[QImage], None]] = None
         self.current_output_path: Optional[Path] = None
         self.logger = logging.getLogger(__name__)
-        self.interactive_process: Optional[subprocess.Popen] = None  # Für interaktiven Modus
-        self.preview_dvgrab_process: Optional[subprocess.Popen] = None  # dvgrab-Prozess für Preview
+        self.interactive_process: Optional[subprocess.Popen] = None  # Für interaktiven Modus (unified dvgrab)
+        self.preview_dvgrab_process: Optional[subprocess.Popen] = None  # dvgrab-Prozess für Preview (veraltet)
+        # Neue Variablen für unified dvgrab Architektur
+        self.unified_dvgrab_process: Optional[subprocess.Popen] = None  # Einziger dvgrab-Prozess
+        self.recording_ffmpeg_process: Optional[subprocess.Popen] = None  # ffmpeg für Recording
+        self.stream_distribution_thread: Optional[threading.Thread] = None  # Thread für Stream-Verteilung
+        self.stream_distribution_stop_event: Optional[threading.Event] = None
+        self.preview_pipe_writer: Optional[subprocess.Popen] = None  # Pipe-Writer für Preview
+        self.recording_pipe_writer: Optional[subprocess.Popen] = None  # Pipe-Writer für Recording
 
     def detect_firewire_device(self) -> Optional[str]:
         """
@@ -125,33 +133,31 @@ class CaptureEngine:
         # Sonst verwende -i mit dem Gerätepfad
         return ["-i", device]
 
-    def _start_interactive_mode(self, device: str, output_base: str, auto_rewind: bool = False) -> bool:
+    def _start_unified_dvgrab(self, device: str) -> bool:
         """
-        Startet dvgrab im interaktiven Modus für Kamerasteuerung
+        Startet dvgrab im interaktiven Modus mit stdout-Ausgabe
         
         Args:
             device: FireWire-Gerät
-            output_base: Basisname für Ausgabedateien
-            auto_rewind: Wenn True, wird automatisch Rewind-Befehl gesendet (nach Start)
         
         Returns:
             True wenn erfolgreich gestartet
         """
-        if self.interactive_process:
+        if self.unified_dvgrab_process:
             return True  # Bereits gestartet
         
         # Prüfe, ob wir root sind
         is_root = os.geteuid() == 0
         
         try:
-            # Baue dvgrab-Befehl
+            # Baue dvgrab-Befehl: -i (interaktiv), -format dv2, -s 0 (keine Splits), - (stdout)
             dvgrab_cmd = [
                 self.dvgrab_path,
             ] + self._format_device_for_dvgrab(device) + [
                 "-i",  # Interaktiver Modus
-                "-a",  # Audio aktivieren
-                "-f", "dv2",  # DV2-Format (AVI-kompatibel)
-                output_base,  # Ausgabebasisname
+                "-format", "dv2",  # DV Type 2 / AVI-kompatibel
+                "-s", "0",  # Keine Größen-Splits
+                "-",  # Ausgabe nach stdout
             ]
             
             # Wenn nicht root, versuche mit sudo
@@ -161,36 +167,44 @@ class CaptureEngine:
             else:
                 cmd = dvgrab_cmd
             
-            self.log("Starte dvgrab im interaktiven Modus...")
+            self.log("Starte unified dvgrab (interaktiv mit stdout)...")
             self.log(f"dvgrab-Befehl: {' '.join(cmd)}")
             
-            self.interactive_process = subprocess.Popen(
+            # WICHTIG: stdin muss text=True sein (für interaktive Befehle), 
+            # aber stdout muss binär sein (für DV-Daten)
+            # subprocess.Popen unterstützt text=True nur global, daher müssen wir
+            # stdin separat handhaben oder text=False verwenden und stdin manuell encodieren
+            # Lösung: text=False, stdin wird als Bytes geschrieben
+            self.unified_dvgrab_process = subprocess.Popen(
                 cmd,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 stdin=subprocess.PIPE,
-                text=True,  # Text-Modus für stdin
-                bufsize=1,
+                text=False,  # Binärmodus für stdout (DV-Daten), stdin wird als Bytes geschrieben
+                bufsize=0,  # Unbuffered
             )
             
             # Warte kurz, damit der Prozess startet
             time.sleep(1)
             
-            if self.interactive_process.poll() is None:
-                self.log("Interaktiver Modus aktiviert")
+            if self.unified_dvgrab_process.poll() is None:
+                self.log("Unified dvgrab gestartet")
                 self.log("Verfügbare Befehle: a=rewind, p=play, c=capture, k=pause, Esc=stop")
+                # Setze auch interactive_process für Kompatibilität mit bestehenden Methoden
+                self.interactive_process = self.unified_dvgrab_process
                 return True
             else:
                 error_output = ""
-                if self.interactive_process.stderr:
+                if self.unified_dvgrab_process.stderr:
                     try:
-                        # Da text=True, ist stderr bereits ein String
-                        error_output = self.interactive_process.stderr.read()
-                        if isinstance(error_output, bytes):
-                            error_output = error_output.decode('utf-8', errors='ignore')
+                        error_output_bytes = self.unified_dvgrab_process.stderr.read()
+                        if isinstance(error_output_bytes, bytes):
+                            error_output = error_output_bytes.decode('utf-8', errors='ignore')
+                        else:
+                            error_output = str(error_output_bytes)
                     except Exception as e:
                         self.log(f"Fehler beim Lesen von stderr: {e}")
-                self.log(f"Fehler beim Starten des interaktiven Modus: Return-Code {self.interactive_process.returncode}")
+                self.log(f"Fehler beim Starten von unified dvgrab: Return-Code {self.unified_dvgrab_process.returncode}")
                 if error_output:
                     self.log(f"Fehler-Ausgabe: {error_output[:500]}")
                 
@@ -212,13 +226,239 @@ class CaptureEngine:
                     self.log("=" * 60)
                     self.log("")
                 
-                self.interactive_process = None
+                self.unified_dvgrab_process = None
                 return False
                 
         except Exception as e:
-            self.log(f"Fehler beim Starten des interaktiven Modus: {e}")
-            self.interactive_process = None
+            self.log(f"Fehler beim Starten von unified dvgrab: {e}")
+            self.unified_dvgrab_process = None
             return False
+
+    def _distribute_stream(self):
+        """
+        Thread-Funktion: Liest dvgrab stdout und verteilt den Stream an beide Pipes (Preview + Recording)
+        """
+        if not self.unified_dvgrab_process or not self.unified_dvgrab_process.stdout:
+            self.log("Stream-Verteilung: dvgrab stdout nicht verfügbar")
+            return
+        
+        preview_pipe = None
+        recording_pipe = None
+        
+        # Hole die Pipes von den ffmpeg-Prozessen
+        if self.preview_process and self.preview_process.stdin:
+            preview_pipe = self.preview_process.stdin
+        if self.recording_ffmpeg_process and self.recording_ffmpeg_process.stdin:
+            recording_pipe = self.recording_ffmpeg_process.stdin
+        
+        if not preview_pipe and not recording_pipe:
+            self.log("Stream-Verteilung: Keine Pipes verfügbar")
+            return
+        
+        self.log("Stream-Verteilung: Starte...")
+        chunk_size = 65536  # 64KB Chunks
+        
+        try:
+            while (
+                self.unified_dvgrab_process
+                and self.unified_dvgrab_process.poll() is None
+                and (not self.stream_distribution_stop_event or not self.stream_distribution_stop_event.is_set())
+            ):
+                try:
+                    # Lese Chunk von dvgrab stdout
+                    chunk = self.unified_dvgrab_process.stdout.read(chunk_size)
+                    
+                    if not chunk:
+                        # Prüfe ob Prozess beendet wurde
+                        if self.unified_dvgrab_process.poll() is not None:
+                            break
+                        time.sleep(0.01)
+                        continue
+                    
+                    # Schreibe Chunk in beide Pipes (wenn verfügbar)
+                    if preview_pipe and not preview_pipe.closed:
+                        try:
+                            preview_pipe.write(chunk)
+                            preview_pipe.flush()
+                        except (BrokenPipeError, OSError):
+                            # Preview-Prozess beendet, schließe Pipe
+                            preview_pipe = None
+                    
+                    if recording_pipe and not recording_pipe.closed:
+                        try:
+                            recording_pipe.write(chunk)
+                            recording_pipe.flush()
+                        except (BrokenPipeError, OSError):
+                            # Recording-Prozess beendet, schließe Pipe
+                            recording_pipe = None
+                    
+                    # Wenn beide Pipes geschlossen sind, stoppe
+                    if not preview_pipe and not recording_pipe:
+                        self.log("Stream-Verteilung: Beide Pipes geschlossen, beende...")
+                        break
+                        
+                except Exception as e:
+                    self.log(f"Stream-Verteilung: Fehler beim Lesen/Schreiben: {e}")
+                    time.sleep(0.1)
+                    continue
+                    
+        except Exception as e:
+            self.log(f"Stream-Verteilung: Fehler: {e}")
+        finally:
+            self.log("Stream-Verteilung: Beendet")
+            # Schließe Pipes
+            try:
+                if preview_pipe and not preview_pipe.closed:
+                    preview_pipe.close()
+            except:
+                pass
+            try:
+                if recording_pipe and not recording_pipe.closed:
+                    recording_pipe.close()
+            except:
+                pass
+
+    def _start_preview_ffmpeg(self, fps: int) -> bool:
+        """
+        Startet ffmpeg-Prozess für Preview
+        
+        Args:
+            fps: FPS für Preview
+        
+        Returns:
+            True wenn erfolgreich gestartet
+        """
+        if self.preview_process:
+            return True  # Bereits gestartet
+        
+        try:
+            # ffmpeg liest DV von stdin und konvertiert zu MJPEG
+            ffmpeg_cmd = [
+                str(self.ffmpeg_path),
+                "-f", "dv",  # DV-Format vom stdin
+                "-i", "-",  # Input von stdin
+                "-map", "0:v",  # Video-Stream
+                "-map", "0:a",  # Audio-Stream (wichtig: Audio bleibt erhalten)
+                "-vf", f"fps={fps},scale=640:-1",  # Video-Filter: FPS + Skalierung
+                "-f", "mjpeg",  # MJPEG-Format
+                "-q:v", "5",  # Qualität
+                "-",  # Ausgabe nach stdout
+            ]
+            
+            self.log("Starte Preview-ffmpeg...")
+            self.log(f"Preview-ffmpeg-Befehl: {' '.join(ffmpeg_cmd)}")
+            
+            self.preview_process = subprocess.Popen(
+                ffmpeg_cmd,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=False,
+                bufsize=0,
+            )
+            
+            # Warte kurz und prüfe ob Prozess gestartet wurde
+            time.sleep(0.5)
+            if self.preview_process.poll() is not None:
+                # Prozess wurde sofort beendet
+                try:
+                    if self.preview_process.stderr:
+                        stderr_data = b""
+                        while True:
+                            chunk = self.preview_process.stderr.read(4096)
+                            if not chunk:
+                                break
+                            stderr_data += chunk if isinstance(chunk, bytes) else chunk.encode()
+                        
+                        if stderr_data:
+                            stderr_text = stderr_data.decode('utf-8', errors='ignore')
+                            self.log(f"Preview-ffmpeg-Fehler: {stderr_text[:500]}")
+                except:
+                    pass
+                self.preview_process = None
+                return False
+            
+            self.log("Preview-ffmpeg gestartet")
+            return True
+            
+        except Exception as e:
+            self.log(f"Fehler beim Starten von Preview-ffmpeg: {e}")
+            self.preview_process = None
+            return False
+
+    def _start_recording_ffmpeg(self, output_path: Path) -> bool:
+        """
+        Startet ffmpeg-Prozess für Recording (H.264/AAC MP4)
+        
+        Args:
+            output_path: Ausgabepfad für MP4-Datei
+        
+        Returns:
+            True wenn erfolgreich gestartet
+        """
+        if self.recording_ffmpeg_process:
+            return True  # Bereits gestartet
+        
+        try:
+            # ffmpeg liest DV von stdin und konvertiert zu H.264/AAC MP4
+            ffmpeg_cmd = [
+                str(self.ffmpeg_path),
+                "-f", "dv",  # DV-Format vom stdin
+                "-i", "-",  # Input von stdin
+                "-map", "0:v",  # Video-Stream
+                "-map", "0:a",  # Audio-Stream (wichtig: Audio bleibt erhalten)
+                "-c:v", "libx264",  # H.264 Video-Codec
+                "-preset", "veryfast",  # Encoding-Preset
+                "-crf", "18",  # Qualität (niedrigere Werte = bessere Qualität)
+                "-c:a", "aac",  # AAC Audio-Codec
+                "-b:a", "192k",  # Audio-Bitrate
+                "-y",  # Überschreibe vorhandene Datei
+                str(output_path),  # Ausgabedatei
+            ]
+            
+            self.log("Starte Recording-ffmpeg...")
+            self.log(f"Recording-ffmpeg-Befehl: {' '.join(ffmpeg_cmd)}")
+            
+            self.recording_ffmpeg_process = subprocess.Popen(
+                ffmpeg_cmd,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=False,
+                bufsize=0,
+            )
+            
+            # Warte kurz und prüfe ob Prozess gestartet wurde
+            time.sleep(0.5)
+            if self.recording_ffmpeg_process.poll() is not None:
+                # Prozess wurde sofort beendet
+                try:
+                    if self.recording_ffmpeg_process.stderr:
+                        stderr_data = b""
+                        while True:
+                            chunk = self.recording_ffmpeg_process.stderr.read(4096)
+                            if not chunk:
+                                break
+                            stderr_data += chunk if isinstance(chunk, bytes) else chunk.encode()
+                        
+                        if stderr_data:
+                            stderr_text = stderr_data.decode('utf-8', errors='ignore')
+                            self.log(f"Recording-ffmpeg-Fehler: {stderr_text[:500]}")
+                except:
+                    pass
+                self.recording_ffmpeg_process = None
+                return False
+            
+            self.log("Recording-ffmpeg gestartet")
+            return True
+            
+        except Exception as e:
+            self.log(f"Fehler beim Starten von Recording-ffmpeg: {e}")
+            self.recording_ffmpeg_process = None
+            return False
+
+    # Alte _start_interactive_mode() Methode entfernt - wird durch _start_unified_dvgrab() ersetzt
+    # Die neue Architektur verwendet unified dvgrab mit stdout statt direkter Dateiausgabe
     
     def _send_interactive_command(self, command: str) -> bool:
         """
@@ -228,16 +468,23 @@ class CaptureEngine:
             command: Befehl (z.B. 'a' für rewind, 'p' für play, 'c' für capture, 'k' für pause, '\x1b' für Esc/Stop)
                     Im interaktiven Modus werden einzelne Zeichen ohne Newline gesendet
         """
-        if not self.interactive_process or self.interactive_process.poll() is not None:
+        # Verwende unified_dvgrab_process oder interactive_process (für Kompatibilität)
+        process = self.unified_dvgrab_process or self.interactive_process
+        if not process or process.poll() is not None:
             self.log("Interaktiver Modus nicht aktiv")
             return False
         
         try:
-            if self.interactive_process.stdin:
+            if process.stdin:
                 # Sende Befehl (ohne Newline für einzelne Zeichen)
                 # Im interaktiven Modus von dvgrab werden einzelne Zeichen direkt verarbeitet
-                self.interactive_process.stdin.write(command)
-                self.interactive_process.stdin.flush()
+                # stdin ist im Binärmodus, daher müssen wir Bytes schreiben
+                if isinstance(command, str):
+                    command_bytes = command.encode('utf-8')
+                else:
+                    command_bytes = command
+                process.stdin.write(command_bytes)
+                process.stdin.flush()
                 return True
             else:
                 self.log("stdin nicht verfügbar im interaktiven Modus")
@@ -245,6 +492,69 @@ class CaptureEngine:
         except Exception as e:
             self.log(f"Fehler beim Senden des Befehls '{command}': {e}")
             return False
+
+    def _stop_all_processes(self):
+        """Stoppt alle Prozesse (dvgrab, preview-ffmpeg, recording-ffmpeg)"""
+        # Stoppe Stream-Verteilung
+        if self.stream_distribution_stop_event:
+            self.stream_distribution_stop_event.set()
+        
+        # Warte auf Stream-Verteilungs-Thread
+        if self.stream_distribution_thread and self.stream_distribution_thread.is_alive():
+            self.stream_distribution_thread.join(timeout=2)
+        
+        # Stoppe Recording-ffmpeg
+        if self.recording_ffmpeg_process:
+            try:
+                if self.recording_ffmpeg_process.stdin and not self.recording_ffmpeg_process.stdin.closed:
+                    self.recording_ffmpeg_process.stdin.close()
+                self.recording_ffmpeg_process.terminate()
+                self.recording_ffmpeg_process.wait(timeout=3)
+            except subprocess.TimeoutExpired:
+                self.recording_ffmpeg_process.kill()
+                self.recording_ffmpeg_process.wait(timeout=1)
+            except Exception:
+                pass
+            self.recording_ffmpeg_process = None
+        
+        # Stoppe Preview-ffmpeg (wird auch von _stop_preview() gemacht, aber sicherheitshalber hier auch)
+        if self.preview_process:
+            try:
+                if self.preview_process.stdin and not self.preview_process.stdin.closed:
+                    self.preview_process.stdin.close()
+                self.preview_process.terminate()
+                self.preview_process.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                self.preview_process.kill()
+                self.preview_process.wait(timeout=1)
+            except Exception:
+                pass
+            self.preview_process = None
+        
+        # Stoppe unified dvgrab
+        if self.unified_dvgrab_process:
+            try:
+                # Sende Stop-Befehl (ESC)
+                if self.unified_dvgrab_process.stdin and not self.unified_dvgrab_process.stdin.closed:
+                    try:
+                        self.unified_dvgrab_process.stdin.write(b"\x1b")  # ESC als Bytes
+                        self.unified_dvgrab_process.stdin.flush()
+                        time.sleep(0.5)
+                    except (BrokenPipeError, OSError):
+                        # stdin bereits geschlossen, ignoriere
+                        pass
+                
+                self.unified_dvgrab_process.terminate()
+                self.unified_dvgrab_process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                self.unified_dvgrab_process.kill()
+                self.unified_dvgrab_process.wait(timeout=2)
+            except Exception:
+                pass
+            self.unified_dvgrab_process = None
+        
+        # Cleanup interactive_process (ist dasselbe wie unified_dvgrab_process)
+        self.interactive_process = None
     
     def rewind(self) -> bool:
         """Spult die Kassette zurück (interaktiver Modus: 'a')"""
@@ -279,7 +589,7 @@ class CaptureEngine:
         auto_rewind_play: bool = True,
     ) -> bool:
         """
-        Startet DV-Aufnahme mit dvgrab
+        Startet DV-Aufnahme mit unified dvgrab -> ffmpeg Pipeline
         
         Args:
             output_path: Ausgabeordner
@@ -300,34 +610,59 @@ class CaptureEngine:
 
             output_dir = Path(output_path)
             output_dir.mkdir(parents=True, exist_ok=True)
-            # dvgrab erstellt Dateien mit Timestamp-Format
-            # Wir verwenden ein einfaches Format für Part-Namen
-            self.current_output_path = output_dir / f"part_{part_number:03d}.avi"
+            # Ausgabe als MP4 (H.264/AAC)
+            self.current_output_path = output_dir / f"part_{part_number:03d}.mp4"
 
             self.preview_callback = preview_callback
             self.preview_fps = preview_fps
             enable_preview = preview_callback is not None
 
-            # Starte interaktiven Modus für Kamerasteuerung
-            output_base = str(self.current_output_path.parent / f"part_{part_number:03d}")
-            # Verwende -rewind Option wenn auto_rewind_play aktiviert ist
-            interactive_started = self._start_interactive_mode(device, output_base, auto_rewind=auto_rewind_play)
-            
-            if not interactive_started:
-                self.log("WARNUNG: Interaktiver Modus konnte nicht gestartet werden")
+            # 1. Starte unified dvgrab
+            self.log("=== Starte unified dvgrab ===")
+            if not self._start_unified_dvgrab(device):
+                self.log("FEHLER: unified dvgrab konnte nicht gestartet werden")
                 return False
             
-            # Automatischer Workflow: Rewind → Play → Capture
+            # 2. Starte Preview-ffmpeg sofort (falls aktiviert)
+            if enable_preview:
+                self.log("=== Starte Preview-ffmpeg ===")
+                if not self._start_preview_ffmpeg(preview_fps):
+                    self.log("WARNUNG: Preview-ffmpeg konnte nicht gestartet werden")
+                    # Preview-Fehler sind nicht kritisch, fahre fort
+                else:
+                    # Starte Preview-Reader-Thread
+                    self.preview_stop_event = threading.Event()
+                    self.preview_stderr_thread = threading.Thread(
+                        target=self._read_preview_stderr,
+                        daemon=True,
+                    )
+                    self.preview_stderr_thread.start()
+                    
+                    self.preview_reader_thread = threading.Thread(
+                        target=self._read_preview_stream,
+                        daemon=True,
+                    )
+                    self.preview_reader_thread.start()
+                    self.log("Preview-Stream: Thread gestartet")
+            
+            # 3. Starte Stream-Verteilungs-Thread
+            self.stream_distribution_stop_event = threading.Event()
+            self.stream_distribution_thread = threading.Thread(
+                target=self._distribute_stream,
+                daemon=True,
+            )
+            self.stream_distribution_thread.start()
+            self.log("Stream-Verteilung: Thread gestartet")
+            
+            # 4. Automatischer Workflow: Rewind → Play → Start Recording
             if auto_rewind_play:
-                self.log("=== Automatischer Workflow: Rewind → Play → Capture ===")
+                self.log("=== Automatischer Workflow: Rewind → Play → Start Recording ===")
                 
                 # Rewind
                 self.log("Spule Band zurück...")
                 if self._send_interactive_command("a"):
-                    # Warte länger für vollständiges Rewind (10-15 Sekunden)
-                    # MiniDV-Bänder können 60-90 Minuten lang sein
                     self.log("Warte auf vollständiges Rewind (15 Sekunden)...")
-                    time.sleep(15)  # Längere Wartezeit für vollständiges Rewind
+                    time.sleep(15)
                 else:
                     self.log("Warnung: Rewind-Befehl fehlgeschlagen")
                 
@@ -335,203 +670,53 @@ class CaptureEngine:
                 self.log("Starte Wiedergabe...")
                 if self._send_interactive_command("p"):
                     time.sleep(2)  # Warte auf Play-Start
-                    
-                    # Starte Preview NACH Play-Befehl, damit die Kamera Signal sendet
-                    if enable_preview:
-                        self.log("Starte Preview nach Play-Befehl...")
-                        self._start_preview(device, preview_fps)
-                        time.sleep(1)  # Kurze Pause, damit Preview initialisiert wird
                 else:
                     self.log("Warnung: Play-Befehl fehlgeschlagen")
                 
-                # Capture starten
+                # Starte Recording-ffmpeg
+                self.log("Starte Recording-ffmpeg...")
+                if not self._start_recording_ffmpeg(self.current_output_path):
+                    self.log("FEHLER: Recording-ffmpeg konnte nicht gestartet werden")
+                    return False
+                
+                # Capture-Befehl (optional, dvgrab streamt bereits)
                 self.log("Starte Aufnahme...")
                 if not self._send_interactive_command("c"):
-                    self.log("Warnung: Capture-Befehl fehlgeschlagen")
-                    return False
+                    self.log("Warnung: Capture-Befehl fehlgeschlagen (kann ignoriert werden)")
             else:
                 self.log("=== Manueller Modus ===")
                 self.log("Bitte steuern Sie die Kamera manuell oder verwenden Sie die Steuerungs-Buttons.")
                 self.log("Verwenden Sie 'c' um die Aufnahme zu starten.")
                 
-                # Im manuellen Modus: Starte Preview sofort (falls aktiviert)
-                if enable_preview:
-                    self._start_preview(device, preview_fps)
+                # Im manuellen Modus: Recording-ffmpeg wird später gestartet (nach manuellem 'c')
+                # Für jetzt: Recording-ffmpeg starten, aber noch nicht aktiv aufnehmen
+                # (dvgrab streamt bereits, ffmpeg wartet auf Daten)
+                if not self._start_recording_ffmpeg(self.current_output_path):
+                    self.log("FEHLER: Recording-ffmpeg konnte nicht gestartet werden")
+                    return False
 
-            # Verwende den interaktiven Prozess für Capture
-            if self.interactive_process and self.interactive_process.poll() is None:
-                # Capture wurde bereits gestartet (wenn auto_rewind_play), sonst starte jetzt
-                if not auto_rewind_play:
-                    self.log("Starte Aufnahme im interaktiven Modus...")
-                    if not self._send_interactive_command("c"):
-                        self.log("Fehler: Capture-Befehl konnte nicht gesendet werden")
-                        return False
-                
-                # Verwende den interaktiven Prozess als Capture-Prozess
-                self.process = self.interactive_process
-                self.is_capturing = True
-                
-                self.capture_thread = threading.Thread(
-                    target=self._monitor_capture,
-                    daemon=True,
-                )
-                self.capture_thread.start()
-                
-                return True
-            else:
-                # Sollte nicht passieren, da interaktiver Modus bereits gestartet wurde
-                self.log("FEHLER: Interaktiver Modus nicht verfügbar")
-                return False
+            # 5. Markiere als aktiv und starte Monitoring
+            self.is_capturing = True
+            self.process = self.unified_dvgrab_process  # Für Kompatibilität
+            
+            self.capture_thread = threading.Thread(
+                target=self._monitor_capture,
+                daemon=True,
+            )
+            self.capture_thread.start()
+            
+            self.log("Aufnahme gestartet!")
+            return True
 
         except Exception as e:
             self.log(f"Fehler beim Starten der Aufnahme: {e}")
             self.is_capturing = False
             self._stop_preview()
+            self._stop_all_processes()
             return False
 
-    def _start_preview(self, device: str, fps: int):
-        """Startet Preview-Stream mit dvgrab -> ffmpeg Pipeline"""
-        try:
-            # Verwende dvgrab -> ffmpeg Pipeline für Preview
-            # dvgrab liest vom FireWire-Gerät und sendet an ffmpeg
-            # WICHTIG: -noavc deaktiviert Kamera-Steuerung, damit dvgrab sofort streamt
-            # -f dv2 sollte mit stdout funktionieren, aber wir versuchen auch RAW
-            dvgrab_cmd = [
-                self.dvgrab_path,
-            ] + self._format_device_for_dvgrab(device) + [
-                "-noavc",  # Deaktiviere Kamera-Steuerung (streamt sofort)
-                "-a",  # Audio aktivieren
-                "-f", "raw",  # RAW-Format für stdout (ffmpeg kann DV-RAW lesen)
-                "-",  # Ausgabe nach stdout
-            ]
-            
-            ffmpeg_cmd = [
-                str(self.ffmpeg_path),
-                "-f", "dv",  # DV-Format vom stdin (RAW-DV-Daten)
-                "-i", "-",  # Input von stdin
-                "-vf", f"fps={fps},scale=640:-1",
-                "-f", "mjpeg",
-                "-q:v", "5",
-                "-",  # Ausgabe nach stdout
-            ]
-            
-            # Prüfe, ob wir root sind - dvgrab benötigt root für FireWire
-            is_root = os.geteuid() == 0
-            if not is_root:
-                dvgrab_cmd = ["sudo"] + dvgrab_cmd
-                self.log("HINWEIS: dvgrab benötigt root-Rechte für FireWire-Zugriff. Verwende sudo...")
-            
-            self.log("Starte Preview-Stream (dvgrab -> ffmpeg Pipeline)...")
-            self.log(f"Preview-Gerät: {device}")
-            self.log("HINWEIS: Preview funktioniert nur, wenn die Kamera im Play-Modus ist und Signal sendet.")
-            
-            # Starte dvgrab-Prozess
-            dvgrab_process = subprocess.Popen(
-                dvgrab_cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                stdin=subprocess.PIPE,
-                text=False,
-                bufsize=0,
-            )
-            
-            # Starte ffmpeg-Prozess mit stdin von dvgrab
-            self.preview_process = subprocess.Popen(
-                ffmpeg_cmd,
-                stdin=dvgrab_process.stdout,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=False,
-                bufsize=0,
-            )
-            
-            # Schließe dvgrab stdout in ffmpeg
-            dvgrab_process.stdout.close()
-            
-            # Speichere dvgrab-Prozess für späteres Stoppen
-            self.preview_dvgrab_process = dvgrab_process
-            
-            # Warte länger und prüfe, ob der Prozess sofort beendet wurde
-            # ffmpeg braucht etwas Zeit, um das Gerät zu öffnen und Fehler zu melden
-            time.sleep(1.5)
-            if self.preview_process.poll() is not None:
-                # Prozess wurde sofort beendet - lese stderr für Fehler
-                try:
-                    if self.preview_process.stderr:
-                        # Warte kurz, damit stderr vollständig geschrieben wird
-                        time.sleep(0.2)
-                        # Lese alle verfügbaren Daten
-                        stderr_data = b""
-                        while True:
-                            chunk = self.preview_process.stderr.read(4096)
-                            if not chunk:
-                                break
-                            stderr_data += chunk if isinstance(chunk, bytes) else chunk.encode()
-                        
-                        if stderr_data:
-                            if isinstance(stderr_data, bytes):
-                                stderr_text = stderr_data.decode('utf-8', errors='ignore')
-                            else:
-                                stderr_text = str(stderr_data)
-                            # Zeige vollständige Fehlermeldung - suche nach dem eigentlichen Fehler
-                            # (nach der Versionsinfo)
-                            error_lines = stderr_text.split('\n')
-                            error_found = False
-                            for i, line in enumerate(error_lines):
-                                if any(keyword in line.lower() for keyword in ['error', 'failed', 'cannot', 'invalid', 'permission', 'no such', 'device']):
-                                    # Zeige diese Zeile und Kontext
-                                    start_idx = max(0, i-2)
-                                    end_idx = min(len(error_lines), i+5)
-                                    error_section = '\n'.join(error_lines[start_idx:end_idx])
-                                    self.log(f"Preview-Fehler (Prozess beendet):\n{error_section}")
-                                    error_found = True
-                                    break
-                            if not error_found:
-                                # Falls kein Fehler gefunden, zeige die letzten Zeilen (nach Versionsinfo)
-                                # Versionsinfo ist normalerweise am Anfang
-                                lines_after_version = [line for line in error_lines if 'ffmpeg version' not in line.lower() and 'libav' not in line.lower() and line.strip()]
-                                if lines_after_version:
-                                    self.log(f"Preview-Fehler (Prozess beendet, letzte Zeilen):\n{chr(10).join(lines_after_version[-10:])}")
-                                else:
-                                    # Zeige die vollständige Ausgabe, aber filtere Versionsinfo
-                                    important_lines = [line for line in error_lines if any(keyword in line.lower() for keyword in ['input', 'output', 'stream', 'error', 'failed', 'cannot', 'device', 'permission'])]
-                                    if important_lines:
-                                        self.log(f"Preview-Fehler (Prozess beendet, wichtige Zeilen):\n{chr(10).join(important_lines)}")
-                                    else:
-                                        self.log(f"Preview-Fehler: Prozess wurde sofort beendet. Mögliche Ursachen:")
-                                        self.log(f"  - Gerät bereits von dvgrab verwendet (dvgrab blockiert FireWire-Gerät)")
-                                        self.log(f"  - Keine Berechtigung für {ffmpeg_device}")
-                                        self.log(f"  - Gerät nicht gefunden: {ffmpeg_device}")
-                                        self.log(f"Vollständige stderr-Ausgabe (letzte 500 Zeichen):\n{stderr_text[-500:]}")
-                            if "Permission denied" in stderr_text or "Cannot open" in stderr_text:
-                                self.log("HINWEIS: ffmpeg benötigt root-Rechte. Starten Sie die Anwendung mit sudo.")
-                            elif "No such file" in stderr_text or "Device" in stderr_text:
-                                self.log(f"HINWEIS: FireWire-Gerät nicht gefunden. Versuchen Sie /dev/raw1394 oder /dev/video1394")
-                except Exception as e:
-                    self.log(f"Fehler beim Lesen von Preview-stderr: {e}")
-                return
-
-            if self.preview_process.stdout:
-                self.preview_stop_event = threading.Event()
-                # Starte auch einen Thread zum Lesen von stderr für besseres Error-Handling
-                self.preview_stderr_thread = threading.Thread(
-                    target=self._read_preview_stderr,
-                    daemon=True,
-                )
-                self.preview_stderr_thread.start()
-                
-                self.preview_reader_thread = threading.Thread(
-                    target=self._read_preview_stream,
-                    daemon=True,
-                )
-                self.preview_reader_thread.start()
-                self.log("Preview-Stream: Thread gestartet")
-            else:
-                self.log("Preview-Stream: WARNUNG - stdout nicht verfügbar!")
-
-        except Exception as e:
-            self.log(f"Fehler beim Starten des Preview-Streams: {e}")
-            self.log("HINWEIS: Preview erfordert, dass die Kamera im Play-Modus ist.")
+    # Alte _start_preview() Methode entfernt - wird durch _start_preview_ffmpeg() ersetzt
+    # Die neue Architektur verwendet unified dvgrab -> Stream-Verteilung -> Preview-ffmpeg
 
     def stop_capture(self) -> bool:
         """Stoppt die Aufnahme"""
@@ -544,73 +729,51 @@ class CaptureEngine:
             # Stoppe Preview
             self._stop_preview()
 
-            # Wenn im interaktiven Modus: Sende Stop-Befehl (Esc oder 'q' für quit)
-            if self.interactive_process and self.interactive_process.poll() is None:
-                self.log("Sende Stop-Befehl an dvgrab...")
-                # Versuche zuerst ESC, dann 'q' für quit
-                self._send_interactive_command("\x1b")  # ESC für Stop
-                time.sleep(0.5)
-                # Falls ESC nicht funktioniert, versuche 'q'
-                if self.interactive_process.poll() is None:
-                    self._send_interactive_command("q")  # 'q' für quit
-                time.sleep(1)  # Warte auf Stop
-            
-            # Stoppe dvgrab-Prozess
-            process_to_stop = self.process if self.process else self.interactive_process
-            if process_to_stop:
-                try:
-                    process_to_stop.terminate()
-                    process_to_stop.wait(timeout=5)
-                except subprocess.TimeoutExpired:
-                    self.log("dvgrab beendet sich nicht automatisch, erzwinge Beendigung...")
-                    process_to_stop.kill()
-                    process_to_stop.wait(timeout=2)
-            
-            # Cleanup interaktiven Prozess
-            if self.interactive_process:
-                try:
-                    if self.interactive_process.poll() is None:
-                        self.interactive_process.terminate()
-                        self.interactive_process.wait(timeout=2)
-                except:
-                    pass
-                self.interactive_process = None
+            # Stoppe alle Prozesse (dvgrab, preview-ffmpeg, recording-ffmpeg)
+            self._stop_all_processes()
 
             self.is_capturing = False
             self.log("Aufnahme gestoppt.")
 
             # Warte kurz, damit die Datei vollständig geschrieben ist
-            time.sleep(0.5)
+            time.sleep(1)
 
-            # dvgrab erstellt möglicherweise Dateien mit Timestamp
-            # Finde die tatsächlich erstellte Datei
-            if self.current_output_path and not self.current_output_path.exists():
-                # Suche nach Dateien die mit dem Basisnamen beginnen
-                base_name = self.current_output_path.stem
-                parent = self.current_output_path.parent
-                matching_files = list(parent.glob(f"{base_name}*.avi"))
-                if matching_files:
-                    # Benenne die erste gefundene Datei um
-                    actual_file = matching_files[0]
-                    if actual_file != self.current_output_path:
-                        shutil.move(actual_file, self.current_output_path)
-                        self.log(f"Datei umbenannt: {actual_file.name} -> {self.current_output_path.name}")
+            # Prüfe ob Recording-Datei existiert und hat Audio
+            if self.current_output_path and self.current_output_path.exists():
+                # Validiere, dass Audio vorhanden ist
+                try:
+                    # Verwende ffprobe um Streams zu prüfen (falls verfügbar)
+                    ffprobe_cmd = [
+                        str(self.ffmpeg_path).replace("ffmpeg", "ffprobe"),
+                        "-v", "error",
+                        "-select_streams", "a",
+                        "-show_entries", "stream=codec_type",
+                        "-of", "default=noprint_wrappers=1:nokey=1",
+                        str(self.current_output_path),
+                    ]
+                    result = subprocess.run(
+                        ffprobe_cmd,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                        timeout=5,
+                    )
+                    if result.returncode == 0 and b"audio" in result.stdout:
+                        self.log("Aufnahme erfolgreich: Audio-Stream vorhanden")
+                    else:
+                        self.log("WARNUNG: Audio-Stream nicht gefunden in Aufnahme!")
+                except Exception:
+                    # ffprobe nicht verfügbar oder Fehler - ignoriere
+                    pass
+            else:
+                self.log(f"WARNUNG: Aufnahmedatei nicht gefunden: {self.current_output_path}")
 
             return True
 
         except Exception as e:
             self.log(f"Fehler beim Stoppen der Aufnahme: {e}")
-            if self.process:
-                try:
-                    self.process.terminate()
-                    self.process.wait(timeout=2)
-                except:
-                    try:
-                        self.process.kill()
-                    except:
-                        pass
             self.is_capturing = False
             self._stop_preview()
+            self._stop_all_processes()
             return False
 
     def _read_preview_stderr(self):
@@ -670,33 +833,32 @@ class CaptureEngine:
         if self.preview_stop_event:
             self.preview_stop_event.set()
         
-        # Stoppe dvgrab-Prozess für Preview
-        if self.preview_dvgrab_process:
-            try:
-                self.preview_dvgrab_process.terminate()
-                self.preview_dvgrab_process.wait(timeout=2)
-            except:
-                try:
-                    self.preview_dvgrab_process.kill()
-                except:
-                    pass
-            self.preview_dvgrab_process = None
-        
-        # Stoppe ffmpeg-Prozess
+        # Stoppe Preview-ffmpeg-Prozess
         if self.preview_process:
             try:
+                # Schließe stdin, damit ffmpeg sauber beendet wird
+                if self.preview_process.stdin and not self.preview_process.stdin.closed:
+                    self.preview_process.stdin.close()
                 self.preview_process.terminate()
                 self.preview_process.wait(timeout=2)
-            except:
+            except subprocess.TimeoutExpired:
                 try:
                     self.preview_process.kill()
+                    self.preview_process.wait(timeout=1)
                 except:
                     pass
+            except Exception:
+                pass
             self.preview_process = None
 
         if self.preview_reader_thread and self.preview_reader_thread.is_alive():
             self.preview_reader_thread.join(timeout=1)
         self.preview_reader_thread = None
+        
+        if self.preview_stderr_thread and self.preview_stderr_thread.is_alive():
+            self.preview_stderr_thread.join(timeout=1)
+        self.preview_stderr_thread = None
+        
         self.preview_stop_event = None
 
     def _monitor_capture(self):
@@ -726,6 +888,7 @@ class CaptureEngine:
             if self.is_capturing:
                 self.is_capturing = False
                 self._stop_preview()
+                self._stop_all_processes()
                 
                 # Wenn der Prozess sofort beendet wurde (z.B. kein Signal), logge Warnung
                 if return_code != 0 and return_code not in [130, 143]:
@@ -738,6 +901,7 @@ class CaptureEngine:
             self.log(f"Fehler beim Überwachen der Aufnahme: {e}")
             self.is_capturing = False
             self._stop_preview()
+            self._stop_all_processes()
 
     def _read_stderr(self):
         """Liest stderr in einem separaten Thread"""
