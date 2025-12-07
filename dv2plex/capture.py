@@ -410,7 +410,7 @@ class CaptureEngine:
 
     def _start_recording_ffmpeg(self, output_path: Path) -> bool:
         """
-        Startet ffmpeg-Prozess für Recording (H.264/AAC MP4)
+        Startet ffmpeg-Prozess für Recording (DV-AVI Type 2, copy)
         
         Args:
             output_path: Ausgabepfad für MP4-Datei
@@ -422,7 +422,7 @@ class CaptureEngine:
             return True  # Bereits gestartet
         
         try:
-            # ffmpeg schreibt DV 1:1 in eine .dv-Datei (keine Transkodierung)
+            # ffmpeg schreibt DV 1:1 in eine AVI (Type 2), keine Transkodierung
             ffmpeg_cmd = [
                 str(self.ffmpeg_path),
                 "-analyzeduration", "10000000",
@@ -431,12 +431,12 @@ class CaptureEngine:
                 "-i", "-",
                 "-map", "0",
                 "-c", "copy",
-                "-f", "dv",
+                "-f", "avi",
                 "-y",
                 str(output_path),
             ]
 
-            self.log("Starte Recording-ffmpeg (DV raw)...")
+            self.log("Starte Recording-ffmpeg (DV raw -> AVI)...")
             self.log(f"Recording-ffmpeg-Befehl: {' '.join(ffmpeg_cmd)}")
 
             self.recording_ffmpeg_process = subprocess.Popen(
@@ -467,7 +467,7 @@ class CaptureEngine:
                 return False
 
             self._recording_started = True
-            self.log("Recording-ffmpeg gestartet (DV raw)")
+            self.log("Recording-ffmpeg gestartet (DV raw -> AVI)")
 
             self.recording_stderr_thread = threading.Thread(
                 target=self._read_recording_stderr,
@@ -696,7 +696,8 @@ class CaptureEngine:
             output_dir = Path(output_path)
             output_dir.mkdir(parents=True, exist_ok=True)
             # Roh-DV + finale MP4 (H.265/H.264)
-            self.raw_output_path = output_dir / f"part_{part_number:03d}.dv"
+            # Roh als DV-AVI (Type 2), damit ffmpeg valide Containerdaten hat
+            self.raw_output_path = output_dir / f"part_{part_number:03d}.avi"
             self.current_output_path = output_dir / f"part_{part_number:03d}.mp4"
 
             self.preview_callback = preview_callback
@@ -964,8 +965,6 @@ class CaptureEngine:
 
         ffmpeg_cmd = [
             str(self.ffmpeg_path),
-            "-f",
-            "dv",
             "-i",
             str(self.raw_output_path),
             "-map",
@@ -989,7 +988,7 @@ class CaptureEngine:
             str(self.current_output_path),
         ]
 
-        self.log(f"Transcode DV -> MP4: {' '.join(ffmpeg_cmd)}")
+            self.log(f"Transcode DV(AVI) -> MP4: {' '.join(ffmpeg_cmd)}")
         try:
             result = subprocess.run(
                 ffmpeg_cmd,
