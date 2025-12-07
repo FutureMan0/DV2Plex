@@ -70,6 +70,7 @@ websocket_connections: List[WebSocket] = []
 # Active operations
 active_capture: Optional[Dict[str, Any]] = None
 active_postprocessing: Optional[Dict[str, Any]] = None
+active_capture_stop_task: Optional[asyncio.Task] = None
 
 
 def setup_services():
@@ -333,7 +334,7 @@ async def start_capture(request: CaptureStartRequest):
 @app.post("/api/capture/stop")
 async def stop_capture():
     """Stoppt die laufende Capture-Session"""
-    global active_capture
+    global active_capture, active_capture_stop_task
     
     if not capture_service:
         raise HTTPException(status_code=500, detail="Capture-Service nicht initialisiert")
@@ -341,13 +342,22 @@ async def stop_capture():
     if not capture_service.is_capturing():
         raise HTTPException(status_code=400, detail="Kein Capture aktiv")
     
-    success = capture_service.stop_capture()
-    if success:
-        active_capture = None
-        await broadcast_message({"type": "status", "status": "capture_stopped"})
-        return {"success": True, "message": "Capture gestoppt"}
-    else:
-        raise HTTPException(status_code=400, detail="Capture konnte nicht gestoppt werden")
+    # Wenn bereits ein Stop im Hintergrund läuft, nicht blockieren
+    if active_capture_stop_task and not active_capture_stop_task.done():
+        return {"success": True, "message": "Stop/Merge läuft bereits im Hintergrund"}
+    
+    async def _stop_and_broadcast():
+        global active_capture
+        success = await asyncio.to_thread(capture_service.stop_capture)
+        if success:
+            active_capture = None
+            await broadcast_message({"type": "status", "status": "capture_stopped"})
+        else:
+            logger.error("Capture konnte nicht gestoppt werden (Hintergrund-Task).")
+    
+    active_capture_stop_task = asyncio.create_task(_stop_and_broadcast())
+    
+    return {"success": True, "message": "Capture-Stop/Merge läuft im Hintergrund; Web-UI bleibt erreichbar."}
 
 
 @app.post("/api/capture/rewind")

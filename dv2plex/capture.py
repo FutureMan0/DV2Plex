@@ -10,6 +10,8 @@ import subprocess
 import threading
 import time
 import shutil
+import urllib.request
+import urllib.error
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional, Callable, IO
@@ -48,6 +50,9 @@ class CaptureEngine:
         self.current_output_path: Optional[Path] = None
         self.raw_output_path: Optional[Path] = None  # DV-Rohdatei
         self.logger = logging.getLogger(__name__)
+        self.last_split_time: Optional[float] = None  # Letzte erkannte Split-Datei
+        self.auto_stop_inactivity_triggered: bool = False
+        self.inactivity_monitor_thread: Optional[threading.Thread] = None
         # Neue Architektur: Separater interaktiver Prozess für Steuerung
         self.interactive_dvgrab_process: Optional[subprocess.Popen] = None  # Interaktiver dvgrab nur für Steuerung
         # Recording-Prozess (non-interaktiv)
@@ -328,39 +333,76 @@ class CaptureEngine:
             
             # ffmpeg liest Datei und konvertiert zu MJPEG
             # Verwende -analyzeduration und -probesize für bessere Kompatibilität
+            # stderr auf DEVNULL setzen, sonst kann ffmpeg blockieren wenn Buffer voll
+            def launch(cmd_desc, cmd_list):
+                self.log(f"Preview: Starte ffmpeg ({cmd_desc}): {' '.join(cmd_list[:5])}...")
+                proc = subprocess.Popen(
+                    cmd_list,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.DEVNULL,  # Wichtig: sonst blockiert ffmpeg
+                    text=False,
+                    bufsize=0,
+                )
+                time.sleep(0.3)
+                poll = proc.poll()
+                if poll is not None:
+                    self.log(f"Preview-ffmpeg ({cmd_desc}) für {file_path.name} sofort beendet mit Code {poll}")
+                    return None
+                return proc
+
+            # Variante 1: Als Raw-DV lesen (für Dateien während des Schreibens)
+            # AVI-Index existiert noch nicht, aber DV-Daten sind selbst-beschreibend
+            raw_dv_cmd = [
+                str(self.ffmpeg_path),
+                "-hide_banner",
+                "-loglevel", "error",
+                "-f", "dv",  # Force DV format (ohne AVI-Container)
+                "-i", str(file_path),
+                "-vf", f"yadif,fps={fps},scale=640:-1",
+                "-vcodec", "mjpeg",
+                "-f", "image2pipe",
+                "-q:v", "5",
+                "-",
+            ]
+            process = launch("raw-dv", raw_dv_cmd)
+            if process:
+                return process
+
+            # Variante 2: Standard AVI lesen (für fertige Dateien)
             ffmpeg_cmd = [
                 str(self.ffmpeg_path),
                 "-hide_banner",
                 "-loglevel", "error",
-                "-fflags", "nobuffer",
+                "-fflags", "+genpts+igndts",
                 "-analyzeduration", "10000000",
                 "-probesize", "10000000",
-                "-i", str(file_path),  # Input-Datei
-                "-vf", f"yadif,fps={fps},scale=640:-1",  # Deinterlace + FPS + Skalierung
+                "-i", str(file_path),
+                "-vf", f"yadif,fps={fps},scale=640:-1",
                 "-vcodec", "mjpeg",
-                "-f", "image2pipe",  # explizit Pipe-Output
-                "-q:v", "5",  # Qualität
-                "-",  # Ausgabe nach stdout
+                "-f", "image2pipe",
+                "-q:v", "5",
+                "-",
             ]
-            
-            self.log(f"Preview: Starte ffmpeg für {file_path.name} ({file_size // 1024} KB)")
-            
-            process = subprocess.Popen(
-                ffmpeg_cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.DEVNULL,  # Wichtig: sonst blockiert ffmpeg
-                text=False,
-                bufsize=0,
-            )
-            
-            # Warte kurz und prüfe ob Prozess gestartet wurde
-            time.sleep(0.3)
-            poll = process.poll()
-            if poll is not None:
-                self.log(f"Preview: ffmpeg sofort beendet mit Code {poll}")
-                return None
-            
-            self.log(f"Preview: ffmpeg läuft (PID {process.pid})")
+            process = launch("avi", ffmpeg_cmd)
+            if process:
+                return process
+
+            # Variante 3: Ignoriere Fehler komplett
+            fallback_cmd = [
+                str(self.ffmpeg_path),
+                "-hide_banner",
+                "-loglevel", "warning",
+                "-err_detect", "ignore_err",
+                "-fflags", "+genpts+discardcorrupt",
+                "-f", "dv",
+                "-i", str(file_path),
+                "-vf", f"yadif,fps={fps},scale=640:-1",
+                "-vcodec", "mjpeg",
+                "-f", "image2pipe",
+                "-q:v", "7",
+                "-",
+            ]
+            process = launch("fallback", fallback_cmd)
             return process
             
         except Exception as e:
@@ -424,6 +466,7 @@ class CaptureEngine:
                     if self._wait_for_file_complete(file_path):
                         self.preview_queue.put(file_path)
                         known_files.add(file_path)
+                        self.last_split_time = time.time()
                         self.log(f"Preview-Queue: Neue Datei hinzugefügt: {file_path.name}")
                 
                 time.sleep(0.5)  # Prüfe alle 0.5 Sekunden
@@ -433,6 +476,44 @@ class CaptureEngine:
         finally:
             self.log("Preview-Queue-Monitor: Beendet")
 
+    def _monitor_split_inactivity(self, timeout_seconds: int = 300):
+        """
+        Überwacht, ob neue Splits eintreffen. Stoppt Aufnahme nach Timeout ohne neue Datei.
+        """
+        if not self.splits_dir:
+            return
+        
+        known_files = set(self.splits_dir.glob("dvgrab*.avi")) | set(self.splits_dir.glob("dvgrab*.dv"))
+        if known_files:
+            self.last_split_time = time.time()
+        
+        self.log("Inaktivitätsmonitor: gestartet")
+        
+        try:
+            while self.is_capturing and not self.auto_stop_inactivity_triggered:
+                now = time.time()
+                
+                current_files = set(self.splits_dir.glob("dvgrab*.avi")) | set(self.splits_dir.glob("dvgrab*.dv"))
+                new_files = current_files - known_files
+                if new_files:
+                    self.last_split_time = now
+                    known_files |= new_files
+                
+                if self.last_split_time and (now - self.last_split_time) >= timeout_seconds:
+                    self.auto_stop_inactivity_triggered = True
+                    self.log("Inaktivitätsmonitor: 5 Minuten keine neuen Splits - stoppe Aufnahme.")
+                    try:
+                        self.stop_capture()
+                    except Exception as e:
+                        self.log(f"Inaktivitätsmonitor: Fehler beim Stoppen: {e}")
+                    break
+                
+                time.sleep(5)
+        except Exception as e:
+            self.log(f"Inaktivitätsmonitor: Fehler: {e}")
+        finally:
+            self.log("Inaktivitätsmonitor: beendet")
+
     def _play_file_for_preview(self, file_path: Path):
         """
         Spielt eine Datei vollständig für Preview ab
@@ -441,6 +522,29 @@ class CaptureEngine:
             file_path: Pfad zur Video-Datei
         """
         if not file_path.exists() or not self.preview_callback:
+            return
+        
+        # Warte bis Datei genug Daten hat (mind. 100KB für DV-Video)
+        min_size = 100 * 1024  # 100 KB
+        max_wait = 10  # Max 10 Sekunden warten
+        waited = 0
+        while waited < max_wait:
+            if not file_path.exists():
+                return
+            try:
+                size = file_path.stat().st_size
+                if size >= min_size:
+                    self.log(f"Preview: Datei {file_path.name} hat {size // 1024} KB, starte Wiedergabe")
+                    break
+            except:
+                pass
+            time.sleep(0.5)
+            waited += 0.5
+            # Prüfe ob Aufnahme noch läuft
+            if self.preview_stop_event and self.preview_stop_event.is_set():
+                return
+        else:
+            self.log(f"Preview: Datei {file_path.name} zu klein nach {max_wait}s Warten")
             return
         
         preview_fps = getattr(self, 'preview_fps', 10)
@@ -510,6 +614,7 @@ class CaptureEngine:
             file_path: Pfad zur Datei (für Logging)
         """
         if not process or not process.stdout or not self.preview_callback:
+            self.log(f"Preview: Kein Prozess/stdout/callback für {file_path.name}")
             return
         
         buffer = bytearray()
@@ -519,27 +624,41 @@ class CaptureEngine:
         last_frame_time = 0
         preview_fps = getattr(self, 'preview_fps', 10)
         target_frame_interval = 1.0 / max(preview_fps, 5)
+        bytes_read = 0
         
-        bytes_total = 0
+        self.log(f"Preview: Starte Frame-Lesen von {file_path.name}")
+        
+        # Prüfe initialen Prozess-Status
+        poll_result = process.poll()
+        if poll_result is not None:
+            self.log(f"Preview: Prozess bereits beendet mit Code {poll_result}")
+            # Lese stderr
+            try:
+                if process.stderr:
+                    err = process.stderr.read()
+                    if err:
+                        self.log(f"Preview: ffmpeg stderr: {err.decode('utf-8', errors='ignore')[:500]}")
+            except:
+                pass
+            return
+        
         try:
-            # Lese stdout bis leer (auch nach Prozessende)
             while (
                 (not self.preview_stop_event or not self.preview_stop_event.is_set())
                 and process
+                and process.poll() is None
             ):
                 try:
                     chunk = process.stdout.read(8192)
                     
                     if not chunk:
-                        # Keine Daten mehr - prüfe ob Prozess noch läuft
                         if process.poll() is not None:
-                            # Prozess beendet, verarbeite restlichen Buffer und beende
-                            self.log(f"Preview: ffmpeg beendet, {bytes_total} bytes gelesen, {frame_count} frames")
+                            self.log(f"Preview: Prozess beendet, {bytes_read} bytes gelesen, {frame_count} frames")
                             break
                         time.sleep(0.01)
                         continue
                     
-                    bytes_total += len(chunk)
+                    bytes_read += len(chunk)
                     buffer.extend(chunk)
                     
                     # Suche nach vollständigen JPEGs
@@ -575,33 +694,11 @@ class CaptureEngine:
                     self.log(f"Preview: Fehler beim Lesen: {e}")
                     time.sleep(0.1)
                     continue
-            
-            # Verarbeite restlichen Buffer nach Prozessende
-            while buffer:
-                start_idx = buffer.find(jpeg_start)
-                if start_idx == -1:
-                    break
-                if start_idx > 0:
-                    buffer = buffer[start_idx:]
-                end_idx = buffer.find(jpeg_end, 2)
-                if end_idx == -1:
-                    break
-                
-                jpeg_data = bytes(buffer[: end_idx + 2])
-                buffer = buffer[end_idx + 2 :]
-                
-                if self.preview_callback:
-                    try:
-                        self.preview_callback(jpeg_data)
-                        frame_count += 1
-                        if frame_count == 1:
-                            self.log(f"Preview: Erstes Frame (Bytes) von {file_path.name}")
-                    except Exception as e:
-                        self.log(f"Preview: Fehler bei Frame-Callback: {e}")
         
         except Exception as e:
             self.log(f"Preview: Fehler: {e}")
         finally:
+            self.log(f"Preview: Beendet - {bytes_read} bytes gelesen, {frame_count} frames gesendet")
             # Wenn keine Frames gefunden wurden, logge Stderr für Diagnose
             if frame_count == 0 and process:
                 try:
@@ -891,11 +988,17 @@ class CaptureEngine:
                 return False
 
             output_dir = Path(output_path)
-            output_dir.mkdir(parents=True, exist_ok=True)
+            if output_dir.exists():
+                self.log(f"Ausgabeverzeichnis existiert bereits: {output_dir}")
+                self.log("Aufnahme wird nicht gestartet, bitte neuen Zielordner wählen.")
+                return False
+            output_dir.mkdir(parents=True, exist_ok=False)
             
             # Erstelle splits-Ordner
             self.splits_dir = output_dir / "splits"
             self.splits_dir.mkdir(parents=True, exist_ok=True)
+            self.last_split_time = time.time()
+            self.auto_stop_inactivity_triggered = False
             
             # Setze Ausgabepfad für Merge (wird nach dem Stoppen erstellt)
             # Standard jetzt MP4
@@ -959,7 +1062,14 @@ class CaptureEngine:
                 self.preview_worker_thread.start()
                 self.log("Preview-Queue-Worker: Thread gestartet")
             
-            # 5. Starte Monitoring-Thread
+            # 5. Inaktivitätsüberwachung (immer aktiv)
+            self.inactivity_monitor_thread = threading.Thread(
+                target=self._monitor_split_inactivity,
+                daemon=True,
+            )
+            self.inactivity_monitor_thread.start()
+            
+            # 6. Starte Monitoring-Thread
             self.capture_thread = threading.Thread(
                 target=self._monitor_capture,
                 daemon=True,
@@ -1052,10 +1162,13 @@ class CaptureEngine:
                 if merged_file and merged_file.exists():
                     self.log(f"Merge erfolgreich: {merged_file}")
                     # Zähle Split-Dateien für Info
-                    split_files = list(self.splits_dir.glob("dvgrab-*.avi"))
+                    split_files = list(self.splits_dir.glob("dvgrab*.avi")) + list(self.splits_dir.glob("dvgrab*.dv"))
                     self.log(f"Zusammengefügt: {len(split_files)} Split-Dateien")
+                    self._rewind_after_merge()
+                    self._notify_completion(f"Aufnahme fertig. Merge abgeschlossen: {merged_file}")
                 else:
                     self.log("WARNUNG: Merge fehlgeschlagen!")
+                    self._notify_completion("Aufnahme beendet, aber Merge fehlgeschlagen.")
             else:
                 self.log(f"WARNUNG: splits-Ordner nicht gefunden: {self.splits_dir}")
 
@@ -1280,6 +1393,50 @@ class CaptureEngine:
                     self.log(f"dvgrab-Ausgabe: {stderr_text[-500:]}")
             else:
                 self.log(f"dvgrab-Fehler (Code {return_code}): {stderr_text[-500:]}")
+
+    def _rewind_after_merge(self):
+        """Startet interaktiven Modus, führt Rewind aus und beendet ihn mit Ctrl+C"""
+        try:
+            device = self.get_device()
+            if not device:
+                self.log("Rewind nach Merge übersprungen: Kein FireWire-Gerät gefunden.")
+                return
+            
+            if not self._start_interactive_dvgrab(device):
+                self.log("Rewind nach Merge: Interaktiver Modus konnte nicht gestartet werden.")
+                return
+            
+            self.log("Rewind nach Merge: Sende 'a' (rewind)...")
+            self._send_interactive_command("a")
+            time.sleep(1.5)
+            
+            proc = self.interactive_dvgrab_process or self.interactive_process
+            if proc and proc.poll() is None:
+                import signal
+                self.log("Rewind nach Merge: Sende SIGINT (Ctrl+C) an interaktiven dvgrab...")
+                try:
+                    proc.send_signal(signal.SIGINT)
+                    proc.wait(timeout=5)
+                except Exception as e:
+                    self.log(f"Rewind nach Merge: Fehler bei SIGINT: {e}")
+            self.interactive_dvgrab_process = None
+            self.interactive_process = None
+        except Exception as e:
+            self.log(f"Rewind nach Merge: Fehler: {e}")
+
+    def _notify_completion(self, message: str):
+        """Sendet Abschlussmeldung ins Log und an ntfy (dv2plex-complete)"""
+        self.log(message)
+        try:
+            req = urllib.request.Request(
+                "https://ntfy.sh/dv2plex-complete",
+                data=message.encode("utf-8"),
+                method="POST",
+            )
+            urllib.request.urlopen(req, timeout=5)
+            self.log("ntfy-Benachrichtigung an dv2plex-complete gesendet.")
+        except Exception as e:
+            self.log(f"ntfy-Benachrichtigung fehlgeschlagen: {e}")
 
     def _read_preview_stream(self):
         """Liest Preview-Frames vom ffmpeg-Stream"""
