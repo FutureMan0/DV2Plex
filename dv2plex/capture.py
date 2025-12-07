@@ -276,6 +276,7 @@ class CaptureEngine:
                         continue
                     
                     # Schreibe Chunk in beide Pipes (wenn verfügbar)
+                    preview_failed = False
                     if preview_pipe and not preview_pipe.closed:
                         try:
                             preview_pipe.write(chunk)
@@ -283,7 +284,10 @@ class CaptureEngine:
                         except (BrokenPipeError, OSError):
                             # Preview-Prozess beendet, schließe Pipe
                             preview_pipe = None
+                            preview_failed = True
+                            self.log("Stream-Verteilung: Preview-Pipe geschlossen (Preview-ffmpeg beendet)")
                     
+                    recording_failed = False
                     if recording_pipe and not recording_pipe.closed:
                         try:
                             recording_pipe.write(chunk)
@@ -291,11 +295,18 @@ class CaptureEngine:
                         except (BrokenPipeError, OSError):
                             # Recording-Prozess beendet, schließe Pipe
                             recording_pipe = None
+                            recording_failed = True
+                            self.log("Stream-Verteilung: Recording-Pipe geschlossen (Recording-ffmpeg beendet)")
                     
-                    # Wenn beide Pipes geschlossen sind, stoppe
-                    if not preview_pipe and not recording_pipe:
-                        self.log("Stream-Verteilung: Beide Pipes geschlossen, beende...")
+                    # Wenn Recording-Pipe geschlossen ist, ist das kritisch - stoppe
+                    if recording_failed:
+                        self.log("Stream-Verteilung: Recording beendet, beende Stream-Verteilung...")
                         break
+                    
+                    # Wenn nur Preview beendet wurde, fahre mit Recording fort
+                    if preview_failed and recording_pipe:
+                        self.log("Stream-Verteilung: Preview beendet, fahre mit Recording fort...")
+                        preview_pipe = None
                         
                 except Exception as e:
                     self.log(f"Stream-Verteilung: Fehler beim Lesen/Schreiben: {e}")
@@ -333,12 +344,13 @@ class CaptureEngine:
         
         try:
             # ffmpeg liest DV von stdin und konvertiert zu MJPEG
+            # HINWEIS: MJPEG unterstützt kein Audio, daher nur Video mappen
+            # Audio bleibt im Recording erhalten (Recording-ffmpeg verwendet -map 0:v -map 0:a)
             ffmpeg_cmd = [
                 str(self.ffmpeg_path),
                 "-f", "dv",  # DV-Format vom stdin
                 "-i", "-",  # Input von stdin
-                "-map", "0:v",  # Video-Stream
-                "-map", "0:a",  # Audio-Stream (wichtig: Audio bleibt erhalten)
+                "-map", "0:v",  # Nur Video-Stream (MJPEG unterstützt kein Audio)
                 "-vf", f"fps={fps},scale=640:-1",  # Video-Filter: FPS + Skalierung
                 "-f", "mjpeg",  # MJPEG-Format
                 "-q:v", "5",  # Qualität
