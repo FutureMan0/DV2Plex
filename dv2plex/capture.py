@@ -426,14 +426,15 @@ class CaptureEngine:
                 "-f", "dv",  # DV-Format vom stdin
                 "-i", "-",  # Input von stdin
                 "-map", "0:v",    # Video-Stream
-                "-map", "0:a:1", # Erster Audiostream (DV-Original, optional)
+                "-map", "0:a:0",  # Erster Audiostream (DV-Original)
+                "-af", "alimiter=limit=0.8",  # Limiter: Peaks absenken, sonst unverändert
                 "-c:v", "libx264",  # H.264 Video-Codec
                 "-preset", "veryfast",  # Encoding-Preset
                 "-crf", "18",  # Qualität (niedrigere Werte = bessere Qualität)
                 "-c:a", "aac",  # AAC Audio-Codec
                 "-b:a", "192k",  # Audio-Bitrate
                 "-ac", "2",  # Erzwinge Stereo
-                "-ar", "48000",  # Erzwinge 48kHz Sampling-Rate
+                "-ar", "32000",  # DV-Audio (häufig 32 kHz)
                 "-y",  # Überschreibe vorhandene Datei
                 str(output_path),  # Ausgabedatei
             ]
