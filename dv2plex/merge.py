@@ -3,6 +3,7 @@ Merge-Engine für das Zusammenfügen mehrerer Capture-Parts
 """
 
 import subprocess
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, Optional, Callable
 import logging
@@ -22,6 +23,101 @@ class MergeEngine:
         self.ffmpeg_path = ffmpeg_path
         self.log_callback = log_callback
         self.logger = logging.getLogger(__name__)
+        self._ffprobe_path: Optional[Path] = None
+
+    def _get_ffprobe_path(self) -> Path:
+        """
+        Liefert den vermuteten ffprobe-Pfad (gleicher Ordner wie ffmpeg oder aus PATH)
+        """
+        if self._ffprobe_path:
+            return self._ffprobe_path
+
+        ffmpeg_path = Path(self.ffmpeg_path)
+        # Versuche ffprobe im gleichen Verzeichnis
+        candidate = ffmpeg_path.with_name("ffprobe")
+        if candidate.exists():
+            self._ffprobe_path = candidate
+            return candidate
+
+        # Fallback: ffprobe aus PATH
+        self._ffprobe_path = Path("ffprobe")
+        return self._ffprobe_path
+
+    def _parse_creation_datetime(self, value: str) -> Optional[datetime]:
+        """Parst einen Datums-String aus den Metadaten zu datetime"""
+        try:
+            cleaned = value.strip()
+            if not cleaned:
+                return None
+            # ISO-8601 mit Z unterstützen
+            if cleaned.endswith("Z"):
+                cleaned = cleaned[:-1] + "+00:00"
+            try:
+                return datetime.fromisoformat(cleaned)
+            except ValueError:
+                # Häufiges Fallback-Format
+                return datetime.strptime(cleaned, "%Y-%m-%d %H:%M:%S")
+        except Exception:
+            return None
+
+    def _extract_creation_timestamp(self, video_path: Path) -> Optional[float]:
+        """
+        Liest den Aufnahmezeitpunkt aus den Metadaten (creation_time o.ä.).
+        Gibt einen UTC-Timestamp zurück oder None.
+        """
+        ffprobe_path = self._get_ffprobe_path()
+        tag_keys = [
+            "format_tags=com.apple.quicktime.creationdate",
+            "format_tags=creation_time",
+            "stream_tags=timecode",
+        ]
+
+        for tag_key in tag_keys:
+            try:
+                cmd = [
+                    str(ffprobe_path),
+                    "-v",
+                    "quiet",
+                    "-select_streams",
+                    "v:0",
+                    "-show_entries",
+                    tag_key,
+                    "-of",
+                    "default=noprint_wrappers=1:nokey=1",
+                    str(video_path),
+                ]
+                result = subprocess.run(
+                    cmd,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    check=False,
+                )
+                value = result.stdout.strip()
+                if not value:
+                    continue
+                dt = self._parse_creation_datetime(value)
+                if dt:
+                    # Sicherstellen, dass wir UTC/Epoch-Sekunden erhalten
+                    if dt.tzinfo is None:
+                        dt = dt.replace(tzinfo=timezone.utc)
+                    ts = dt.timestamp()
+                    self.log(f"Metadaten-Zeit gefunden ({tag_key}): {dt.isoformat()}")
+                    return ts
+            except Exception as e:
+                self.log(f"Fehler beim Lesen von Metadaten ({tag_key}): {e}")
+                continue
+
+        # Fallback: Dateisystem-Zeitstempel
+        try:
+            mtime_ts = video_path.stat().st_mtime
+            self.log(
+                "Keine Metadaten-Zeit gefunden, verwende Dateisystem-Zeitstempel "
+                f"({datetime.fromtimestamp(mtime_ts).isoformat(timespec='seconds')})"
+            )
+            return mtime_ts
+        except Exception:
+            return None
     
     def find_parts(self, lowres_dir: Path) -> List[Path]:
         """
@@ -274,17 +370,36 @@ class MergeEngine:
                 return output_path
             
             self.log(f"{len(scene_changes)} Szenenänderungen erkannt")
+
+            # Metadaten für Startzeit auslesen (creation_time o.ä.)
+            base_timestamp = self._extract_creation_timestamp(input_path)
+            if base_timestamp:
+                human_readable = datetime.fromtimestamp(base_timestamp).isoformat(
+                    timespec="seconds"
+                )
+                self.log(f"Nutze Metadaten-Startzeit für Overlay: {human_readable}")
+            else:
+                self.log("Keine Metadaten-Startzeit gefunden, nutze 00:00:00 ab Video-Start")
+
+            # Timestamp-Format: Bei Metadaten volle Datums-/Zeitangabe, sonst Laufzeit
+            if base_timestamp:
+                base_seconds = int(base_timestamp)
+                timestamp_template = (
+                    f"%{{pts\\:gmtime\\:{base_seconds}\\:%Y\\-%m\\-%d\\ %H\\:%M\\:%S}}"
+                )
+            else:
+                timestamp_template = "%{pts\\:gmtime\\:0\\:%H\\:%M\\:%S}"
             
             # Schritt 2: Erstelle drawtext-Filter für jede Szenenänderung
             # Format: drawtext für 4 Sekunden nach jeder Szenenänderung
             filter_parts = []
             
             for scene_time in scene_changes:
-                # Timestamp-Format: HH:MM:SS
+                # Timestamp-Text: Metadaten-Zeit (falls vorhanden) sonst Laufzeit
                 # Verwende enable-Filter um nur für bestimmte Zeit zu zeigen
                 end_time = scene_time + duration
                 filter_expr = (
-                    f"drawtext=text='%{{pts\\:gmtime\\:0\\:%H\\\\:%M\\\\:%S}}'"
+                    f"drawtext=text='{timestamp_template}'"
                     f":fontsize=24"
                     f":x=10"
                     f":y=10"

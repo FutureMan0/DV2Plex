@@ -155,8 +155,24 @@ class PostprocessingService:
             timestamp_overlay = self.config.get("capture.timestamp_overlay", True)
             if timestamp_overlay:
                 self._log("=== Füge Timestamp-Overlays hinzu ===")
-                # Timestamp overlay logic would go here
-                # For now, we'll skip it as it's complex
+                timestamp_duration = self.config.get("capture.timestamp_duration", 4)
+
+                temp_merged = merged_file.parent / f"{merged_file.stem}_with_timestamps{merged_file.suffix}"
+                result_file = merge_engine.add_timestamp_overlay(
+                    merged_file,
+                    temp_merged,
+                    duration=timestamp_duration,
+                )
+
+                if result_file and result_file.exists():
+                    try:
+                        merged_file.unlink()
+                    except Exception:
+                        pass
+                    result_file.rename(merged_file)
+                    self._log("Timestamp-Overlays erfolgreich hinzugefügt")
+                else:
+                    self._log("Warnung: Timestamp-Overlay fehlgeschlagen, verwende Datei ohne Timestamps")
             
             if progress_callback:
                 progress_callback(25)
