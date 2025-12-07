@@ -492,6 +492,10 @@ class MergeEngine:
                 str(self.ffmpeg_path),
                 "-i", str(input_path),
                 "-vf", vf_filter,
+                "-c:v", "libx264",
+                "-pix_fmt", "yuv420p",
+                "-preset", "medium",
+                "-crf", "20",
                 "-c:a", "copy",  # Audio kopieren
                 "-y",
                 str(output_path)
@@ -939,6 +943,10 @@ class MergeEngine:
                 str(self.ffmpeg_path),
                 "-i", str(input_path),
                 "-vf", vf_filter,
+                "-c:v", "libx264",
+                "-pix_fmt", "yuv420p",
+                "-preset", "medium",
+                "-crf", "20",
                 "-c:a", "copy",  # Audio kopieren
                 "-y",
                 str(output_path)
