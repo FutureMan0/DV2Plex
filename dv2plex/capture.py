@@ -988,11 +988,8 @@ class CaptureEngine:
                 return False
 
             output_dir = Path(output_path)
-            if output_dir.exists():
-                self.log(f"Ausgabeverzeichnis existiert bereits: {output_dir}")
-                self.log("Aufnahme wird nicht gestartet, bitte neuen Zielordner wählen.")
-                return False
-            output_dir.mkdir(parents=True, exist_ok=False)
+            # Ordner wird von CaptureService erstellt, hier nur sicherstellen dass er existiert
+            output_dir.mkdir(parents=True, exist_ok=True)
             
             # Erstelle splits-Ordner
             self.splits_dir = output_dir / "splits"
