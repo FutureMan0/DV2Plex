@@ -62,6 +62,7 @@ capture_service: Optional[CaptureService] = None
 postprocessing_service: Optional[PostprocessingService] = None
 movie_mode_service: Optional[MovieModeService] = None
 cover_service: Optional[CoverService] = None
+main_event_loop: Optional[asyncio.AbstractEventLoop] = None
 
 # WebSocket connections for broadcasting
 websocket_connections: List[WebSocket] = []
@@ -108,17 +109,16 @@ def broadcast_message_sync(message: Dict[str, Any]):
     if not websocket_connections:
         return
     
-    # Try to get the event loop
-    try:
-        loop = asyncio.get_event_loop()
-    except RuntimeError:
-        # No event loop in this thread, create a new one
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
+    # Nutze immer die Event-Loop des Servers, damit Futures nicht an falsche Loops gebunden werden.
+    loop = main_event_loop
+    if loop is None:
+        try:
+            loop = asyncio.get_event_loop()
+        except RuntimeError:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
     
-    # Check if loop is running
     if loop.is_running():
-        # Schedule the coroutine in the running loop
         for ws in websocket_connections[:]:
             try:
                 asyncio.run_coroutine_threadsafe(ws.send_json(message), loop)
@@ -127,7 +127,6 @@ def broadcast_message_sync(message: Dict[str, Any]):
                 if ws in websocket_connections:
                     websocket_connections.remove(ws)
     else:
-        # Run the coroutine directly
         try:
             loop.run_until_complete(broadcast_message(message))
         except Exception as e:
@@ -215,7 +214,8 @@ async def get_status():
     return {
         "capture_running": capture_service.is_capturing() if capture_service else False,
         "postprocessing_running": postprocessing_service.is_running() if postprocessing_service else False,
-        "device_available": capture_service.get_device() is not None if capture_service else False
+        "device_available": capture_service.get_device() is not None if capture_service else False,
+        "active_capture": active_capture
     }
 
 
@@ -301,7 +301,11 @@ async def start_capture(request: CaptureStartRequest):
                 "year": request.year,
                 "started_at": datetime.now().isoformat()
             }
-            await broadcast_message({"type": "status", "status": "capture_started"})
+            await broadcast_message({
+                "type": "status",
+                "status": "capture_started",
+                "data": active_capture
+            })
             return {"success": True, "message": "Capture gestartet"}
         else:
             error_msg = error or "Capture konnte nicht gestartet werden"
@@ -693,11 +697,22 @@ async def websocket_endpoint(websocket: WebSocket):
             # Echo back or handle commands
             await websocket.send_json({"type": "pong", "data": data})
     except WebSocketDisconnect:
-        websocket_connections.remove(websocket)
+        if websocket in websocket_connections:
+            websocket_connections.remove(websocket)
     except Exception as e:
         logger.error(f"WebSocket-Fehler: {e}")
         if websocket in websocket_connections:
             websocket_connections.remove(websocket)
+    finally:
+        if websocket in websocket_connections:
+            websocket_connections.remove(websocket)
+
+
+@app.on_event("startup")
+async def on_startup():
+    """Merkt sich die Event-Loop für thread-sichere Broadcasts"""
+    global main_event_loop
+    main_event_loop = asyncio.get_running_loop()
 
 
 def get_html_interface() -> str:
@@ -1761,7 +1776,7 @@ def get_html_interface() -> str:
                     updateProgress(data.value, data.operation);
                     break;
                 case 'status':
-                    updateStatus(data.status, data.operation);
+                    updateStatus(data.status, data.operation, data.data);
                     break;
                 case 'log':
                     addLog(data.message, data.operation);
@@ -1796,8 +1811,57 @@ def get_html_interface() -> str:
             }
         }
         
-        function updateStatus(status, operation) {
-            // Update status displays
+        function updateStatus(status, operation, payload = null) {
+            if (status === 'capture_started') {
+                document.getElementById('capture-start-btn').disabled = true;
+                document.getElementById('capture-stop-btn').disabled = false;
+                document.getElementById('capture-status').textContent = 'Aufnahme läuft...';
+                
+                if (payload) {
+                    if (payload.title) {
+                        document.getElementById('capture-title').value = payload.title;
+                    }
+                    if (payload.year) {
+                        document.getElementById('capture-year').value = payload.year;
+                    }
+                }
+            } else if (status === 'capture_stopped') {
+                document.getElementById('capture-start-btn').disabled = false;
+                document.getElementById('capture-stop-btn').disabled = true;
+                document.getElementById('capture-status').textContent = 'Aufnahme beendet.';
+            }
+            
+            if (operation === 'postprocessing') {
+                const statusEl = document.getElementById('postprocess-status');
+                statusEl.textContent = status;
+            } else if (operation === 'cover_generation') {
+                const statusEl = document.getElementById('cover-status');
+                statusEl.textContent = status;
+            }
+        }
+        
+        async function loadStatus() {
+            try {
+                const response = await fetch('/api/status');
+                const data = await response.json();
+                
+                if (data.capture_running) {
+                    updateStatus('capture_started');
+                } else {
+                    updateStatus('capture_stopped');
+                }
+                
+                if (data.active_capture) {
+                    if (data.active_capture.title) {
+                        document.getElementById('capture-title').value = data.active_capture.title;
+                    }
+                    if (data.active_capture.year) {
+                        document.getElementById('capture-year').value = data.active_capture.year;
+                    }
+                }
+            } catch (error) {
+                console.error('Status konnte nicht geladen werden:', error);
+            }
         }
         
         function addLog(message, operation) {
@@ -2439,6 +2503,7 @@ def get_html_interface() -> str:
         
         // Initialize
         connectWebSocket();
+        loadStatus();
         loadUpscalingProfiles();
         loadPostprocessList();
         loadSettings();
