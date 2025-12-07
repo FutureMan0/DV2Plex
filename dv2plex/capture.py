@@ -328,6 +328,27 @@ class CaptureEngine:
             
             # ffmpeg liest Datei und konvertiert zu MJPEG
             # Verwende -analyzeduration und -probesize für bessere Kompatibilität
+            def launch(cmd_desc, cmd_list):
+                proc = subprocess.Popen(
+                    cmd_list,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=False,
+                    bufsize=0,
+                )
+                time.sleep(0.5)
+                if proc.poll() is not None:
+                    try:
+                        if proc.stderr:
+                            err = proc.stderr.read()
+                            if err:
+                                self.log(f"Preview-ffmpeg-Fehler ({cmd_desc}) für {file_path.name}: {err.decode('utf-8', errors='ignore')[:500]}")
+                    except Exception:
+                        pass
+                    return None
+                return proc
+
+            # Erste Variante: Standard-DV-AVI lesen
             ffmpeg_cmd = [
                 str(self.ffmpeg_path),
                 "-hide_banner",
@@ -335,41 +356,34 @@ class CaptureEngine:
                 "-fflags", "nobuffer",
                 "-analyzeduration", "10000000",
                 "-probesize", "10000000",
-                "-i", str(file_path),  # Input-Datei
-                "-vf", f"yadif,fps={fps},scale=640:-1",  # Deinterlace + FPS + Skalierung
+                "-i", str(file_path),
+                "-vf", f"yadif,fps={fps},scale=640:-1",
                 "-vcodec", "mjpeg",
-                "-f", "image2pipe",  # explizit Pipe-Output
-                "-q:v", "5",  # Qualität
-                "-",  # Ausgabe nach stdout
+                "-f", "image2pipe",
+                "-q:v", "5",
+                "-",
             ]
-            
-            process = subprocess.Popen(
-                ffmpeg_cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=False,
-                bufsize=0,
-            )
-            
-            # Warte kurz und prüfe ob Prozess gestartet wurde
-            time.sleep(0.5)
-            if process.poll() is not None:
-                # Prozess wurde sofort beendet
-                try:
-                    if process.stderr:
-                        stderr_data = b""
-                        while True:
-                            chunk = process.stderr.read(4096)
-                            if not chunk:
-                                break
-                            stderr_data += chunk if isinstance(chunk, bytes) else chunk.encode()
-                        if stderr_data:
-                            stderr_text = stderr_data.decode('utf-8', errors='ignore')
-                            self.log(f"Preview-ffmpeg-Fehler für {file_path.name}: {stderr_text[:500]}")
-                except:
-                    pass
-                return None
-            
+            process = launch("std", ffmpeg_cmd)
+            if process:
+                return process
+
+            # Fallback: Erzwinge DV-Decoder und ignoriere Fehler
+            fallback_cmd = [
+                str(self.ffmpeg_path),
+                "-hide_banner",
+                "-loglevel", "warning",
+                "-fflags", "nobuffer",
+                "-analyzeduration", "5000000",
+                "-probesize", "5000000",
+                "-err_detect", "ignore_err",
+                "-i", str(file_path),
+                "-vf", f"yadif,fps={fps},scale=640:-1",
+                "-vcodec", "mjpeg",
+                "-f", "image2pipe",
+                "-q:v", "7",
+                "-",
+            ]
+            process = launch("fallback", fallback_cmd)
             return process
             
         except Exception as e:
