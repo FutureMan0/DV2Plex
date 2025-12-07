@@ -44,7 +44,7 @@ def find_pending_movies(config: Config) -> List[Path]:
         lowres_dir = movie_dir / "LowRes"
         if not lowres_dir.exists():
             continue
-        parts = list(lowres_dir.glob("part_*.avi"))
+        parts = list(lowres_dir.glob("part_*.avi")) + list(lowres_dir.glob("part_*.mp4"))
         if not parts:
             continue
         highres_dir = movie_dir / "HighRes"

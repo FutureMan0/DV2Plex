@@ -36,7 +36,8 @@ class MergeEngine:
         if not lowres_dir.exists():
             return []
         
-        parts = sorted(lowres_dir.glob("part_*.avi"))
+        # Unterstütze alte AVI-Parts und neue MP4-Parts
+        parts = sorted(lowres_dir.glob("part_*.avi")) + sorted(lowres_dir.glob("part_*.mp4"))
         return parts
     
     def merge_parts(self, lowres_dir: Path, output_name: str = "movie_merged.avi") -> Optional[Path]:
@@ -56,9 +57,18 @@ class MergeEngine:
             self.log("Keine Part-Dateien gefunden!")
             return None
         
+        # Wähle Ausgabeformat passend zum Input
+        first_ext = parts[0].suffix.lower()
+        if first_ext == ".mp4":
+            output_name = "movie_merged.mp4"
+        elif first_ext == ".avi":
+            output_name = "movie_merged.avi"
+        else:
+            # Fallback: mp4 ist kompatibler
+            output_name = "movie_merged.mp4"
         output_path = lowres_dir / output_name
         
-        # Wenn nur eine Datei, einfach kopieren/umbenennen
+        # Wenn nur eine Datei, einfach kopieren/umbenennen (Container beibehalten)
         if len(parts) == 1:
             self.log(f"Nur eine Part-Datei gefunden, kopiere zu {output_name}...")
             try:
@@ -92,6 +102,7 @@ class MergeEngine:
                 "-safe", "0",
                 "-i", str(list_file),
                 "-c", "copy",
+                "-movflags", "+faststart",
                 "-y",  # Überschreibe vorhandene Datei
                 str(output_path)
             ]

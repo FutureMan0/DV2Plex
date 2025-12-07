@@ -690,6 +690,16 @@ async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
     websocket_connections.append(websocket)
     
+    # Beim Verbinden aktuellen Status pushen, damit Buttons/Titel/Jahr sofort stimmen
+    try:
+        await websocket.send_json({
+            "type": "status",
+            "status": "capture_started" if (capture_service and capture_service.is_capturing()) else "capture_stopped",
+            "data": active_capture
+        })
+    except Exception as e:
+        logger.error(f"WebSocket-Initstatus konnte nicht gesendet werden: {e}")
+    
     try:
         while True:
             # Keep connection alive and wait for messages
@@ -1042,7 +1052,9 @@ def get_html_interface() -> str:
             border-radius: 14px;
             padding: 15px;
             text-align: center;
-            min-height: 250px;
+            min-height: 260px;
+            height: clamp(260px, 36vw, 360px); /* fixierte Höhe, verhindert Springen */
+            aspect-ratio: 4 / 3;
             display: flex;
             align-items: center;
             justify-content: center;
@@ -1060,8 +1072,9 @@ def get_html_interface() -> str:
         }
         
         .preview-container img {
-            max-width: 100%;
-            max-height: 350px;
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
             border-radius: 10px;
             box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
         }
@@ -1461,11 +1474,9 @@ def get_html_interface() -> str:
             }
             
             .preview-container {
-                min-height: 400px;
-            }
-            
-            .preview-container img {
-                max-height: 500px;
+                height: clamp(320px, 32vw, 420px);
+                min-height: 320px;
+                max-height: 420px;
             }
             
             .list-container {
@@ -1510,6 +1521,12 @@ def get_html_interface() -> str:
             
             .tab-content {
                 padding: 10px;
+            }
+            
+            .preview-container {
+                height: clamp(200px, 55vw, 260px);
+                min-height: 200px;
+                max-height: 260px;
             }
             
             .button-group {
