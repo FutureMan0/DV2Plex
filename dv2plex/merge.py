@@ -412,13 +412,14 @@ class MergeEngine:
             
             # Erstelle drawtext-Filter für jeden Timestamp
             # Zeige Timestamp für 4 Sekunden nach Start jedes Splits
-            filter_parts = []
             duration = 4  # Sekunden
             
-            for start_time, timestamp in split_start_times:
+            if len(split_start_times) == 1:
+                # Einzelner Filter
+                start_time, timestamp = split_start_times[0]
                 end_time = start_time + duration
                 timestamp_str = timestamp.strftime("%Y-%m-%d %H:%M:%S")
-                filter_expr = (
+                vf_filter = (
                     f"drawtext=text='{timestamp_str}'"
                     f":fontsize=24"
                     f":x=10"
@@ -428,13 +429,33 @@ class MergeEngine:
                     f":boxcolor=black@0.5"
                     f":enable='between(t,{start_time},{end_time})'"
                 )
-                filter_parts.append(filter_expr)
-            
-            # Kombiniere alle Filter
-            if len(filter_parts) == 1:
-                vf_filter = filter_parts[0]
             else:
-                vf_filter = ",".join(filter_parts)
+                # Mehrere Filter: Verwende Filterkette mit [in] und [out]
+                # Jeder Filter nimmt den vorherigen Output als Input
+                filter_chain = []
+                current_input = "[0:v]"
+                
+                for i, (start_time, timestamp) in enumerate(split_start_times):
+                    end_time = start_time + duration
+                    timestamp_str = timestamp.strftime("%Y-%m-%d %H:%M:%S")
+                    output_label = f"[out{i}]"
+                    
+                    filter_expr = (
+                        f"{current_input}drawtext=text='{timestamp_str}'"
+                        f":fontsize=24"
+                        f":x=10"
+                        f":y=10"
+                        f":fontcolor=white"
+                        f":box=1"
+                        f":boxcolor=black@0.5"
+                        f":enable='between(t,{start_time},{end_time})'"
+                        f"{output_label}"
+                    )
+                    filter_chain.append(filter_expr)
+                    current_input = output_label
+                
+                # Letzter Filter gibt finales Output
+                vf_filter = ";".join(filter_chain)
             
             # Wende Filter an
             cmd = [
@@ -792,13 +813,14 @@ class MergeEngine:
             
             # Erstelle drawtext-Filter für jeden Timestamp
             # Zeige Timestamp für 4 Sekunden nach Start jedes Splits
-            filter_parts = []
             duration = 4  # Sekunden
             
-            for start_time, timestamp in split_start_times:
+            if len(split_start_times) == 1:
+                # Einzelner Filter
+                start_time, timestamp = split_start_times[0]
                 end_time = start_time + duration
                 timestamp_str = timestamp.strftime("%Y-%m-%d %H:%M:%S")
-                filter_expr = (
+                vf_filter = (
                     f"drawtext=text='{timestamp_str}'"
                     f":fontsize=24"
                     f":x=10"
@@ -808,13 +830,33 @@ class MergeEngine:
                     f":boxcolor=black@0.5"
                     f":enable='between(t,{start_time},{end_time})'"
                 )
-                filter_parts.append(filter_expr)
-            
-            # Kombiniere alle Filter
-            if len(filter_parts) == 1:
-                vf_filter = filter_parts[0]
             else:
-                vf_filter = ",".join(filter_parts)
+                # Mehrere Filter: Verwende Filterkette mit [in] und [out]
+                # Jeder Filter nimmt den vorherigen Output als Input
+                filter_chain = []
+                current_input = "[0:v]"
+                
+                for i, (start_time, timestamp) in enumerate(split_start_times):
+                    end_time = start_time + duration
+                    timestamp_str = timestamp.strftime("%Y-%m-%d %H:%M:%S")
+                    output_label = f"[out{i}]"
+                    
+                    filter_expr = (
+                        f"{current_input}drawtext=text='{timestamp_str}'"
+                        f":fontsize=24"
+                        f":x=10"
+                        f":y=10"
+                        f":fontcolor=white"
+                        f":box=1"
+                        f":boxcolor=black@0.5"
+                        f":enable='between(t,{start_time},{end_time})'"
+                        f"{output_label}"
+                    )
+                    filter_chain.append(filter_expr)
+                    current_input = output_label
+                
+                # Letzter Filter gibt finales Output
+                vf_filter = ";".join(filter_chain)
             
             # Wende Filter an
             cmd = [
