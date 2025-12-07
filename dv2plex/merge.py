@@ -3,6 +3,7 @@ Merge-Engine für das Zusammenfügen mehrerer Capture-Parts
 """
 
 import subprocess
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, Optional, Callable, Tuple
@@ -252,6 +253,173 @@ class MergeEngine:
             )
             return mtime_ts
         except Exception:
+            return None
+    
+    def _parse_timecode_from_filename(self, filename: str) -> Optional[Tuple[int, int, int, int]]:
+        """
+        Parst Timecode aus dvgrab-Dateinamen
+        
+        Format: capture-001-00.00.00.000.avi oder ähnlich
+        Gibt zurück: (hours, minutes, seconds, frames) oder None
+        
+        Args:
+            filename: Dateiname (z.B. "capture-001-00.00.00.000.avi")
+        
+        Returns:
+            Tuple (hours, minutes, seconds, frames) oder None
+        """
+        try:
+            # Suche nach Timecode-Pattern: HH.MM.SS.FFF oder HH:MM:SS:FFF
+            # dvgrab verwendet normalerweise Format: capture-XXX-HH.MM.SS.FFF.avi
+            patterns = [
+                r'(\d{2})\.(\d{2})\.(\d{2})\.(\d{3})',  # 00.00.00.000
+                r'(\d{2}):(\d{2}):(\d{2}):(\d{3})',      # 00:00:00:000
+                r'(\d{2})\.(\d{2})\.(\d{2})',            # 00.00.00 (ohne Frames)
+            ]
+            
+            for pattern in patterns:
+                match = re.search(pattern, filename)
+                if match:
+                    groups = match.groups()
+                    hours = int(groups[0])
+                    minutes = int(groups[1])
+                    seconds = int(groups[2])
+                    frames = int(groups[3]) if len(groups) > 3 else 0
+                    
+                    # Validiere Werte
+                    if 0 <= hours < 24 and 0 <= minutes < 60 and 0 <= seconds < 60:
+                        return (hours, minutes, seconds, frames)
+            
+            return None
+        except Exception:
+            return None
+    
+    def _timecode_to_seconds(self, timecode: Tuple[int, int, int, int]) -> float:
+        """
+        Konvertiert Timecode zu Sekunden (für Sortierung)
+        
+        Args:
+            timecode: (hours, minutes, seconds, frames)
+        
+        Returns:
+            Sekunden als float
+        """
+        hours, minutes, seconds, frames = timecode
+        return hours * 3600 + minutes * 60 + seconds + frames / 30.0  # DV hat 30 FPS
+    
+    def merge_splits(self, splits_dir: Path, output_path: Path) -> Optional[Path]:
+        """
+        Fügt alle Split-Dateien nach Timecode zusammen
+        
+        Args:
+            splits_dir: Pfad zu LowRes/splits/
+            output_path: Ausgabepfad für zusammengefügtes Video
+        
+        Returns:
+            Pfad zur zusammengefügten Datei oder None
+        """
+        if not splits_dir.exists():
+            self.log(f"splits-Ordner nicht gefunden: {splits_dir}")
+            return None
+        
+        # Finde alle AVI-Dateien im splits-Ordner
+        split_files = list(splits_dir.glob("*.avi"))
+        if not split_files:
+            self.log("Keine Split-Dateien gefunden!")
+            return None
+        
+        self.log(f"Gefunden: {len(split_files)} Split-Dateien")
+        
+        # Wenn nur eine Datei, kopiere sie
+        if len(split_files) == 1:
+            self.log(f"Nur eine Split-Datei, kopiere zu {output_path.name}...")
+            try:
+                import shutil
+                output_path.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(split_files[0], output_path)
+                self.log(f"Datei erfolgreich kopiert: {output_path}")
+                return output_path
+            except Exception as e:
+                self.log(f"Fehler beim Kopieren: {e}")
+                return None
+        
+        # Sortiere nach Timecode (aus Dateinamen)
+        files_with_timecode = []
+        for file_path in split_files:
+            timecode = self._parse_timecode_from_filename(file_path.name)
+            if timecode:
+                seconds = self._timecode_to_seconds(timecode)
+                files_with_timecode.append((seconds, file_path))
+                self.log(f"  {file_path.name} -> Timecode: {timecode[0]:02d}:{timecode[1]:02d}:{timecode[2]:02d}.{timecode[3]:03d}")
+            else:
+                # Fallback: Verwende mtime für Sortierung
+                mtime = file_path.stat().st_mtime
+                files_with_timecode.append((mtime, file_path))
+                self.log(f"  {file_path.name} -> Kein Timecode, verwende mtime: {mtime}")
+        
+        # Sortiere nach Timecode/Sekunden
+        files_with_timecode.sort(key=lambda x: x[0])
+        sorted_files = [f[1] for f in files_with_timecode]
+        
+        self.log(f"Sortiere {len(sorted_files)} Dateien nach Timecode...")
+        
+        # Erstelle concat-Liste
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        list_file = output_path.parent / "merge_splits_list.txt"
+        
+        try:
+            # Erstelle concat-Liste
+            with open(list_file, 'w', encoding='utf-8') as f:
+                for split_file in sorted_files:
+                    # Verwende absolute Pfade für ffmpeg
+                    abs_path = split_file.resolve()
+                    # Escape single quotes für Windows-Pfade
+                    escaped_path = str(abs_path).replace("'", "'\\''")
+                    f.write(f"file '{escaped_path}'\n")
+            
+            # ffmpeg concat-Befehl (DV bleibt DV, daher -c copy)
+            cmd = [
+                str(self.ffmpeg_path),
+                "-f", "concat",
+                "-safe", "0",
+                "-i", str(list_file),
+                "-c", "copy",  # Copy-Modus für schnelles Zusammenfügen
+                "-y",  # Überschreibe vorhandene Datei
+                str(output_path)
+            ]
+            
+            self.log(f"Starte Merge mit ffmpeg...")
+            self.log(f"Befehl: {' '.join(cmd)}")
+            
+            # Führe ffmpeg aus
+            result = subprocess.run(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True
+            )
+            
+            # Lösche temporäre Liste
+            try:
+                list_file.unlink()
+            except:
+                pass
+            
+            if result.returncode == 0:
+                self.log(f"Merge erfolgreich: {output_path}")
+                return output_path
+            else:
+                self.log(f"ffmpeg-Fehler beim Merge: {result.stderr[-500:]}")
+                return None
+                
+        except Exception as e:
+            self.log(f"Fehler beim Merge: {e}")
+            # Lösche temporäre Liste
+            try:
+                if list_file.exists():
+                    list_file.unlink()
+            except:
+                pass
             return None
     
     def find_parts(self, lowres_dir: Path) -> List[Path]:
