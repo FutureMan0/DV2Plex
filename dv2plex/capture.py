@@ -428,7 +428,7 @@ class CaptureEngine:
                 "-map", "0:v",  # Video-Stream
                 "-map", "0:a:0?",  # Nur erster Audiotrack (optional, falls vorhanden)
                 # Audio-Kette: sanfte Rauschreduktion + Tiefpass gegen HF-Peaks + Limiter
-                "-af", "afftdn=nr=-25:nt=w,lowpass=f=12000,alimiter=limit=0.9",
+                "-af", "afftdn=nr=25:nt=w,lowpass=f=12000,alimiter=limit=0.9",
                 "-c:v", "libx264",  # H.264 Video-Codec
                 "-preset", "veryfast",  # Encoding-Preset
                 "-crf", "18",  # Qualität (niedrigere Werte = bessere Qualität)
