@@ -13,7 +13,7 @@ import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional, Callable, IO
-from queue import Queue
+from queue import Queue, Empty
 
 from .merge import MergeEngine
 
@@ -48,13 +48,19 @@ class CaptureEngine:
         self.current_output_path: Optional[Path] = None
         self.raw_output_path: Optional[Path] = None  # DV-Rohdatei
         self.logger = logging.getLogger(__name__)
-        self.interactive_process: Optional[subprocess.Popen] = None  # Für interaktiven Modus (dvgrab autosplit)
-        self.preview_dvgrab_process: Optional[subprocess.Popen] = None  # dvgrab-Prozess für Preview (veraltet)
-        # Neue Variablen für dvgrab autosplit Architektur
-        self.autosplit_dvgrab_process: Optional[subprocess.Popen] = None  # dvgrab mit autosplit
+        # Neue Architektur: Separater interaktiver Prozess für Steuerung
+        self.interactive_dvgrab_process: Optional[subprocess.Popen] = None  # Interaktiver dvgrab nur für Steuerung
+        # Recording-Prozess (non-interaktiv)
+        self.recording_dvgrab_process: Optional[subprocess.Popen] = None  # Non-interaktiver dvgrab für Aufnahme
         self.splits_dir: Optional[Path] = None  # Pfad zu LowRes/splits/
-        self.preview_monitor_thread: Optional[threading.Thread] = None  # Thread für Preview-Monitoring
+        # Preview-Queue-System
+        self.preview_queue: Queue = Queue()  # Queue für Preview-Dateien
+        self.preview_worker_thread: Optional[threading.Thread] = None  # Thread der Queue abarbeitet
+        self.preview_monitor_thread: Optional[threading.Thread] = None  # Thread der neue Dateien zur Queue hinzufügt
         self.preview_file_process: Optional[subprocess.Popen] = None  # ffmpeg für Preview aus Datei
+        # Kompatibilität
+        self.interactive_process: Optional[subprocess.Popen] = None  # Alias für interactive_dvgrab_process
+        self.autosplit_dvgrab_process: Optional[subprocess.Popen] = None  # Alias für recording_dvgrab_process
 
     def detect_firewire_device(self) -> Optional[str]:
         """
@@ -135,38 +141,28 @@ class CaptureEngine:
         # Sonst verwende -i mit dem Gerätepfad
         return ["-i", device]
 
-    def _start_dvgrab_autosplit(self, device: str, splits_dir: Path) -> bool:
+    def _start_interactive_dvgrab(self, device: str) -> bool:
         """
-        Startet dvgrab mit autosplit-Funktion (schreibt direkt Dateien)
+        Startet interaktiven dvgrab nur für Steuerung (Rewind/Play/Pause)
         
         Args:
             device: FireWire-Gerät
-            splits_dir: Ausgabeordner für Split-Dateien
         
         Returns:
             True wenn erfolgreich gestartet
         """
-        if self.autosplit_dvgrab_process:
+        if self.interactive_dvgrab_process:
             return True  # Bereits gestartet
         
         # Prüfe, ob wir root sind
         is_root = os.geteuid() == 0
         
         try:
-            # Erstelle splits-Ordner
-            splits_dir.mkdir(parents=True, exist_ok=True)
-            
-            # Baue dvgrab-Befehl: -i (interaktiv), -a (autosplit), -format dv2, -s 0 (keine Größen-Splits)
-            # Ausgabe-Präfix: dvgrab fügt automatisch Timecode hinzu (z.B. capture-001-00.00.00.000.avi)
-            output_prefix = str(splits_dir / "capture")
+            # Baue dvgrab-Befehl: -i (interaktiv, nur Steuerung)
             dvgrab_cmd = [
                 self.dvgrab_path,
             ] + self._format_device_for_dvgrab(device) + [
                 "-i",  # Interaktiver Modus
-                "-a",  # Autosplit bei Szenenänderungen
-                "-format", "dv2",  # DV Type 2 / AVI-kompatibel
-                "-s", "0",  # Keine Größen-Splits
-                output_prefix,  # Ausgabe-Präfix (dvgrab fügt Timecode hinzu)
             ]
             
             # Wenn nicht root, versuche mit sudo
@@ -176,113 +172,137 @@ class CaptureEngine:
             else:
                 cmd = dvgrab_cmd
             
-            self.log("Starte dvgrab mit autosplit...")
+            self.log("Starte interaktiven dvgrab für Steuerung...")
             self.log(f"dvgrab-Befehl: {' '.join(cmd)}")
-            self.log(f"Ausgabe-Verzeichnis: {splits_dir}")
             
-            # Starte dvgrab (stdout/stderr für Logging, stdin für interaktive Befehle)
-            self.autosplit_dvgrab_process = subprocess.Popen(
+            # Starte dvgrab (stdin für interaktive Befehle)
+            self.interactive_dvgrab_process = subprocess.Popen(
                 cmd,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 stdin=subprocess.PIPE,
                 text=False,  # Binärmodus für stdin (Befehle als Bytes)
-                bufsize=0,  # Unbuffered
+                bufsize=0,
             )
             
             # Warte kurz, damit der Prozess startet
             time.sleep(1)
             
-            if self.autosplit_dvgrab_process.poll() is None:
-                self.log("dvgrab autosplit gestartet")
-                self.log("Verfügbare Befehle: a=rewind, p=play, c=capture, k=pause, Esc=stop")
-                # Setze auch interactive_process für Kompatibilität mit bestehenden Methoden
-                self.interactive_process = self.autosplit_dvgrab_process
+            if self.interactive_dvgrab_process.poll() is None:
+                self.log("Interaktiver dvgrab gestartet (nur Steuerung)")
+                self.log("Verfügbare Befehle: a=rewind, p=play, k=pause, Esc=stop")
+                # Setze auch interactive_process für Kompatibilität
+                self.interactive_process = self.interactive_dvgrab_process
                 return True
             else:
                 error_output = ""
-                if self.autosplit_dvgrab_process.stderr:
+                if self.interactive_dvgrab_process.stderr:
                     try:
-                        error_output_bytes = self.autosplit_dvgrab_process.stderr.read()
+                        error_output_bytes = self.interactive_dvgrab_process.stderr.read()
                         if isinstance(error_output_bytes, bytes):
                             error_output = error_output_bytes.decode('utf-8', errors='ignore')
                         else:
                             error_output = str(error_output_bytes)
                     except Exception as e:
                         self.log(f"Fehler beim Lesen von stderr: {e}")
-                self.log(f"Fehler beim Starten von dvgrab autosplit: Return-Code {self.autosplit_dvgrab_process.returncode}")
+                self.log(f"Fehler beim Starten von interaktivem dvgrab: Return-Code {self.interactive_dvgrab_process.returncode}")
                 if error_output:
                     self.log(f"Fehler-Ausgabe: {error_output[:500]}")
                 
-                # Wenn raw1394-Fehler und nicht root, gebe Hinweis
-                if "raw1394" in error_output.lower() and not is_root:
-                    self.log("")
-                    self.log("=" * 60)
-                    self.log("FEHLER: dvgrab benötigt root-Rechte für FireWire-Zugriff!")
-                    self.log("")
-                    self.log("Lösungen:")
-                    self.log("1. Starten Sie die Anwendung mit sudo:")
-                    self.log("   sudo python start.py --no-gui")
-                    self.log("")
-                    self.log("2. Oder konfigurieren Sie udev-Regeln für FireWire:")
-                    self.log("   sudo nano /etc/udev/rules.d/99-raw1394.rules")
-                    self.log("   Fügen Sie hinzu:")
-                    self.log('   KERNEL=="raw1394", MODE="0666"')
-                    self.log("   Dann: sudo udevadm control --reload-rules")
-                    self.log("=" * 60)
-                    self.log("")
-                
-                self.autosplit_dvgrab_process = None
+                self.interactive_dvgrab_process = None
                 return False
                 
         except Exception as e:
-            self.log(f"Fehler beim Starten von dvgrab autosplit: {e}")
-            self.autosplit_dvgrab_process = None
+            self.log(f"Fehler beim Starten von interaktivem dvgrab: {e}")
+            self.interactive_dvgrab_process = None
             return False
 
-    def _get_latest_split_file(self) -> Optional[Path]:
+    def _start_recording_dvgrab(self, device: str, splits_dir: Path) -> bool:
         """
-        Findet die neueste vollständig geschriebene Datei im splits-Ordner
+        Startet non-interaktiven dvgrab für Aufnahme mit autosplit
+        
+        Args:
+            device: FireWire-Gerät
+            splits_dir: Ausgabeordner für Split-Dateien
         
         Returns:
-            Pfad zur neuesten vollständigen Datei oder None
+            True wenn erfolgreich gestartet
         """
-        if not self.splits_dir or not self.splits_dir.exists():
-            return None
+        if self.recording_dvgrab_process:
+            return True  # Bereits gestartet
+        
+        # Prüfe, ob wir root sind
+        is_root = os.geteuid() == 0
         
         try:
-            # Finde alle Video-Dateien im splits-Ordner (avi, dv, etc.)
-            video_files = []
-            for pattern in ["*.avi", "*.dv", "*.AVI", "*.DV"]:
-                video_files.extend(self.splits_dir.glob(pattern))
+            # Erstelle splits-Ordner
+            splits_dir.mkdir(parents=True, exist_ok=True)
             
-            if not video_files:
-                return None
+            # Baue dvgrab-Befehl: -rewind -autosplit -t -f dv1
+            # Ausgabe-Präfix: dvgrab fügt automatisch Timestamp hinzu (dvgrab-YYYY.MM.DD_HH-MM-SS.avi)
+            output_prefix = str(splits_dir / "dvgrab")
+            dvgrab_cmd = [
+                self.dvgrab_path,
+            ] + self._format_device_for_dvgrab(device) + [
+                "-rewind",  # Automatisches Rewind
+                "-autosplit",  # Autosplit bei Szenenänderungen
+                "-t",  # Timestamp im Dateinamen
+                "-f", "dv1",  # DV Type 1 Format
+                output_prefix,  # Ausgabe-Präfix (dvgrab fügt Timestamp hinzu)
+            ]
             
-            # Sortiere nach mtime (neueste zuerst)
-            video_files.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+            # Wenn nicht root, versuche mit sudo
+            if not is_root:
+                cmd = ["sudo"] + dvgrab_cmd
+                self.log("HINWEIS: dvgrab benötigt root-Rechte. Versuche mit sudo...")
+            else:
+                cmd = dvgrab_cmd
             
-            # Prüfe, ob die neueste Datei vollständig ist (nicht mehr wächst)
-            # Warte bis die Dateigröße stabil ist
-            latest = video_files[0]
-            if latest.exists():
-                # Prüfe ob Datei vollständig ist (nicht mehr wächst)
-                size1 = latest.stat().st_size
-                time.sleep(0.5)  # Warte 0.5 Sekunden
-                if latest.exists():
-                    size2 = latest.stat().st_size
-                    # Wenn Größe gleich ist, ist die Datei wahrscheinlich vollständig
-                    if size1 == size2 and size1 > 0:
-                        return latest
-                    # Wenn Datei noch wächst, ist sie noch nicht fertig
-                    # Nimm die vorherige Datei, falls vorhanden
-                    if len(video_files) > 1:
-                        return video_files[1]
+            self.log("Starte non-interaktiven dvgrab für Aufnahme...")
+            self.log(f"dvgrab-Befehl: {' '.join(cmd)}")
+            self.log(f"Ausgabe-Verzeichnis: {splits_dir}")
             
-            return latest
+            # Starte dvgrab (non-interaktiv, schreibt direkt Dateien)
+            self.recording_dvgrab_process = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=False,
+                bufsize=0,
+            )
+            
+            # Warte kurz, damit der Prozess startet
+            time.sleep(1)
+            
+            if self.recording_dvgrab_process.poll() is None:
+                self.log("Recording dvgrab gestartet (non-interaktiv mit autosplit)")
+                # Setze auch autosplit_dvgrab_process für Kompatibilität
+                self.autosplit_dvgrab_process = self.recording_dvgrab_process
+                return True
+            else:
+                error_output = ""
+                if self.recording_dvgrab_process.stderr:
+                    try:
+                        error_output_bytes = self.recording_dvgrab_process.stderr.read()
+                        if isinstance(error_output_bytes, bytes):
+                            error_output = error_output_bytes.decode('utf-8', errors='ignore')
+                        else:
+                            error_output = str(error_output_bytes)
+                    except Exception as e:
+                        self.log(f"Fehler beim Lesen von stderr: {e}")
+                self.log(f"Fehler beim Starten von recording dvgrab: Return-Code {self.recording_dvgrab_process.returncode}")
+                if error_output:
+                    self.log(f"Fehler-Ausgabe: {error_output[:500]}")
+                
+                self.recording_dvgrab_process = None
+                return False
+                
         except Exception as e:
-            self.log(f"Fehler beim Finden der neuesten Split-Datei: {e}")
-            return None
+            self.log(f"Fehler beim Starten von recording dvgrab: {e}")
+            self.recording_dvgrab_process = None
+            return False
+
+    # _get_latest_split_file() wurde entfernt - wird durch Preview-Queue ersetzt
 
     def _start_preview_from_file(self, file_path: Path, fps: int) -> Optional[subprocess.Popen]:
         """
@@ -351,89 +371,139 @@ class CaptureEngine:
             self.log(f"Fehler beim Starten von Preview-ffmpeg aus Datei {file_path.name}: {e}")
             return None
 
-    def _monitor_splits_for_preview(self):
+    def _wait_for_file_complete(self, file_path: Path, max_wait: float = 5.0) -> bool:
         """
-        Thread-Funktion: Überwacht splits-Ordner für Preview
-        Liest kontinuierlich die neueste Datei und zeigt Frames an
+        Wartet bis eine Datei vollständig geschrieben ist (nicht mehr wächst)
+        
+        Args:
+            file_path: Pfad zur Datei
+            max_wait: Maximale Wartezeit in Sekunden
+        
+        Returns:
+            True wenn Datei vollständig ist
+        """
+        if not file_path.exists():
+            return False
+        
+        waited = 0.0
+        check_interval = 0.5
+        
+        while waited < max_wait:
+            size1 = file_path.stat().st_size
+            time.sleep(check_interval)
+            waited += check_interval
+            
+            if not file_path.exists():
+                return False
+            
+            size2 = file_path.stat().st_size
+            if size1 == size2 and size1 > 0:
+                return True
+        
+        # Timeout erreicht, aber Datei existiert und hat Größe > 0
+        return file_path.exists() and file_path.stat().st_size > 0
+
+    def _monitor_splits_queue(self):
+        """
+        Thread-Funktion: Überwacht splits-Ordner und fügt neue Dateien zur Queue hinzu
         """
         if not self.splits_dir:
-            self.log("Preview-Monitor: splits_dir nicht gesetzt")
+            self.log("Preview-Queue-Monitor: splits_dir nicht gesetzt")
             return
         
-        if not self.preview_callback:
-            self.log("Preview-Monitor: preview_callback nicht gesetzt")
-            return
-        
-        self.log("Preview-Monitor: Starte Überwachung...")
-        last_file = None
-        preview_process = None
-        preview_reader_thread = None
+        self.log("Preview-Queue-Monitor: Starte Überwachung...")
+        known_files = set()
         
         try:
             while (
                 self.is_capturing
                 and (not self.preview_stop_event or not self.preview_stop_event.is_set())
             ):
-                # Finde neueste Datei
-                latest = self._get_latest_split_file()
+                # Finde neue Dateien (dvgrab-*.avi)
+                current_files = set(self.splits_dir.glob("dvgrab-*.avi"))
+                new_files = current_files - known_files
                 
-                if latest and latest != last_file:
-                    # Neue Datei gefunden, starte Preview
-                    self.log(f"Preview-Monitor: Neue Datei gefunden: {latest.name}")
-                    
-                    # Stoppe alten Preview-Prozess
-                    if preview_process:
-                        try:
-                            preview_process.terminate()
-                            preview_process.wait(timeout=1)
-                        except:
-                            try:
-                                preview_process.kill()
-                            except:
-                                pass
-                        preview_process = None
-                    
-                    # Warte auf alten Reader-Thread
-                    if preview_reader_thread and preview_reader_thread.is_alive():
-                        preview_reader_thread.join(timeout=1)
-                    
-                    # Starte neuen Preview-Prozess
-                    preview_fps = getattr(self, 'preview_fps', 10)
-                    preview_process = self._start_preview_from_file(latest, preview_fps)
-                    
-                    if preview_process:
-                        # Starte Reader-Thread für diese Datei
-                        preview_reader_thread = threading.Thread(
-                            target=self._read_preview_from_process,
-                            args=(preview_process, latest),
-                            daemon=True,
-                        )
-                        preview_reader_thread.start()
-                        last_file = latest
-                    else:
-                        self.log("Preview-Monitor: Konnte Preview-Prozess nicht starten")
+                for file_path in new_files:
+                    # Warte bis Datei vollständig geschrieben ist
+                    if self._wait_for_file_complete(file_path):
+                        self.preview_queue.put(file_path)
+                        known_files.add(file_path)
+                        self.log(f"Preview-Queue: Neue Datei hinzugefügt: {file_path.name}")
                 
-                # Prüfe alle 0.5 Sekunden
-                time.sleep(0.5)
+                time.sleep(0.5)  # Prüfe alle 0.5 Sekunden
                 
         except Exception as e:
-            self.log(f"Preview-Monitor: Fehler: {e}")
+            self.log(f"Preview-Queue-Monitor: Fehler: {e}")
+        finally:
+            self.log("Preview-Queue-Monitor: Beendet")
+
+    def _play_file_for_preview(self, file_path: Path):
+        """
+        Spielt eine Datei vollständig für Preview ab
+        
+        Args:
+            file_path: Pfad zur Video-Datei
+        """
+        if not file_path.exists() or not self.preview_callback:
+            return
+        
+        preview_fps = getattr(self, 'preview_fps', 10)
+        process = self._start_preview_from_file(file_path, preview_fps)
+        
+        if not process:
+            self.log(f"Preview: Konnte Datei nicht abspielen: {file_path.name}")
+            return
+        
+        self.log(f"Preview: Spiele Datei ab: {file_path.name}")
+        
+        # Lese Frames bis Datei fertig ist
+        try:
+            self._read_preview_from_process(process, file_path)
+        except Exception as e:
+            self.log(f"Preview: Fehler beim Abspielen von {file_path.name}: {e}")
         finally:
             # Cleanup
-            if preview_process:
+            if process:
                 try:
-                    preview_process.terminate()
-                    preview_process.wait(timeout=1)
+                    process.terminate()
+                    process.wait(timeout=2)
                 except:
                     try:
-                        preview_process.kill()
+                        process.kill()
                     except:
                         pass
-            
-            if preview_reader_thread and preview_reader_thread.is_alive():
-                preview_reader_thread.join(timeout=1)
-            
-            self.log("Preview-Monitor: Beendet")
+
+    def _process_preview_queue(self):
+        """
+        Thread-Funktion: Arbeitet Preview-Queue ab - spielt jede Datei bis zum Ende
+        """
+        self.log("Preview-Queue-Worker: Starte...")
+        
+        while True:
+            try:
+                # Prüfe Stop-Signal
+                if self.preview_stop_event and self.preview_stop_event.is_set():
+                    # Prüfe ob noch Dateien in Queue
+                    if self.preview_queue.empty():
+                        break
+                
+                try:
+                    file_path = self.preview_queue.get(timeout=1.0)
+                except Empty:
+                    # Keine Datei verfügbar, prüfe ob noch aufnahme läuft
+                    if not self.is_capturing:
+                        break
+                    continue
+                
+                # Spiele Datei vollständig ab
+                self._play_file_for_preview(file_path)
+                self.preview_queue.task_done()
+                
+            except Exception as e:
+                self.log(f"Preview-Queue-Worker: Fehler: {e}")
+                time.sleep(0.5)
+        
+        self.log("Preview-Queue-Worker: Beendet")
 
     def _read_preview_from_process(self, process: subprocess.Popen, file_path: Path):
         """
@@ -588,16 +658,16 @@ class CaptureEngine:
     
     def _send_interactive_command(self, command: str) -> bool:
         """
-        Sendet einen Befehl an dvgrab im interaktiven Modus
+        Sendet einen Befehl an dvgrab im interaktiven Modus (nur für Steuerung)
         
         Args:
-            command: Befehl (z.B. 'a' für rewind, 'p' für play, 'c' für capture, 'k' für pause, '\x1b' für Esc/Stop)
+            command: Befehl (z.B. 'a' für rewind, 'p' für play, 'k' für pause, '\x1b' für Esc/Stop)
                     Im interaktiven Modus werden einzelne Zeichen ohne Newline gesendet
         """
-        # Verwende autosplit_dvgrab_process oder interactive_process (für Kompatibilität)
-        process = self.autosplit_dvgrab_process or self.interactive_process
+        # Verwende interactive_dvgrab_process
+        process = self.interactive_dvgrab_process or self.interactive_process
         if not process or process.poll() is not None:
-            self.log("Interaktiver Modus nicht aktiv")
+            self.log("Interaktiver Modus nicht aktiv - starte ihn zuerst")
             return False
         
         try:
@@ -620,10 +690,16 @@ class CaptureEngine:
             return False
 
     def _stop_all_processes(self):
-        """Stoppt alle Prozesse (dvgrab autosplit, preview-ffmpeg)"""
-        # Stoppe Preview-Monitor-Thread
+        """Stoppt alle Prozesse (recording dvgrab, interaktiver dvgrab, preview)"""
+        # Stoppe Preview-Queue (Worker und Monitor)
+        if self.preview_stop_event:
+            self.preview_stop_event.set()
+        
+        if self.preview_worker_thread and self.preview_worker_thread.is_alive():
+            self.preview_worker_thread.join(timeout=3)
+        self.preview_worker_thread = None
+        
         if self.preview_monitor_thread and self.preview_monitor_thread.is_alive():
-            # Thread wird durch preview_stop_event gestoppt
             self.preview_monitor_thread.join(timeout=2)
         self.preview_monitor_thread = None
         
@@ -659,54 +735,97 @@ class CaptureEngine:
                 pass
             self.preview_process = None
         
-        # Stoppe dvgrab autosplit
-        if self.autosplit_dvgrab_process:
+        # Stoppe recording dvgrab (non-interaktiv) - sende SIGINT
+        if self.recording_dvgrab_process:
             try:
-                # Sende Stop-Befehl (ESC)
-                if self.autosplit_dvgrab_process.stdin and not self.autosplit_dvgrab_process.stdin.closed:
-                    try:
-                        self.autosplit_dvgrab_process.stdin.write(b"\x1b")  # ESC als Bytes
-                        self.autosplit_dvgrab_process.stdin.flush()
-                        time.sleep(0.5)
-                    except (BrokenPipeError, OSError):
-                        # stdin bereits geschlossen, ignoriere
-                        pass
-                
-                self.autosplit_dvgrab_process.terminate()
-                self.autosplit_dvgrab_process.wait(timeout=5)
+                import signal
+                # Sende SIGINT (Strg+C)
+                self.recording_dvgrab_process.send_signal(signal.SIGINT)
+                self.recording_dvgrab_process.wait(timeout=5)
             except subprocess.TimeoutExpired:
-                self.autosplit_dvgrab_process.kill()
-                self.autosplit_dvgrab_process.wait(timeout=2)
+                # Falls SIGINT nicht funktioniert, terminate
+                try:
+                    self.recording_dvgrab_process.terminate()
+                    self.recording_dvgrab_process.wait(timeout=2)
+                except:
+                    try:
+                        self.recording_dvgrab_process.kill()
+                        self.recording_dvgrab_process.wait(timeout=1)
+                    except:
+                        pass
             except Exception:
                 pass
-            self.autosplit_dvgrab_process = None
+            self.recording_dvgrab_process = None
         
-        # Cleanup interactive_process (ist dasselbe wie autosplit_dvgrab_process)
+        # Stoppe interaktiven dvgrab (nur Steuerung)
+        if self.interactive_dvgrab_process:
+            try:
+                # Sende Stop-Befehl (ESC)
+                if self.interactive_dvgrab_process.stdin and not self.interactive_dvgrab_process.stdin.closed:
+                    try:
+                        self.interactive_dvgrab_process.stdin.write(b"\x1b")  # ESC als Bytes
+                        self.interactive_dvgrab_process.stdin.flush()
+                        time.sleep(0.5)
+                    except (BrokenPipeError, OSError):
+                        pass
+                
+                self.interactive_dvgrab_process.terminate()
+                self.interactive_dvgrab_process.wait(timeout=3)
+            except subprocess.TimeoutExpired:
+                try:
+                    self.interactive_dvgrab_process.kill()
+                    self.interactive_dvgrab_process.wait(timeout=1)
+                except:
+                    pass
+            except Exception:
+                pass
+            self.interactive_dvgrab_process = None
+        
+        # Cleanup Aliase
         self.interactive_process = None
+        self.autosplit_dvgrab_process = None
     
     def rewind(self) -> bool:
         """Spult die Kassette zurück (interaktiver Modus: 'a')"""
-        if self.interactive_process:
-            return self._send_interactive_command("a")
-        else:
-            self.log("HINWEIS: Interaktiver Modus nicht aktiv. Starte Aufnahme, um Kamerasteuerung zu aktivieren.")
-            return False
+        # Starte interaktiven dvgrab falls nicht aktiv
+        if not self.interactive_dvgrab_process or self.interactive_dvgrab_process.poll() is not None:
+            device = self.get_device()
+            if not device:
+                self.log("Kein FireWire-Gerät verfügbar!")
+                return False
+            if not self._start_interactive_dvgrab(device):
+                self.log("FEHLER: Interaktiver dvgrab konnte nicht gestartet werden")
+                return False
+        
+        return self._send_interactive_command("a")
 
     def play(self) -> bool:
         """Startet die Wiedergabe (interaktiver Modus: 'p')"""
-        if self.interactive_process:
-            return self._send_interactive_command("p")
-        else:
-            self.log("HINWEIS: Interaktiver Modus nicht aktiv. Starte Aufnahme, um Kamerasteuerung zu aktivieren.")
-            return False
+        # Starte interaktiven dvgrab falls nicht aktiv
+        if not self.interactive_dvgrab_process or self.interactive_dvgrab_process.poll() is not None:
+            device = self.get_device()
+            if not device:
+                self.log("Kein FireWire-Gerät verfügbar!")
+                return False
+            if not self._start_interactive_dvgrab(device):
+                self.log("FEHLER: Interaktiver dvgrab konnte nicht gestartet werden")
+                return False
+        
+        return self._send_interactive_command("p")
 
     def pause(self) -> bool:
         """Pausiert die Wiedergabe (interaktiver Modus: 'k')"""
-        if self.interactive_process:
-            return self._send_interactive_command("k")
-        else:
-            self.log("HINWEIS: Interaktiver Modus nicht aktiv. Starte Aufnahme, um Kamerasteuerung zu aktivieren.")
-            return False
+        # Starte interaktiven dvgrab falls nicht aktiv
+        if not self.interactive_dvgrab_process or self.interactive_dvgrab_process.poll() is not None:
+            device = self.get_device()
+            if not device:
+                self.log("Kein FireWire-Gerät verfügbar!")
+                return False
+            if not self._start_interactive_dvgrab(device):
+                self.log("FEHLER: Interaktiver dvgrab konnte nicht gestartet werden")
+                return False
+        
+        return self._send_interactive_command("k")
 
     def start_capture(
         self,
@@ -752,54 +871,57 @@ class CaptureEngine:
             self.preview_fps = preview_fps
             enable_preview = preview_callback is not None
 
-            # 1. Starte dvgrab mit autosplit
-            self.log("=== Starte dvgrab mit autosplit ===")
-            if not self._start_dvgrab_autosplit(device, self.splits_dir):
-                self.log("FEHLER: dvgrab autosplit konnte nicht gestartet werden")
+            # 1. Beende interaktiven Modus falls aktiv (wird durch non-interaktiven ersetzt)
+            if self.interactive_dvgrab_process and self.interactive_dvgrab_process.poll() is None:
+                self.log("Beende interaktiven dvgrab-Modus...")
+                try:
+                    if self.interactive_dvgrab_process.stdin:
+                        self.interactive_dvgrab_process.stdin.write(b"\x1b")  # ESC
+                        self.interactive_dvgrab_process.stdin.flush()
+                        time.sleep(0.5)
+                except:
+                    pass
+                try:
+                    self.interactive_dvgrab_process.terminate()
+                    self.interactive_dvgrab_process.wait(timeout=2)
+                except:
+                    try:
+                        self.interactive_dvgrab_process.kill()
+                    except:
+                        pass
+                self.interactive_dvgrab_process = None
+                self.interactive_process = None
+            
+            # 2. Starte non-interaktiven dvgrab für Aufnahme
+            self.log("=== Starte non-interaktiven dvgrab für Aufnahme ===")
+            if not self._start_recording_dvgrab(device, self.splits_dir):
+                self.log("FEHLER: Recording dvgrab konnte nicht gestartet werden")
                 return False
             
-            # 2. Starte Preview-Monitoring (falls aktiviert)
+            # 3. Starte Preview-Queue-System (falls aktiviert)
             if enable_preview:
-                self.log("=== Starte Preview-Monitoring ===")
+                self.log("=== Starte Preview-Queue-System ===")
                 self.preview_stop_event = threading.Event()
+                
+                # Monitor-Thread: Fügt neue Dateien zur Queue hinzu
                 self.preview_monitor_thread = threading.Thread(
-                    target=self._monitor_splits_for_preview,
+                    target=self._monitor_splits_queue,
                     daemon=True,
                 )
                 self.preview_monitor_thread.start()
-                self.log("Preview-Monitor: Thread gestartet")
+                self.log("Preview-Queue-Monitor: Thread gestartet")
+                
+                # Worker-Thread: Arbeitet Queue ab
+                self.preview_worker_thread = threading.Thread(
+                    target=self._process_preview_queue,
+                    daemon=True,
+                )
+                self.preview_worker_thread.start()
+                self.log("Preview-Queue-Worker: Thread gestartet")
             
-            # 3. Automatischer Workflow: Rewind → Play → Start Capture
-            if auto_rewind_play:
-                self.log("=== Automatischer Workflow: Rewind → Play → Start Capture ===")
-                
-                # Rewind
-                self.log("Spule Band zurück...")
-                if self._send_interactive_command("a"):
-                    self.log("Warte auf vollständiges Rewind (15 Sekunden)...")
-                    time.sleep(15)
-                else:
-                    self.log("Warnung: Rewind-Befehl fehlgeschlagen")
-                
-                # Play
-                self.log("Starte Wiedergabe...")
-                if self._send_interactive_command("p"):
-                    time.sleep(2)  # Warte auf Play-Start
-                else:
-                    self.log("Warnung: Play-Befehl fehlgeschlagen")
-                
-                # Capture-Befehl
-                self.log("Starte Aufnahme...")
-                if not self._send_interactive_command("c"):
-                    self.log("Warnung: Capture-Befehl fehlgeschlagen (kann ignoriert werden)")
-            else:
-                self.log("=== Manueller Modus ===")
-                self.log("Bitte steuern Sie die Kamera manuell oder verwenden Sie die Steuerungs-Buttons.")
-                self.log("Verwenden Sie 'c' um die Aufnahme zu starten.")
-
             # 4. Markiere als aktiv und starte Monitoring
             self.is_capturing = True
-            self.process = self.autosplit_dvgrab_process  # Für Kompatibilität
+            self.process = self.recording_dvgrab_process  # Für Kompatibilität
             
             self.capture_thread = threading.Thread(
                 target=self._monitor_capture,
@@ -807,7 +929,8 @@ class CaptureEngine:
             )
             self.capture_thread.start()
             
-            self.log("Aufnahme gestartet! Dateien werden in splits/ gespeichert.")
+            self.log("Aufnahme gestartet! dvgrab spult automatisch zurück und startet Aufnahme.")
+            self.log("Dateien werden in splits/ gespeichert mit Timestamp im Dateinamen.")
             return True
 
         except Exception as e:
@@ -821,17 +944,39 @@ class CaptureEngine:
     # Die neue Architektur verwendet unified dvgrab -> Stream-Verteilung -> Preview-ffmpeg
 
     def stop_capture(self) -> bool:
-        """Stoppt die Aufnahme und führt automatisch Merge durch"""
+        """Stoppt die Aufnahme (sendet SIGINT) und führt automatisch Merge durch"""
         if not self.is_capturing:
             return False
 
         try:
             self.log("Stoppe Aufnahme...")
 
-            # Stoppe Preview
+            # Stoppe Preview-Queue
             self._stop_preview()
 
-            # Stoppe alle Prozesse (dvgrab autosplit)
+            # Sende SIGINT an recording dvgrab (Strg+C)
+            if self.recording_dvgrab_process and self.recording_dvgrab_process.poll() is None:
+                self.log("Sende SIGINT (Strg+C) an dvgrab...")
+                try:
+                    import signal
+                    self.recording_dvgrab_process.send_signal(signal.SIGINT)
+                    # Warte auf Beendigung
+                    self.recording_dvgrab_process.wait(timeout=10)
+                    self.log("dvgrab wurde beendet")
+                except subprocess.TimeoutExpired:
+                    self.log("WARNUNG: dvgrab reagiert nicht auf SIGINT, verwende terminate...")
+                    try:
+                        self.recording_dvgrab_process.terminate()
+                        self.recording_dvgrab_process.wait(timeout=3)
+                    except:
+                        try:
+                            self.recording_dvgrab_process.kill()
+                        except:
+                            pass
+                except Exception as e:
+                    self.log(f"Fehler beim Senden von SIGINT: {e}")
+
+            # Stoppe alle Prozesse
             self._stop_all_processes()
 
             self.is_capturing = False
@@ -839,12 +984,11 @@ class CaptureEngine:
 
             # Warte, damit alle Dateien vollständig geschrieben sind
             self.log("Warte auf vollständiges Schreiben der Split-Dateien...")
-            # Warte bis Dateien nicht mehr wachsen
             if self.splits_dir and self.splits_dir.exists():
                 max_wait = 10  # Maximal 10 Sekunden warten
                 waited = 0
                 while waited < max_wait:
-                    files = list(self.splits_dir.glob("*.avi")) + list(self.splits_dir.glob("*.dv"))
+                    files = list(self.splits_dir.glob("dvgrab-*.avi"))
                     if files:
                         # Prüfe ob alle Dateien stabil sind
                         all_stable = True
@@ -871,7 +1015,7 @@ class CaptureEngine:
                 if merged_file and merged_file.exists():
                     self.log(f"Merge erfolgreich: {merged_file}")
                     # Zähle Split-Dateien für Info
-                    split_files = list(self.splits_dir.glob("*.avi"))
+                    split_files = list(self.splits_dir.glob("dvgrab-*.avi"))
                     self.log(f"Zusammengefügt: {len(split_files)} Split-Dateien")
                 else:
                     self.log("WARNUNG: Merge fehlgeschlagen!")

@@ -255,9 +255,45 @@ class MergeEngine:
         except Exception:
             return None
     
+    def _parse_timestamp_from_filename(self, filename: str) -> Optional[datetime]:
+        """
+        Parst Timestamp aus dvgrab-Dateinamen
+        
+        Format: dvgrab-2001.06.30_01-42-02.avi
+        Format: dvgrab-YYYY.MM.DD_HH-MM-SS.avi
+        
+        Args:
+            filename: Dateiname (z.B. "dvgrab-2001.06.30_01-42-02.avi")
+        
+        Returns:
+            datetime-Objekt oder None
+        """
+        try:
+            # Pattern für dvgrab-YYYY.MM.DD_HH-MM-SS.avi
+            pattern = r'dvgrab-(\d{4})\.(\d{2})\.(\d{2})_(\d{2})-(\d{2})-(\d{2})\.avi'
+            match = re.search(pattern, filename)
+            
+            if match:
+                groups = match.groups()
+                year = int(groups[0])
+                month = int(groups[1])
+                day = int(groups[2])
+                hour = int(groups[3])
+                minute = int(groups[4])
+                second = int(groups[5])
+                
+                # Validiere Werte
+                if (1900 <= year <= 2100 and 1 <= month <= 12 and 1 <= day <= 31 and
+                    0 <= hour < 24 and 0 <= minute < 60 and 0 <= second < 60):
+                    return datetime(year, month, day, hour, minute, second, tzinfo=timezone.utc)
+            
+            return None
+        except Exception:
+            return None
+    
     def _parse_timecode_from_filename(self, filename: str) -> Optional[Tuple[int, int, int, int]]:
         """
-        Parst Timecode aus dvgrab-Dateinamen
+        Parst Timecode aus dvgrab-Dateinamen (Legacy-Methode für Kompatibilität)
         
         Format: capture-001-00.00.00.000.avi oder ähnlich
         Gibt zurück: (hours, minutes, seconds, frames) oder None
@@ -306,6 +342,124 @@ class MergeEngine:
         """
         hours, minutes, seconds, frames = timecode
         return hours * 3600 + minutes * 60 + seconds + frames / 30.0  # DV hat 30 FPS
+    
+    def _render_timestamps_to_video(
+        self,
+        input_path: Path,
+        output_path: Path,
+        split_files: List[Path],
+        timestamps: List[Optional[datetime]]
+    ) -> Optional[Path]:
+        """
+        Rendert Timestamps aus Dateinamen ins finale Video
+        
+        Args:
+            input_path: Eingabe-Video (gemerged)
+            output_path: Ausgabe-Video mit Timestamps
+            split_files: Liste der Split-Dateien (sortiert)
+            timestamps: Liste der Timestamps (parallel zu split_files)
+        
+        Returns:
+            Pfad zur Ausgabedatei oder None
+        """
+        if not input_path.exists():
+            self.log(f"Eingabedatei nicht gefunden: {input_path}")
+            return None
+        
+        try:
+            # Berechne Start-Zeitpunkte für jeden Split im finalen Video
+            # Verwende ffprobe um Dauer jedes Splits zu ermitteln
+            split_start_times = []  # Liste von (time_in_video, timestamp)
+            current_time = 0.0
+            
+            for i, (split_file, timestamp) in enumerate(zip(split_files, timestamps)):
+                if timestamp:
+                    # Ermittle Dauer des Splits
+                    try:
+                        ffprobe_cmd = [
+                            str(self._get_ffprobe_path()),
+                            "-v", "error",
+                            "-show_entries", "format=duration",
+                            "-of", "default=noprint_wrappers=1:nokey=1",
+                            str(split_file)
+                        ]
+                        result = subprocess.run(
+                            ffprobe_cmd,
+                            stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE,
+                            text=True,
+                            timeout=5
+                        )
+                        if result.returncode == 0:
+                            duration = float(result.stdout.strip())
+                            split_start_times.append((current_time, timestamp))
+                            current_time += duration
+                    except Exception as e:
+                        self.log(f"Fehler beim Ermitteln der Dauer von {split_file.name}: {e}")
+                        # Schätze 30 Sekunden pro Split
+                        split_start_times.append((current_time, timestamp))
+                        current_time += 30.0
+            
+            if not split_start_times:
+                self.log("Keine Timestamps zum Rendern gefunden")
+                return None
+            
+            self.log(f"Rendere {len(split_start_times)} Timestamps ins Video...")
+            
+            # Erstelle drawtext-Filter für jeden Timestamp
+            # Zeige Timestamp für 4 Sekunden nach Start jedes Splits
+            filter_parts = []
+            duration = 4  # Sekunden
+            
+            for start_time, timestamp in split_start_times:
+                end_time = start_time + duration
+                timestamp_str = timestamp.strftime("%Y-%m-%d %H:%M:%S")
+                filter_expr = (
+                    f"drawtext=text='{timestamp_str}'"
+                    f":fontsize=24"
+                    f":x=10"
+                    f":y=10"
+                    f":fontcolor=white"
+                    f":box=1"
+                    f":boxcolor=black@0.5"
+                    f":enable='between(t,{start_time},{end_time})'"
+                )
+                filter_parts.append(filter_expr)
+            
+            # Kombiniere alle Filter
+            if len(filter_parts) == 1:
+                vf_filter = filter_parts[0]
+            else:
+                vf_filter = ",".join(filter_parts)
+            
+            # Wende Filter an
+            cmd = [
+                str(self.ffmpeg_path),
+                "-i", str(input_path),
+                "-vf", vf_filter,
+                "-c:a", "copy",  # Audio kopieren
+                "-y",
+                str(output_path)
+            ]
+            
+            self.log(f"Wende Timestamp-Overlays an...")
+            result = subprocess.run(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True
+            )
+            
+            if result.returncode == 0:
+                self.log(f"Timestamps erfolgreich gerendert: {output_path}")
+                return output_path
+            else:
+                self.log(f"Fehler beim Rendern von Timestamps: {result.stderr[-500:]}")
+                return None
+                
+        except Exception as e:
+            self.log(f"Fehler beim Rendern von Timestamps: {e}")
+            return None
     
     def merge_splits(self, splits_dir: Path, output_path: Path) -> Optional[Path]:
         """
@@ -379,23 +533,33 @@ class MergeEngine:
                 self.log(f"Fehler beim Kopieren: {e}")
                 return None
         
-        # Sortiere nach Timecode (aus Dateinamen)
-        files_with_timecode = []
+        # Sortiere nach Timestamp (aus Dateinamen)
+        files_with_timestamp = []
         for file_path in split_files:
-            timecode = self._parse_timecode_from_filename(file_path.name)
-            if timecode:
-                seconds = self._timecode_to_seconds(timecode)
-                files_with_timecode.append((seconds, file_path))
-                self.log(f"  {file_path.name} -> Timecode: {timecode[0]:02d}:{timecode[1]:02d}:{timecode[2]:02d}.{timecode[3]:03d}")
+            # Versuche zuerst neues Format: dvgrab-YYYY.MM.DD_HH-MM-SS.avi
+            timestamp = self._parse_timestamp_from_filename(file_path.name)
+            if timestamp:
+                # Konvertiere zu Sekunden seit Epoch für Sortierung
+                seconds = timestamp.timestamp()
+                files_with_timestamp.append((seconds, file_path, timestamp))
+                self.log(f"  {file_path.name} -> Timestamp: {timestamp.strftime('%Y-%m-%d %H:%M:%S')}")
             else:
-                # Fallback: Verwende mtime für Sortierung
-                mtime = file_path.stat().st_mtime
-                files_with_timecode.append((mtime, file_path))
-                self.log(f"  {file_path.name} -> Kein Timecode, verwende mtime: {mtime}")
+                # Fallback: Versuche altes Timecode-Format
+                timecode = self._parse_timecode_from_filename(file_path.name)
+                if timecode:
+                    seconds = self._timecode_to_seconds(timecode)
+                    files_with_timestamp.append((seconds, file_path, None))
+                    self.log(f"  {file_path.name} -> Timecode: {timecode[0]:02d}:{timecode[1]:02d}:{timecode[2]:02d}.{timecode[3]:03d}")
+                else:
+                    # Fallback: Verwende mtime für Sortierung
+                    mtime = file_path.stat().st_mtime
+                    files_with_timestamp.append((mtime, file_path, None))
+                    self.log(f"  {file_path.name} -> Kein Timestamp/Timecode, verwende mtime: {mtime}")
         
-        # Sortiere nach Timecode/Sekunden
-        files_with_timecode.sort(key=lambda x: x[0])
-        sorted_files = [f[1] for f in files_with_timecode]
+        # Sortiere nach Timestamp/Sekunden
+        files_with_timestamp.sort(key=lambda x: x[0])
+        sorted_files = [f[1] for f in files_with_timestamp]
+        sorted_timestamps = [f[2] for f in files_with_timestamp]  # Für Timestamp-Rendering
         
         self.log(f"Sortiere {len(sorted_files)} Dateien nach Timecode...")
         
@@ -460,6 +624,22 @@ class MergeEngine:
             
             if result.returncode == 0:
                 self.log(f"Merge erfolgreich: {output_path}")
+                
+                # Rendere Timestamps ins finale Video
+                if sorted_timestamps and any(ts for ts in sorted_timestamps):
+                    self.log("Rendere Timestamps ins finale Video...")
+                    output_with_timestamps = output_path.parent / f"{output_path.stem}_with_timestamps{output_path.suffix}"
+                    result_ts = self._render_timestamps_to_video(output_path, output_with_timestamps, sorted_files, sorted_timestamps)
+                    if result_ts and result_ts.exists():
+                        # Ersetze Original mit Version mit Timestamps
+                        try:
+                            output_path.unlink()
+                            result_ts.rename(output_path)
+                            self.log(f"Timestamps erfolgreich gerendert: {output_path}")
+                        except Exception as e:
+                            self.log(f"WARNUNG: Konnte Datei nicht ersetzen: {e}")
+                            return result_ts  # Gebe Version mit Timestamps zurück
+                
                 return output_path
             else:
                 # Copy-Modus fehlgeschlagen, versuche Re-Encoding
@@ -495,10 +675,38 @@ class MergeEngine:
                 
                 if result2.returncode == 0:
                     self.log(f"Merge erfolgreich (Re-Encoded): {output_path}")
+                    
+                    # Rendere Timestamps ins finale Video
+                    if sorted_timestamps and any(ts for ts in sorted_timestamps):
+                        self.log("Rendere Timestamps ins finale Video...")
+                        output_with_timestamps = output_path.parent / f"{output_path.stem}_with_timestamps{output_path.suffix}"
+                        result_ts = self._render_timestamps_to_video(output_path, output_with_timestamps, sorted_files, sorted_timestamps)
+                        if result_ts and result_ts.exists():
+                            try:
+                                output_path.unlink()
+                                result_ts.rename(output_path)
+                                self.log(f"Timestamps erfolgreich gerendert: {output_path}")
+                            except Exception as e:
+                                self.log(f"WARNUNG: Konnte Datei nicht ersetzen: {e}")
+                                return result_ts
+                    
                     return output_path
                 else:
                     self.log(f"ffmpeg-Fehler beim Re-Encoding: {result2.stderr[-500:]}")
+                    # Lösche temporäre Liste
+                    try:
+                        if list_file.exists():
+                            list_file.unlink()
+                    except:
+                        pass
                     return None
+            
+            # Lösche temporäre Liste nach erfolgreichem Merge
+            try:
+                if list_file.exists():
+                    list_file.unlink()
+            except:
+                pass
                 
         except Exception as e:
             self.log(f"Fehler beim Merge: {e}")
@@ -508,6 +716,124 @@ class MergeEngine:
                     list_file.unlink()
             except:
                 pass
+            return None
+    
+    def _render_timestamps_to_video(
+        self,
+        input_path: Path,
+        output_path: Path,
+        split_files: List[Path],
+        timestamps: List[Optional[datetime]]
+    ) -> Optional[Path]:
+        """
+        Rendert Timestamps aus Dateinamen ins finale Video
+        
+        Args:
+            input_path: Eingabe-Video (gemerged)
+            output_path: Ausgabe-Video mit Timestamps
+            split_files: Liste der Split-Dateien (sortiert)
+            timestamps: Liste der Timestamps (parallel zu split_files)
+        
+        Returns:
+            Pfad zur Ausgabedatei oder None
+        """
+        if not input_path.exists():
+            self.log(f"Eingabedatei nicht gefunden: {input_path}")
+            return None
+        
+        try:
+            # Berechne Start-Zeitpunkte für jeden Split im finalen Video
+            # Verwende ffprobe um Dauer jedes Splits zu ermitteln
+            split_start_times = []  # Liste von (time_in_video, timestamp)
+            current_time = 0.0
+            
+            for i, (split_file, timestamp) in enumerate(zip(split_files, timestamps)):
+                if timestamp:
+                    # Ermittle Dauer des Splits
+                    try:
+                        ffprobe_cmd = [
+                            str(self._get_ffprobe_path()),
+                            "-v", "error",
+                            "-show_entries", "format=duration",
+                            "-of", "default=noprint_wrappers=1:nokey=1",
+                            str(split_file)
+                        ]
+                        result = subprocess.run(
+                            ffprobe_cmd,
+                            stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE,
+                            text=True,
+                            timeout=5
+                        )
+                        if result.returncode == 0:
+                            duration = float(result.stdout.strip())
+                            split_start_times.append((current_time, timestamp))
+                            current_time += duration
+                    except Exception as e:
+                        self.log(f"Fehler beim Ermitteln der Dauer von {split_file.name}: {e}")
+                        # Schätze 30 Sekunden pro Split
+                        split_start_times.append((current_time, timestamp))
+                        current_time += 30.0
+            
+            if not split_start_times:
+                self.log("Keine Timestamps zum Rendern gefunden")
+                return None
+            
+            self.log(f"Rendere {len(split_start_times)} Timestamps ins Video...")
+            
+            # Erstelle drawtext-Filter für jeden Timestamp
+            # Zeige Timestamp für 4 Sekunden nach Start jedes Splits
+            filter_parts = []
+            duration = 4  # Sekunden
+            
+            for start_time, timestamp in split_start_times:
+                end_time = start_time + duration
+                timestamp_str = timestamp.strftime("%Y-%m-%d %H:%M:%S")
+                filter_expr = (
+                    f"drawtext=text='{timestamp_str}'"
+                    f":fontsize=24"
+                    f":x=10"
+                    f":y=10"
+                    f":fontcolor=white"
+                    f":box=1"
+                    f":boxcolor=black@0.5"
+                    f":enable='between(t,{start_time},{end_time})'"
+                )
+                filter_parts.append(filter_expr)
+            
+            # Kombiniere alle Filter
+            if len(filter_parts) == 1:
+                vf_filter = filter_parts[0]
+            else:
+                vf_filter = ",".join(filter_parts)
+            
+            # Wende Filter an
+            cmd = [
+                str(self.ffmpeg_path),
+                "-i", str(input_path),
+                "-vf", vf_filter,
+                "-c:a", "copy",  # Audio kopieren
+                "-y",
+                str(output_path)
+            ]
+            
+            self.log(f"Wende Timestamp-Overlays an...")
+            result = subprocess.run(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True
+            )
+            
+            if result.returncode == 0:
+                self.log(f"Timestamps erfolgreich gerendert: {output_path}")
+                return output_path
+            else:
+                self.log(f"Fehler beim Rendern von Timestamps: {result.stderr[-500:]}")
+                return None
+                
+        except Exception as e:
+            self.log(f"Fehler beim Rendern von Timestamps: {e}")
             return None
     
     def find_parts(self, lowres_dir: Path) -> List[Path]:
