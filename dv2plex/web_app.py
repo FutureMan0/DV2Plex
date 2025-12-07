@@ -192,6 +192,7 @@ class ChownRequest(BaseModel):
 # Preview callback for capture
 def preview_callback(image):
     """Callback für Preview-Frames während Capture"""
+    # Fall 1: QImage vorhanden
     if QIMAGE_AVAILABLE and image:
         base64_image = qimage_to_base64(image)
         if base64_image:
@@ -199,6 +200,18 @@ def preview_callback(image):
                 "type": "preview_frame",
                 "data": f"data:image/jpeg;base64,{base64_image}"
             })
+        return
+    
+    # Fall 2: Bytes (JPEG), wenn kein QImage oder image als Bytes geliefert wird
+    if isinstance(image, (bytes, bytearray)):
+        try:
+            base64_image = base64.b64encode(image).decode('utf-8')
+            broadcast_message_sync({
+                "type": "preview_frame",
+                "data": f"data:image/jpeg;base64,{base64_image}"
+            })
+        except Exception:
+            pass
 
 
 # API Routes
