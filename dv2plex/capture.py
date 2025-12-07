@@ -246,16 +246,6 @@ class CaptureEngine:
         preview_pipe = None
         recording_pipe = None
         
-        # Hole die Pipes von den ffmpeg-Prozessen
-        if self.preview_process and self.preview_process.stdin:
-            preview_pipe = self.preview_process.stdin
-        if self.recording_ffmpeg_process and self.recording_ffmpeg_process.stdin:
-            recording_pipe = self.recording_ffmpeg_process.stdin
-        
-        if not preview_pipe and not recording_pipe:
-            self.log("Stream-Verteilung: Keine Pipes verfügbar")
-            return
-        
         self.log("Stream-Verteilung: Starte...")
         chunk_size = 65536  # 64KB Chunks
         
@@ -265,6 +255,20 @@ class CaptureEngine:
                 and self.unified_dvgrab_process.poll() is None
                 and (not self.stream_distribution_stop_event or not self.stream_distribution_stop_event.is_set())
             ):
+                # Dynamisch Pipes holen (falls sie später gestartet werden)
+                if not preview_pipe and self.preview_process and self.preview_process.stdin:
+                    preview_pipe = self.preview_process.stdin
+                    self.log("Stream-Verteilung: Preview-Pipe hinzugefügt")
+                
+                if not recording_pipe and self.recording_ffmpeg_process and self.recording_ffmpeg_process.stdin:
+                    recording_pipe = self.recording_ffmpeg_process.stdin
+                    self.log("Stream-Verteilung: Recording-Pipe hinzugefügt")
+                
+                # Wenn keine Pipes verfügbar sind, warte kurz
+                if not preview_pipe and not recording_pipe:
+                    time.sleep(0.1)
+                    continue
+                
                 try:
                     # Lese Chunk von dvgrab stdout
                     chunk = self.unified_dvgrab_process.stdout.read(chunk_size)
@@ -414,8 +418,11 @@ class CaptureEngine:
         
         try:
             # ffmpeg liest DV von stdin und konvertiert zu H.264/AAC MP4
+            # WICHTIG: -analyzeduration und -probesize geben ffmpeg mehr Zeit, um auf Daten zu warten
             ffmpeg_cmd = [
                 str(self.ffmpeg_path),
+                "-analyzeduration", "10000000",  # 10 Sekunden für Analyse
+                "-probesize", "10000000",  # 10MB Probe-Größe
                 "-f", "dv",  # DV-Format vom stdin
                 "-i", "-",  # Input von stdin
                 "-map", "0:v",  # Video-Stream
