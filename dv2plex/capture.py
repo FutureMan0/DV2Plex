@@ -330,11 +330,15 @@ class CaptureEngine:
             # Verwende -analyzeduration und -probesize für bessere Kompatibilität
             ffmpeg_cmd = [
                 str(self.ffmpeg_path),
+                "-hide_banner",
+                "-loglevel", "error",
+                "-fflags", "nobuffer",
                 "-analyzeduration", "10000000",
                 "-probesize", "10000000",
                 "-i", str(file_path),  # Input-Datei
                 "-vf", f"yadif,fps={fps},scale=640:-1",  # Deinterlace + FPS + Skalierung
-                "-f", "mjpeg",  # MJPEG-Format
+                "-vcodec", "mjpeg",
+                "-f", "image2pipe",  # explizit Pipe-Output
                 "-q:v", "5",  # Qualität
                 "-",  # Ausgabe nach stdout
             ]
