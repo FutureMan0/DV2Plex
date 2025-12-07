@@ -564,25 +564,14 @@ class CaptureEngine:
                         
                         if self.preview_callback:
                             try:
-                                # Wenn QImage verfügbar ist, liefere QImage, sonst rohe JPEG-Daten
-                                if QImage:
-                                    image = QImage.fromData(jpeg_data)
-                                    if image and not image.isNull():
-                                        current_time = time.time()
-                                        if current_time - last_frame_time >= target_frame_interval:
-                                            self.preview_callback(image)
-                                            frame_count += 1
-                                            last_frame_time = current_time
-                                            if frame_count == 1:
-                                                self.log(f"Preview: Erstes Frame von {file_path.name}")
-                                else:
-                                    current_time = time.time()
-                                    if current_time - last_frame_time >= target_frame_interval:
-                                        self.preview_callback(jpeg_data)
-                                        frame_count += 1
-                                        last_frame_time = current_time
-                                        if frame_count == 1:
-                                            self.log(f"Preview: Erstes Frame (Bytes) von {file_path.name}")
+                                current_time = time.time()
+                                if current_time - last_frame_time >= target_frame_interval:
+                                    # Sende immer rohe JPEG-Bytes (Browser-Websocket erwartet Base64)
+                                    self.preview_callback(jpeg_data)
+                                    frame_count += 1
+                                    last_frame_time = current_time
+                                    if frame_count == 1:
+                                        self.log(f"Preview: Erstes Frame (Bytes) von {file_path.name}")
                             except Exception as e:
                                 self.log(f"Preview: Fehler bei Frame-Callback: {e}")
                 
