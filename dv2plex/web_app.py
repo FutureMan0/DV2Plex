@@ -1363,6 +1363,8 @@ def get_html_interface() -> str:
             display: grid;
             grid-template-columns: 1fr;
             gap: 15px;
+            max-width: 1000px;
+            margin: 0 auto;
         }
         
         /* Button groups */
@@ -1551,8 +1553,9 @@ def get_html_interface() -> str:
             }
             
             .capture-grid {
-                grid-template-columns: 2fr 1fr;
-                gap: 25px;
+                grid-template-columns: minmax(400px, 600px) minmax(280px, 380px);
+                gap: 30px;
+                justify-content: center;
             }
             
             .preview-container {
