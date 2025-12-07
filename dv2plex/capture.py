@@ -427,7 +427,7 @@ class CaptureEngine:
                 "-i", "-",  # Input von stdin
                 "-map", "0:v",  # Video-Stream
                 "-map", "0:a:0?",  # Nur erster Audiotrack (optional, falls vorhanden)
-                "-af", "afftdn,alimiter=limit=0.0",  # Rauschreduktion + Limiter gegen Peaks
+                "-af", "afftdn,alimiter=limit=0.95",  # Rauschreduktion + Limiter gegen Peaks
                 "-c:v", "libx264",  # H.264 Video-Codec
                 "-preset", "veryfast",  # Encoding-Preset
                 "-crf", "18",  # Qualität (niedrigere Werte = bessere Qualität)
