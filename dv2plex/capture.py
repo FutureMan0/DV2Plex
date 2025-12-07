@@ -328,23 +328,20 @@ class CaptureEngine:
             
             # ffmpeg liest Datei und konvertiert zu MJPEG
             # Verwende -analyzeduration und -probesize für bessere Kompatibilität
+            # stderr auf DEVNULL setzen, sonst kann ffmpeg blockieren wenn Buffer voll
             def launch(cmd_desc, cmd_list):
+                self.log(f"Preview: Starte ffmpeg ({cmd_desc}): {' '.join(cmd_list[:5])}...")
                 proc = subprocess.Popen(
                     cmd_list,
                     stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
+                    stderr=subprocess.DEVNULL,  # Wichtig: sonst blockiert ffmpeg
                     text=False,
                     bufsize=0,
                 )
-                time.sleep(0.5)
-                if proc.poll() is not None:
-                    try:
-                        if proc.stderr:
-                            err = proc.stderr.read()
-                            if err:
-                                self.log(f"Preview-ffmpeg-Fehler ({cmd_desc}) für {file_path.name}: {err.decode('utf-8', errors='ignore')[:500]}")
-                    except Exception:
-                        pass
+                time.sleep(0.3)
+                poll = proc.poll()
+                if poll is not None:
+                    self.log(f"Preview-ffmpeg ({cmd_desc}) für {file_path.name} sofort beendet mit Code {poll}")
                     return None
                 return proc
 
@@ -533,6 +530,7 @@ class CaptureEngine:
             file_path: Pfad zur Datei (für Logging)
         """
         if not process or not process.stdout or not self.preview_callback:
+            self.log(f"Preview: Kein Prozess/stdout/callback für {file_path.name}")
             return
         
         buffer = bytearray()
@@ -542,6 +540,23 @@ class CaptureEngine:
         last_frame_time = 0
         preview_fps = getattr(self, 'preview_fps', 10)
         target_frame_interval = 1.0 / max(preview_fps, 5)
+        bytes_read = 0
+        
+        self.log(f"Preview: Starte Frame-Lesen von {file_path.name}")
+        
+        # Prüfe initialen Prozess-Status
+        poll_result = process.poll()
+        if poll_result is not None:
+            self.log(f"Preview: Prozess bereits beendet mit Code {poll_result}")
+            # Lese stderr
+            try:
+                if process.stderr:
+                    err = process.stderr.read()
+                    if err:
+                        self.log(f"Preview: ffmpeg stderr: {err.decode('utf-8', errors='ignore')[:500]}")
+            except:
+                pass
+            return
         
         try:
             while (
@@ -554,10 +569,12 @@ class CaptureEngine:
                     
                     if not chunk:
                         if process.poll() is not None:
+                            self.log(f"Preview: Prozess beendet, {bytes_read} bytes gelesen, {frame_count} frames")
                             break
                         time.sleep(0.01)
                         continue
                     
+                    bytes_read += len(chunk)
                     buffer.extend(chunk)
                     
                     # Suche nach vollständigen JPEGs
@@ -597,6 +614,7 @@ class CaptureEngine:
         except Exception as e:
             self.log(f"Preview: Fehler: {e}")
         finally:
+            self.log(f"Preview: Beendet - {bytes_read} bytes gelesen, {frame_count} frames gesendet")
             # Wenn keine Frames gefunden wurden, logge Stderr für Diagnose
             if frame_count == 0 and process:
                 try:
