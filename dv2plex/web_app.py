@@ -325,6 +325,9 @@ async def start_capture(request: CaptureStartRequest):
             error_msg = error or "Capture konnte nicht gestartet werden"
             logger.error(f"Capture-Fehler: {error_msg}")
             raise HTTPException(status_code=400, detail=error_msg)
+    except HTTPException:
+        # Gewollte Fehler (z.B. Ordner existiert) ohne 500 weiterreichen
+        raise
     except Exception as e:
         error_msg = f"Unerwarteter Fehler beim Starten der Aufnahme: {str(e)}"
         logger.exception("Fehler in start_capture")
