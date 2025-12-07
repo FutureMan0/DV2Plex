@@ -10,9 +10,12 @@ import subprocess
 import threading
 import time
 import shutil
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional, Callable
+from typing import Optional, Callable, IO
 from queue import Queue
+
+from .merge import MergeEngine
 
 try:
     from PySide6.QtGui import QImage
@@ -43,6 +46,7 @@ class CaptureEngine:
         self.preview_stop_event: Optional[threading.Event] = None
         self.preview_callback: Optional[Callable[[QImage], None]] = None
         self.current_output_path: Optional[Path] = None
+        self.raw_output_path: Optional[Path] = None  # DV-Rohdatei
         self.logger = logging.getLogger(__name__)
         self.interactive_process: Optional[subprocess.Popen] = None  # Für interaktiven Modus (unified dvgrab)
         self.preview_dvgrab_process: Optional[subprocess.Popen] = None  # dvgrab-Prozess für Preview (veraltet)
@@ -54,6 +58,7 @@ class CaptureEngine:
         self.preview_pipe_writer: Optional[subprocess.Popen] = None  # Pipe-Writer für Preview
         self.recording_pipe_writer: Optional[subprocess.Popen] = None  # Pipe-Writer für Recording
         self.recording_stderr_thread: Optional[threading.Thread] = None  # Thread für Recording-ffmpeg stderr
+        self._recording_started: bool = False
 
     def detect_firewire_device(self) -> Optional[str]:
         """
@@ -417,31 +422,23 @@ class CaptureEngine:
             return True  # Bereits gestartet
         
         try:
-            # ffmpeg liest DV von stdin und konvertiert zu H.264/AAC MP4
-            # WICHTIG: -analyzeduration und -probesize geben ffmpeg mehr Zeit, um auf Daten zu warten
+            # ffmpeg schreibt DV 1:1 in eine .dv-Datei (keine Transkodierung)
             ffmpeg_cmd = [
                 str(self.ffmpeg_path),
-                "-analyzeduration", "10000000",  # 10 Sekunden für Analyse
-                "-probesize", "10000000",  # 10MB Probe-Größe
-                "-f", "dv",  # DV-Format vom stdin
-                "-i", "-",  # Input von stdin
-                "-map", "0:v",    # Video-Stream
-                "-map", "0:a:0",  # Erster Audiostream (DV-Original)
-                "-af", "alimiter=limit=0.2",  # Limiter: Peaks absenken, sonst unverändert
-                "-c:v", "libx264",  # H.264 Video-Codec
-                "-preset", "veryfast",  # Encoding-Preset
-                "-crf", "18",  # Qualität (niedrigere Werte = bessere Qualität)
-                "-c:a", "aac",  # AAC Audio-Codec
-                "-b:a", "192k",  # Audio-Bitrate
-                "-ac", "2",  # Erzwinge Stereo
-                "-ar", "32000",  # DV-Audio (häufig 32 kHz)
-                "-y",  # Überschreibe vorhandene Datei
-                str(output_path),  # Ausgabedatei
+                "-analyzeduration", "10000000",
+                "-probesize", "10000000",
+                "-f", "dv",
+                "-i", "-",
+                "-map", "0",
+                "-c", "copy",
+                "-f", "dv",
+                "-y",
+                str(output_path),
             ]
-            
-            self.log("Starte Recording-ffmpeg...")
+
+            self.log("Starte Recording-ffmpeg (DV raw)...")
             self.log(f"Recording-ffmpeg-Befehl: {' '.join(ffmpeg_cmd)}")
-            
+
             self.recording_ffmpeg_process = subprocess.Popen(
                 ffmpeg_cmd,
                 stdin=subprocess.PIPE,
@@ -450,11 +447,9 @@ class CaptureEngine:
                 text=False,
                 bufsize=0,
             )
-            
-            # Warte kurz und prüfe ob Prozess gestartet wurde
+
             time.sleep(0.5)
             if self.recording_ffmpeg_process.poll() is not None:
-                # Prozess wurde sofort beendet
                 try:
                     if self.recording_ffmpeg_process.stderr:
                         stderr_data = b""
@@ -463,26 +458,25 @@ class CaptureEngine:
                             if not chunk:
                                 break
                             stderr_data += chunk if isinstance(chunk, bytes) else chunk.encode()
-                        
                         if stderr_data:
                             stderr_text = stderr_data.decode('utf-8', errors='ignore')
                             self.log(f"Recording-ffmpeg-Fehler: {stderr_text[:500]}")
-                except:
+                except Exception:
                     pass
                 self.recording_ffmpeg_process = None
                 return False
-            
-            self.log("Recording-ffmpeg gestartet")
-            
-            # Starte Thread zum Lesen von stderr für Fehlerdiagnose
+
+            self._recording_started = True
+            self.log("Recording-ffmpeg gestartet (DV raw)")
+
             self.recording_stderr_thread = threading.Thread(
                 target=self._read_recording_stderr,
                 daemon=True,
             )
             self.recording_stderr_thread.start()
-            
+
             return True
-            
+
         except Exception as e:
             self.log(f"Fehler beim Starten von Recording-ffmpeg: {e}")
             self.recording_ffmpeg_process = None
@@ -701,7 +695,8 @@ class CaptureEngine:
 
             output_dir = Path(output_path)
             output_dir.mkdir(parents=True, exist_ok=True)
-            # Ausgabe als MP4 (H.264/AAC)
+            # Roh-DV + finale MP4 (H.265/H.264)
+            self.raw_output_path = output_dir / f"part_{part_number:03d}.dv"
             self.current_output_path = output_dir / f"part_{part_number:03d}.mp4"
 
             self.preview_callback = preview_callback
@@ -768,7 +763,7 @@ class CaptureEngine:
                 
                 # Starte Recording-ffmpeg
                 self.log("Starte Recording-ffmpeg...")
-                if not self._start_recording_ffmpeg(self.current_output_path):
+                if not self._start_recording_ffmpeg(self.raw_output_path):
                     self.log("FEHLER: Recording-ffmpeg konnte nicht gestartet werden")
                     return False
                 
@@ -784,7 +779,7 @@ class CaptureEngine:
                 # Im manuellen Modus: Recording-ffmpeg wird später gestartet (nach manuellem 'c')
                 # Für jetzt: Recording-ffmpeg starten, aber noch nicht aktiv aufnehmen
                 # (dvgrab streamt bereits, ffmpeg wartet auf Daten)
-                if not self._start_recording_ffmpeg(self.current_output_path):
+                if not self._start_recording_ffmpeg(self.raw_output_path):
                     self.log("FEHLER: Recording-ffmpeg konnte nicht gestartet werden")
                     return False
 
@@ -831,11 +826,23 @@ class CaptureEngine:
             # Warte kurz, damit die Datei vollständig geschrieben ist
             time.sleep(1)
 
-            # Prüfe ob Recording-Datei existiert und hat Audio
+            # Transkodieren DV -> MP4/H.265 mit creation_time aus DV-Datecode
+            if self.raw_output_path and self.raw_output_path.exists():
+                if self._transcode_raw_to_mp4():
+                    # DV nur nach erfolgreichem Transcode löschen
+                    try:
+                        self.raw_output_path.unlink()
+                        self.log(f"DV-Rohdatei gelöscht: {self.raw_output_path}")
+                    except Exception as e:
+                        self.log(f"WARNUNG: Konnte DV-Rohdatei nicht löschen: {e}")
+                else:
+                    self.log("Transkodierung fehlgeschlagen, DV-Rohdatei wird behalten.")
+            else:
+                self.log(f"WARNUNG: DV-Rohdatei nicht gefunden: {self.raw_output_path}")
+
+            # Prüfe finale MP4
             if self.current_output_path and self.current_output_path.exists():
-                # Validiere, dass Audio vorhanden ist
                 try:
-                    # Verwende ffprobe um Streams zu prüfen (falls verfügbar)
                     ffprobe_cmd = [
                         str(self.ffmpeg_path).replace("ffmpeg", "ffprobe"),
                         "-v", "error",
@@ -851,14 +858,13 @@ class CaptureEngine:
                         timeout=5,
                     )
                     if result.returncode == 0 and b"audio" in result.stdout:
-                        self.log("Aufnahme erfolgreich: Audio-Stream vorhanden")
+                        self.log("Aufnahme erfolgreich: Audio-Stream vorhanden (MP4)")
                     else:
-                        self.log("WARNUNG: Audio-Stream nicht gefunden in Aufnahme!")
+                        self.log("WARNUNG: Audio-Stream nicht gefunden in MP4!")
                 except Exception:
-                    # ffprobe nicht verfügbar oder Fehler - ignoriere
                     pass
             else:
-                self.log(f"WARNUNG: Aufnahmedatei nicht gefunden: {self.current_output_path}")
+                self.log(f"WARNUNG: Finale MP4 nicht gefunden: {self.current_output_path}")
 
             return True
 
@@ -928,6 +934,80 @@ class CaptureEngine:
         self.preview_stderr_thread = None
         
         self.preview_stop_event = None
+
+    def _transcode_raw_to_mp4(self) -> bool:
+        """
+        Transkodiert die DV-Rohdatei in MP4 (H.265) und setzt creation_time aus DV-Datecode.
+        """
+        if not self.raw_output_path or not self.raw_output_path.exists():
+            self.log("Transcode: Keine DV-Rohdatei vorhanden")
+            return False
+
+        if not self.current_output_path:
+            self.log("Transcode: Kein Zielpfad gesetzt")
+            return False
+
+        merge_helper = MergeEngine(self.ffmpeg_path, log_callback=self.log)
+        base_ts = merge_helper._extract_dv_datecode(self.raw_output_path)
+        source = "DV-Datecode"
+        if not base_ts:
+            base_ts = merge_helper._extract_creation_timestamp(self.raw_output_path)
+            source = "Metadaten" if base_ts else None
+
+        metadata_args = []
+        if base_ts:
+            creation_time = datetime.fromtimestamp(base_ts, tz=timezone.utc).isoformat()
+            metadata_args = ["-metadata", f"creation_time={creation_time}"]
+            self.log(f"Transcode: Setze creation_time aus {source}: {creation_time}")
+        else:
+            self.log("Transcode: Kein Datecode/Metadaten gefunden, keine creation_time gesetzt")
+
+        ffmpeg_cmd = [
+            str(self.ffmpeg_path),
+            "-f",
+            "dv",
+            "-i",
+            str(self.raw_output_path),
+            "-map",
+            "0:v:0",
+            "-map",
+            "0:a:0",
+            "-c:v",
+            "libx265",
+            "-preset",
+            "medium",
+            "-crf",
+            "20",
+            "-c:a",
+            "aac",
+            "-b:a",
+            "192k",
+            "-ac",
+            "2",
+        ] + metadata_args + [
+            "-y",
+            str(self.current_output_path),
+        ]
+
+        self.log(f"Transcode DV -> MP4: {' '.join(ffmpeg_cmd)}")
+        try:
+            result = subprocess.run(
+                ffmpeg_cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            if result.returncode != 0:
+                self.log(f"Transcode-Fehler: {result.stderr[-500:]}")
+                return False
+            if self.current_output_path.exists():
+                self.log(f"Transcode erfolgreich: {self.current_output_path}")
+                return True
+            self.log("Transcode: MP4 nicht erstellt")
+            return False
+        except Exception as e:
+            self.log(f"Transcode: Fehler beim Ausführen: {e}")
+            return False
 
     def _monitor_capture(self):
         """Überwacht den Capture-Prozess"""

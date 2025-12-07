@@ -5,7 +5,7 @@ Merge-Engine für das Zusammenfügen mehrerer Capture-Parts
 import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import List, Optional, Callable
+from typing import List, Optional, Callable, Tuple
 import logging
 
 
@@ -24,6 +24,7 @@ class MergeEngine:
         self.log_callback = log_callback
         self.logger = logging.getLogger(__name__)
         self._ffprobe_path: Optional[Path] = None
+        self._is_dv_cache: dict[Path, bool] = {}
 
     def _get_ffprobe_path(self) -> Path:
         """
@@ -42,6 +43,140 @@ class MergeEngine:
         # Fallback: ffprobe aus PATH
         self._ffprobe_path = Path("ffprobe")
         return self._ffprobe_path
+
+    def _is_dv_stream(self, video_path: Path) -> bool:
+        """
+        Prüft per ffprobe, ob der Videostream DV (dvvideo) ist.
+        Ergebnis wird gecached, um Mehrfach-Aufrufe zu vermeiden.
+        """
+        cached = self._is_dv_cache.get(video_path)
+        if cached is not None:
+            return cached
+
+        ffprobe_path = self._get_ffprobe_path()
+        cmd = [
+            str(ffprobe_path),
+            "-v",
+            "error",
+            "-select_streams",
+            "v:0",
+            "-show_entries",
+            "stream=codec_name",
+            "-of",
+            "default=nk=1:nw=1",
+            str(video_path),
+        ]
+        try:
+            result = subprocess.run(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=False,
+            )
+            codec = result.stdout.strip().lower()
+            is_dv = codec == "dvvideo"
+            self._is_dv_cache[video_path] = is_dv
+            return is_dv
+        except Exception:
+            self._is_dv_cache[video_path] = False
+            return False
+
+    def _bcd(self, value: int, mask: int = 0xFF) -> int:
+        """Dekodiert ein BCD-basiertes Byte (unter Berücksichtigung einer Maske)."""
+        v = value & mask
+        return ((v >> 4) & 0x0F) * 10 + (v & 0x0F)
+
+    def _parse_dv_date_pack(self, pack: bytes) -> Optional[Tuple[int, int, int]]:
+        """
+        Parst den DV-Datecode (Aufnahmedatum) aus Pack-ID 0x13.
+        Layout: BCD-JJ (Byte1), BCD-MM (Byte2), BCD-TT (Byte3).
+        """
+        if len(pack) != 5 or pack[0] != 0x13:
+            return None
+        year_2d = self._bcd(pack[1])
+        month = self._bcd(pack[2] & 0x1F)  # obere Bits sind Flags
+        day = self._bcd(pack[3] & 0x3F)
+
+        if not (1 <= month <= 12 and 1 <= day <= 31):
+            return None
+
+        year = 2000 + year_2d if year_2d < 70 else 1900 + year_2d
+        return year, month, day
+
+    def _parse_dv_time_pack(self, pack: bytes) -> Optional[Tuple[int, int, int]]:
+        """
+        Parst die DV-Aufnahmezeit aus Pack-ID 0x62.
+        Layout (BCD): HH (Byte1), MM (Byte2), SS (Byte3).
+        """
+        if len(pack) != 5 or pack[0] != 0x62:
+            return None
+        hour = self._bcd(pack[1] & 0x3F)
+        minute = self._bcd(pack[2] & 0x7F)
+        second = self._bcd(pack[3] & 0x7F)
+
+        if not (0 <= hour <= 23 and 0 <= minute <= 59 and 0 <= second <= 59):
+            return None
+        return hour, minute, second
+
+    def _extract_dv_datecode(self, video_path: Path) -> Optional[float]:
+        """
+        Versucht, DV-Datecode (Aufnahme-Datum/Uhrzeit) direkt aus DV-Stream zu lesen.
+        Nur sinnvoll, wenn der Videostream dvvideo ist.
+        """
+        if not self._is_dv_stream(video_path):
+            return None
+
+        block_size = 80  # DIF-Block-Größe
+        max_bytes = 8 * 1024 * 1024  # genug für etliche Frames
+        date_parts: Optional[Tuple[int, int, int]] = None
+        time_parts: Optional[Tuple[int, int, int]] = None
+
+        try:
+            with open(video_path, "rb") as f:
+                data = f.read(max_bytes)
+        except Exception as e:
+            self.log(f"DV-Datecode: konnte Datei nicht lesen: {e}")
+            return None
+
+        data_len = len(data)
+        if data_len < block_size:
+            return None
+
+        for i in range(0, data_len - block_size + 1, block_size):
+            block = data[i : i + block_size]
+            if block[0] != 0x1F:
+                continue
+            block_type = block[1] >> 5  # 0=subcode, 1=VAUX
+            if block_type not in (0, 1):
+                continue
+            payload = block[3:]
+            for p in range(0, len(payload) - 4, 5):
+                pack = payload[p : p + 5]
+                pid = pack[0]
+                if pid == 0x13 and date_parts is None:
+                    date_parts = self._parse_dv_date_pack(pack)
+                elif pid == 0x62 and time_parts is None:
+                    time_parts = self._parse_dv_time_pack(pack)
+                if date_parts and time_parts:
+                    break
+            if date_parts and time_parts:
+                break
+
+        if not (date_parts and time_parts):
+            self.log("DV-Datecode nicht gefunden (kein 0x13/0x62 Pack im Stream)")
+            return None
+
+        try:
+            year, month, day = date_parts
+            hour, minute, second = time_parts
+            dt = datetime(year, month, day, hour, minute, second, tzinfo=timezone.utc)
+            ts = dt.timestamp()
+            self.log(f"DV-Datecode gefunden: {dt.isoformat()}")
+            return ts
+        except Exception as e:
+            self.log(f"DV-Datecode konnte nicht geparst werden: {e}")
+            return None
 
     def _parse_creation_datetime(self, value: str) -> Optional[datetime]:
         """Parst einen Datums-String aus den Metadaten zu datetime"""
@@ -371,15 +506,22 @@ class MergeEngine:
             
             self.log(f"{len(scene_changes)} Szenenänderungen erkannt")
 
-            # Metadaten für Startzeit auslesen (creation_time o.ä.)
-            base_timestamp = self._extract_creation_timestamp(input_path)
+            # Quelle für Startzeit priorisieren: DV-Datecode -> Metadaten -> mtime -> 00:00:00
+            base_timestamp = self._extract_dv_datecode(input_path)
             if base_timestamp:
-                human_readable = datetime.fromtimestamp(base_timestamp).isoformat(
+                human_readable = datetime.fromtimestamp(base_timestamp, tz=timezone.utc).isoformat(
                     timespec="seconds"
                 )
-                self.log(f"Nutze Metadaten-Startzeit für Overlay: {human_readable}")
+                self.log(f"Nutze DV-Datecode für Overlay: {human_readable}")
             else:
-                self.log("Keine Metadaten-Startzeit gefunden, nutze 00:00:00 ab Video-Start")
+                base_timestamp = self._extract_creation_timestamp(input_path)
+                if base_timestamp:
+                    human_readable = datetime.fromtimestamp(base_timestamp).isoformat(
+                        timespec="seconds"
+                    )
+                    self.log(f"Nutze Metadaten-Startzeit für Overlay: {human_readable}")
+                else:
+                    self.log("Keine DV/Metadaten-Startzeit gefunden, nutze 00:00:00 ab Video-Start")
 
             # Timestamp-Format: Bei Metadaten volle Datums-/Zeitangabe, sonst Laufzeit
             if base_timestamp:
