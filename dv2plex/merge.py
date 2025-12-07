@@ -434,9 +434,9 @@ class MergeEngine:
                 )
                 filter_parts.append(
                     f"drawtext=text='{timestamp_str}'"
-                    f":fontsize=28"
-                    f":x=20"
-                    f":y=h-text_h-20"
+                    f":fontsize=24"
+                    f":x=10"
+                    f":y=10"
                     f":fontcolor=white"
                     f":bordercolor=black"
                     f":borderw=2"
