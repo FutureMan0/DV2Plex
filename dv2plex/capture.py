@@ -530,16 +530,18 @@ class CaptureEngine:
         target_frame_interval = 1.0 / max(preview_fps, 5)
         
         try:
+            # Lese stdout bis leer (auch nach Prozessende)
             while (
                 (not self.preview_stop_event or not self.preview_stop_event.is_set())
                 and process
-                and process.poll() is None
             ):
                 try:
                     chunk = process.stdout.read(8192)
                     
                     if not chunk:
+                        # Keine Daten mehr - prüfe ob Prozess noch läuft
                         if process.poll() is not None:
+                            # Prozess beendet, verarbeite restlichen Buffer und beende
                             break
                         time.sleep(0.01)
                         continue
@@ -579,6 +581,29 @@ class CaptureEngine:
                     self.log(f"Preview: Fehler beim Lesen: {e}")
                     time.sleep(0.1)
                     continue
+            
+            # Verarbeite restlichen Buffer nach Prozessende
+            while buffer:
+                start_idx = buffer.find(jpeg_start)
+                if start_idx == -1:
+                    break
+                if start_idx > 0:
+                    buffer = buffer[start_idx:]
+                end_idx = buffer.find(jpeg_end, 2)
+                if end_idx == -1:
+                    break
+                
+                jpeg_data = bytes(buffer[: end_idx + 2])
+                buffer = buffer[end_idx + 2 :]
+                
+                if self.preview_callback:
+                    try:
+                        self.preview_callback(jpeg_data)
+                        frame_count += 1
+                        if frame_count == 1:
+                            self.log(f"Preview: Erstes Frame (Bytes) von {file_path.name}")
+                    except Exception as e:
+                        self.log(f"Preview: Fehler bei Frame-Callback: {e}")
         
         except Exception as e:
             self.log(f"Preview: Fehler: {e}")
