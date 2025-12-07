@@ -186,6 +186,10 @@ class CoverGenerateRequest(BaseModel):
     year: Optional[str] = None
 
 
+class ChownRequest(BaseModel):
+    path: str
+
+
 # Preview callback for capture
 def preview_callback(image):
     """Callback für Preview-Frames während Capture"""
@@ -564,6 +568,85 @@ async def update_settings(settings: Dict[str, Any]):
     return {"success": True, "message": "Einstellungen gespeichert"}
 
 
+@app.post("/api/chown")
+async def apply_chown(request: ChownRequest):
+    """Führt sudo chown auf den angegebenen Pfad aus"""
+    import subprocess
+    import os
+    import pwd
+    
+    path = Path(request.path)
+    if not path.exists():
+        raise HTTPException(status_code=404, detail=f"Pfad nicht gefunden: {path}")
+    
+    try:
+        # Aktuellen Benutzer ermitteln
+        current_user = pwd.getpwuid(os.getuid()).pw_name
+        
+        # sudo chown -R ausführen
+        result = subprocess.run(
+            ["sudo", "chown", "-R", f"{current_user}:{current_user}", str(path)],
+            capture_output=True,
+            text=True,
+            timeout=60
+        )
+        
+        if result.returncode == 0:
+            logger.info(f"chown erfolgreich auf {path}")
+            return {"success": True, "message": f"Berechtigungen für {path} geändert"}
+        else:
+            error_msg = result.stderr or "Unbekannter Fehler"
+            logger.error(f"chown fehlgeschlagen: {error_msg}")
+            raise HTTPException(status_code=500, detail=f"chown fehlgeschlagen: {error_msg}")
+    except subprocess.TimeoutExpired:
+        raise HTTPException(status_code=500, detail="Timeout bei chown-Ausführung")
+    except Exception as e:
+        logger.exception("Fehler bei chown")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/browse")
+async def browse_directory(path: str = "/"):
+    """Listet Verzeichnisse auf für den Datei-Browser"""
+    import os
+    
+    target_path = Path(path)
+    
+    if not target_path.exists():
+        raise HTTPException(status_code=404, detail=f"Pfad nicht gefunden: {path}")
+    
+    if not target_path.is_dir():
+        raise HTTPException(status_code=400, detail=f"Kein Verzeichnis: {path}")
+    
+    entries = []
+    try:
+        for entry in sorted(target_path.iterdir()):
+            try:
+                is_dir = entry.is_dir()
+                # Überspringe versteckte Dateien (optional)
+                if entry.name.startswith('.'):
+                    continue
+                    
+                entries.append({
+                    "name": entry.name,
+                    "path": str(entry),
+                    "is_dir": is_dir
+                })
+            except PermissionError:
+                continue
+    except PermissionError:
+        raise HTTPException(status_code=403, detail=f"Keine Berechtigung für: {path}")
+    
+    # Sortiere: Verzeichnisse zuerst
+    entries.sort(key=lambda x: (not x["is_dir"], x["name"].lower()))
+    
+    return {
+        "current_path": str(target_path),
+        "parent_path": str(target_path.parent) if target_path != target_path.parent else None,
+        "entries": entries
+    }
+
+
 # WebSocket endpoint
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
@@ -591,7 +674,7 @@ def get_html_interface() -> str:
 <html lang="de">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>DV2Plex - MiniDV Digitalisierung</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
@@ -625,7 +708,7 @@ def get_html_interface() -> str:
             background-attachment: fixed;
             color: var(--plex-text);
             min-height: 100vh;
-            padding: 30px;
+            padding: 15px;
         }
         
         /* Animated background orbs */
@@ -659,8 +742,8 @@ def get_html_interface() -> str:
                 rgba(50, 50, 50, 0.6) 0%, 
                 rgba(30, 30, 30, 0.8) 50%,
                 rgba(40, 40, 40, 0.6) 100%);
-            border-radius: 24px;
-            padding: 30px;
+            border-radius: 20px;
+            padding: 15px;
             box-shadow: 
                 0 25px 80px rgba(0, 0, 0, 0.6),
                 0 10px 30px rgba(0, 0, 0, 0.4),
@@ -691,14 +774,14 @@ def get_html_interface() -> str:
         
         .logo-container {
             text-align: center;
-            margin-bottom: 30px;
+            margin-bottom: 20px;
         }
         
         h1 {
             display: inline-flex;
             align-items: center;
-            gap: 15px;
-            font-size: 2.2em;
+            gap: 10px;
+            font-size: 1.8em;
             font-weight: 700;
             background: linear-gradient(135deg, var(--plex-gold-light) 0%, var(--plex-gold) 50%, var(--plex-orange) 100%);
             -webkit-background-clip: text;
@@ -716,27 +799,31 @@ def get_html_interface() -> str:
         
         .tabs {
             display: flex;
-            gap: 12px;
-            margin-bottom: 25px;
+            gap: 6px;
+            margin-bottom: 15px;
             flex-wrap: wrap;
-            padding: 8px;
+            padding: 6px;
             background: rgba(0, 0, 0, 0.3);
-            border-radius: 16px;
+            border-radius: 14px;
             backdrop-filter: blur(10px);
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
         }
         
         .tab {
-            padding: 14px 28px;
+            padding: 10px 14px;
             background: transparent;
             border: none;
-            border-radius: 12px;
+            border-radius: 10px;
             cursor: pointer;
             color: var(--plex-text-secondary);
             font-weight: 600;
-            font-size: 14px;
+            font-size: 12px;
             transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
             position: relative;
             overflow: hidden;
+            white-space: nowrap;
+            flex-shrink: 0;
         }
         
         .tab::before {
@@ -746,7 +833,7 @@ def get_html_interface() -> str:
             background: linear-gradient(135deg, var(--plex-gold), var(--plex-orange));
             opacity: 0;
             transition: opacity 0.3s;
-            border-radius: 12px;
+            border-radius: 10px;
         }
         
         .tab:hover {
@@ -770,9 +857,9 @@ def get_html_interface() -> str:
         
         .tab-content {
             display: none;
-            padding: 25px;
+            padding: 15px;
             background: rgba(0, 0, 0, 0.2);
-            border-radius: 16px;
+            border-radius: 14px;
             backdrop-filter: blur(10px);
             border: 1px solid var(--glass-border);
             animation: fadeIn 0.3s ease;
@@ -788,27 +875,27 @@ def get_html_interface() -> str:
         }
         
         .form-group {
-            margin-bottom: 18px;
+            margin-bottom: 14px;
         }
         
         label {
             display: block;
-            margin-bottom: 8px;
+            margin-bottom: 6px;
             color: var(--plex-text);
             font-weight: 600;
-            font-size: 13px;
+            font-size: 12px;
             text-transform: uppercase;
             letter-spacing: 0.5px;
         }
         
         input[type="text"], input[type="number"], select {
             width: 100%;
-            padding: 14px 16px;
+            padding: 12px 14px;
             background: rgba(0, 0, 0, 0.4);
             border: 1px solid var(--glass-border);
-            border-radius: 12px;
+            border-radius: 10px;
             color: var(--plex-text);
-            font-size: 15px;
+            font-size: 14px;
             font-family: inherit;
             transition: all 0.3s;
             backdrop-filter: blur(10px);
@@ -830,23 +917,24 @@ def get_html_interface() -> str:
             appearance: none;
             background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23E5A00D' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
             background-repeat: no-repeat;
-            background-position: right 16px center;
-            padding-right: 40px;
+            background-position: right 14px center;
+            padding-right: 36px;
         }
         
         button {
-            padding: 14px 28px;
+            padding: 12px 20px;
             background: linear-gradient(135deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.05));
             border: 1px solid var(--glass-border);
-            border-radius: 12px;
+            border-radius: 10px;
             color: var(--plex-text);
             font-weight: 600;
-            font-size: 14px;
+            font-size: 13px;
             cursor: pointer;
             transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
             backdrop-filter: blur(10px);
             position: relative;
             overflow: hidden;
+            -webkit-tap-highlight-color: transparent;
         }
         
         button::before {
@@ -895,13 +983,19 @@ def get_html_interface() -> str:
             box-shadow: 0 0 30px rgba(229, 160, 13, 0.4), 0 8px 25px rgba(0, 0, 0, 0.4);
         }
         
+        .btn-danger {
+            background: linear-gradient(135deg, #dc3545, #c82333);
+            color: #fff;
+            border: none;
+        }
+        
         .preview-container {
             background: linear-gradient(135deg, rgba(0, 0, 0, 0.6), rgba(20, 20, 20, 0.4));
             border: 1px solid var(--glass-border);
-            border-radius: 16px;
-            padding: 20px;
+            border-radius: 14px;
+            padding: 15px;
             text-align: center;
-            min-height: 400px;
+            min-height: 250px;
             display: flex;
             align-items: center;
             justify-content: center;
@@ -920,50 +1014,54 @@ def get_html_interface() -> str:
         
         .preview-container img {
             max-width: 100%;
-            max-height: 500px;
-            border-radius: 12px;
+            max-height: 350px;
+            border-radius: 10px;
             box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
         }
         
         .list-container {
             background: rgba(0, 0, 0, 0.3);
             border: 1px solid var(--glass-border);
-            border-radius: 16px;
-            padding: 12px;
-            max-height: 400px;
+            border-radius: 14px;
+            padding: 10px;
+            max-height: 300px;
             overflow-y: auto;
             backdrop-filter: blur(10px);
+            -webkit-overflow-scrolling: touch;
         }
         
         .list-container::-webkit-scrollbar {
-            width: 8px;
+            width: 6px;
         }
         
         .list-container::-webkit-scrollbar-track {
             background: rgba(0, 0, 0, 0.2);
-            border-radius: 4px;
+            border-radius: 3px;
         }
         
         .list-container::-webkit-scrollbar-thumb {
             background: var(--plex-gold);
-            border-radius: 4px;
+            border-radius: 3px;
         }
         
         .list-item {
-            padding: 14px 16px;
-            margin: 6px 0;
+            padding: 12px 14px;
+            margin: 5px 0;
             background: rgba(255, 255, 255, 0.03);
             border: 1px solid transparent;
-            border-radius: 10px;
+            border-radius: 8px;
             cursor: pointer;
             transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
             font-weight: 500;
+            font-size: 13px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
         }
         
         .list-item:hover {
             background: rgba(229, 160, 13, 0.1);
             border-color: rgba(229, 160, 13, 0.3);
-            transform: translateX(4px);
         }
         
         .list-item.selected {
@@ -972,14 +1070,26 @@ def get_html_interface() -> str:
             box-shadow: 0 0 20px rgba(229, 160, 13, 0.15);
         }
         
+        .list-item .icon {
+            font-size: 16px;
+            flex-shrink: 0;
+        }
+        
+        .list-item .name {
+            flex: 1;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        
         .progress-bar {
             width: 100%;
-            height: 32px;
+            height: 28px;
             background: rgba(0, 0, 0, 0.4);
             border: 1px solid var(--glass-border);
-            border-radius: 16px;
+            border-radius: 14px;
             overflow: hidden;
-            margin: 15px 0;
+            margin: 12px 0;
             backdrop-filter: blur(10px);
         }
         
@@ -994,8 +1104,8 @@ def get_html_interface() -> str:
             justify-content: center;
             color: #000;
             font-weight: 700;
-            font-size: 13px;
-            border-radius: 14px;
+            font-size: 12px;
+            border-radius: 12px;
         }
         
         @keyframes shimmer {
@@ -1006,29 +1116,29 @@ def get_html_interface() -> str:
         .log-container {
             background: rgba(0, 0, 0, 0.5);
             border: 1px solid var(--glass-border);
-            border-radius: 12px;
-            padding: 16px;
-            max-height: 200px;
+            border-radius: 10px;
+            padding: 12px;
+            max-height: 150px;
             overflow-y: auto;
             font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
-            font-size: 12px;
-            line-height: 1.6;
+            font-size: 11px;
+            line-height: 1.5;
             color: var(--plex-text-secondary);
             backdrop-filter: blur(10px);
         }
         
         .frame-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 18px;
-            margin: 25px 0;
+            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+            gap: 12px;
+            margin: 15px 0;
         }
         
         .frame-item {
             background: rgba(0, 0, 0, 0.4);
             border: 2px solid var(--glass-border);
-            border-radius: 14px;
-            padding: 12px;
+            border-radius: 12px;
+            padding: 8px;
             cursor: pointer;
             transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
             backdrop-filter: blur(10px);
@@ -1048,17 +1158,18 @@ def get_html_interface() -> str:
         
         .frame-item img {
             width: 100%;
-            border-radius: 8px;
+            border-radius: 6px;
         }
         
         .status {
-            padding: 14px 18px;
-            margin: 15px 0;
-            border-radius: 12px;
+            padding: 12px 14px;
+            margin: 12px 0;
+            border-radius: 10px;
             background: rgba(229, 160, 13, 0.08);
             border: 1px solid rgba(229, 160, 13, 0.2);
             backdrop-filter: blur(10px);
             font-weight: 500;
+            font-size: 13px;
         }
         
         .error {
@@ -1086,6 +1197,7 @@ def get_html_interface() -> str:
             vertical-align: middle;
             margin-right: 8px;
             transition: all 0.3s;
+            flex-shrink: 0;
         }
         
         input[type="checkbox"]:checked {
@@ -1107,26 +1219,259 @@ def get_html_interface() -> str:
         /* Grid layout for capture */
         .capture-grid {
             display: grid;
-            grid-template-columns: 2fr 1fr;
-            gap: 25px;
-        }
-        
-        @media (max-width: 900px) {
-            .capture-grid {
-                grid-template-columns: 1fr;
-            }
+            grid-template-columns: 1fr;
+            gap: 15px;
         }
         
         /* Button groups */
         .button-group {
             display: flex;
-            gap: 10px;
+            gap: 8px;
             flex-wrap: wrap;
         }
         
         .button-group button {
             flex: 1;
-            min-width: 120px;
+            min-width: 100px;
+        }
+        
+        /* Settings specific styles */
+        .settings-section {
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 12px;
+            padding: 15px;
+            margin-bottom: 15px;
+            border: 1px solid var(--glass-border);
+        }
+        
+        .settings-section h3 {
+            color: var(--plex-gold);
+            font-size: 14px;
+            margin-bottom: 12px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        
+        .path-selector {
+            display: flex;
+            gap: 8px;
+            align-items: stretch;
+        }
+        
+        .path-selector input {
+            flex: 1;
+        }
+        
+        .path-selector button {
+            padding: 12px 16px;
+            flex-shrink: 0;
+        }
+        
+        /* File browser modal */
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.8);
+            z-index: 1000;
+            padding: 15px;
+            overflow-y: auto;
+        }
+        
+        .modal.active {
+            display: flex;
+            align-items: flex-start;
+            justify-content: center;
+        }
+        
+        .modal-content {
+            background: linear-gradient(135deg, rgba(50, 50, 50, 0.95), rgba(30, 30, 30, 0.98));
+            border-radius: 16px;
+            padding: 20px;
+            width: 100%;
+            max-width: 500px;
+            max-height: 80vh;
+            display: flex;
+            flex-direction: column;
+            border: 1px solid var(--glass-border);
+            margin-top: 20px;
+        }
+        
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid var(--glass-border);
+        }
+        
+        .modal-header h2 {
+            color: var(--plex-gold);
+            font-size: 16px;
+        }
+        
+        .modal-header .close-btn {
+            background: none;
+            border: none;
+            color: var(--plex-text);
+            font-size: 24px;
+            cursor: pointer;
+            padding: 0;
+            line-height: 1;
+        }
+        
+        .current-path {
+            background: rgba(0, 0, 0, 0.4);
+            padding: 10px 12px;
+            border-radius: 8px;
+            font-size: 12px;
+            color: var(--plex-text-secondary);
+            margin-bottom: 10px;
+            word-break: break-all;
+        }
+        
+        .browser-list {
+            flex: 1;
+            overflow-y: auto;
+            max-height: 300px;
+        }
+        
+        .browser-item {
+            padding: 12px 14px;
+            margin: 4px 0;
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid transparent;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 13px;
+        }
+        
+        .browser-item:hover {
+            background: rgba(229, 160, 13, 0.1);
+            border-color: rgba(229, 160, 13, 0.3);
+        }
+        
+        .browser-item.folder {
+            color: var(--plex-gold);
+        }
+        
+        .browser-item .icon {
+            font-size: 16px;
+        }
+        
+        .modal-footer {
+            display: flex;
+            gap: 10px;
+            margin-top: 15px;
+            padding-top: 15px;
+            border-top: 1px solid var(--glass-border);
+        }
+        
+        .modal-footer button {
+            flex: 1;
+        }
+        
+        /* Desktop styles */
+        @media (min-width: 768px) {
+            body {
+                padding: 30px;
+            }
+            
+            .container {
+                padding: 30px;
+                border-radius: 24px;
+            }
+            
+            h1 {
+                font-size: 2.2em;
+            }
+            
+            .tabs {
+                gap: 12px;
+                padding: 8px;
+            }
+            
+            .tab {
+                padding: 14px 28px;
+                font-size: 14px;
+            }
+            
+            .tab-content {
+                padding: 25px;
+            }
+            
+            .capture-grid {
+                grid-template-columns: 2fr 1fr;
+                gap: 25px;
+            }
+            
+            .preview-container {
+                min-height: 400px;
+            }
+            
+            .preview-container img {
+                max-height: 500px;
+            }
+            
+            .list-container {
+                max-height: 400px;
+            }
+            
+            .frame-grid {
+                grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+                gap: 18px;
+            }
+            
+            .button-group button {
+                min-width: 120px;
+            }
+            
+            .settings-grid {
+                display: grid;
+                grid-template-columns: 1fr 1fr;
+                gap: 15px;
+            }
+        }
+        
+        /* Small phone styles */
+        @media (max-width: 400px) {
+            body {
+                padding: 8px;
+            }
+            
+            .container {
+                padding: 10px;
+                border-radius: 16px;
+            }
+            
+            h1 {
+                font-size: 1.4em;
+            }
+            
+            .tab {
+                padding: 8px 10px;
+                font-size: 11px;
+            }
+            
+            .tab-content {
+                padding: 10px;
+            }
+            
+            .button-group {
+                flex-direction: column;
+            }
+            
+            .button-group button {
+                min-width: auto;
+            }
         }
     </style>
 </head>
@@ -1137,10 +1482,11 @@ def get_html_interface() -> str:
         </div>
         
         <div class="tabs">
-            <div class="tab active" onclick="switchTab('capture')"><span>Digitalisieren</span></div>
-            <div class="tab" onclick="switchTab('postprocess')"><span>Upscaling</span></div>
-            <div class="tab" onclick="switchTab('movie')"><span>Movie Mode</span></div>
-            <div class="tab" onclick="switchTab('cover')"><span>Video Cover</span></div>
+            <div class="tab active" onclick="switchTab('capture')"><span>📹 Digitalisieren</span></div>
+            <div class="tab" onclick="switchTab('postprocess')"><span>🎬 Upscaling</span></div>
+            <div class="tab" onclick="switchTab('movie')"><span>🎞️ Movie Mode</span></div>
+            <div class="tab" onclick="switchTab('cover')"><span>🖼️ Cover</span></div>
+            <div class="tab" onclick="switchTab('settings')"><span>⚙️ Einstellungen</span></div>
         </div>
         
         <!-- Capture Tab -->
@@ -1234,13 +1580,13 @@ def get_html_interface() -> str:
         <!-- Cover Tab -->
         <div id="cover" class="tab-content">
             <div class="list-container" id="cover-video-list"></div>
-            <div class="form-group button-group" style="margin-top: 18px;">
+            <div class="form-group button-group" style="margin-top: 14px;">
                 <button class="btn-primary" onclick="extractFrames()" id="extract-frames-btn" disabled>
                     <span>Frames extrahieren</span>
                 </button>
             </div>
             <div class="frame-grid" id="frame-grid"></div>
-            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
                 <div class="form-group">
                     <label>Titel</label>
                     <input type="text" id="cover-title" placeholder="Film-Titel eingeben...">
@@ -1260,6 +1606,85 @@ def get_html_interface() -> str:
             </div>
             <div class="status" id="cover-status">Wähle ein Video und extrahiere Frames.</div>
             <div class="log-container" id="cover-log"></div>
+        </div>
+        
+        <!-- Settings Tab -->
+        <div id="settings" class="tab-content">
+            <div class="settings-section">
+                <h3>📁 Pfade</h3>
+                <div class="form-group">
+                    <label>Plex Movies Ordner</label>
+                    <div class="path-selector">
+                        <input type="text" id="settings-plex-root" placeholder="/home/user/Plex/Movies">
+                        <button onclick="browsePath('plex')"><span>📂</span></button>
+                        <button class="btn-primary" onclick="applyChown('plex')"><span>🔓</span></button>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>DV Import Ordner</label>
+                    <div class="path-selector">
+                        <input type="text" id="settings-dv-root" placeholder="/home/user/DV_Import">
+                        <button onclick="browsePath('dv')"><span>📂</span></button>
+                        <button class="btn-primary" onclick="applyChown('dv')"><span>🔓</span></button>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>FFmpeg Pfad (leer = System)</label>
+                    <div class="path-selector">
+                        <input type="text" id="settings-ffmpeg" placeholder="Leer für System-PATH">
+                        <button onclick="browsePath('ffmpeg')"><span>📂</span></button>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="settings-section">
+                <h3>⚡ Automatisierung</h3>
+                <div class="form-group">
+                    <label style="display: flex; align-items: center; cursor: pointer; text-transform: none; font-size: 14px;">
+                        <input type="checkbox" id="settings-auto-postprocess">
+                        <span>Auto-Postprocessing nach Capture</span>
+                    </label>
+                </div>
+                <div class="form-group">
+                    <label style="display: flex; align-items: center; cursor: pointer; text-transform: none; font-size: 14px;">
+                        <input type="checkbox" id="settings-auto-upscale">
+                        <span>Auto-Upscaling aktivieren</span>
+                    </label>
+                </div>
+                <div class="form-group">
+                    <label style="display: flex; align-items: center; cursor: pointer; text-transform: none; font-size: 14px;">
+                        <input type="checkbox" id="settings-auto-export">
+                        <span>Auto-Export nach Plex</span>
+                    </label>
+                </div>
+            </div>
+            
+            <div class="button-group">
+                <button class="btn-primary" onclick="saveSettings()">
+                    <span>💾 Einstellungen speichern</span>
+                </button>
+                <button onclick="loadSettings()">
+                    <span>🔄 Zurücksetzen</span>
+                </button>
+            </div>
+            
+            <div class="status" id="settings-status">Einstellungen werden geladen...</div>
+        </div>
+    </div>
+    
+    <!-- File Browser Modal -->
+    <div class="modal" id="browser-modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>📁 Verzeichnis wählen</h2>
+                <button class="close-btn" onclick="closeBrowser()">×</button>
+            </div>
+            <div class="current-path" id="browser-current-path">/</div>
+            <div class="browser-list list-container" id="browser-list"></div>
+            <div class="modal-footer">
+                <button onclick="closeBrowser()"><span>Abbrechen</span></button>
+                <button class="btn-primary" onclick="selectCurrentPath()"><span>✓ Auswählen</span></button>
+            </div>
         </div>
     </div>
     
@@ -1758,10 +2183,187 @@ def get_html_interface() -> str:
             }
         }
         
+        // Settings functions
+        let currentBrowserTarget = null;
+        let currentBrowserPath = '/';
+        
+        async function loadSettings() {
+            try {
+                const response = await fetch('/api/settings');
+                const data = await response.json();
+                
+                document.getElementById('settings-plex-root').value = data.plex_movies_root || '';
+                document.getElementById('settings-dv-root').value = data.dv_import_root || '';
+                document.getElementById('settings-ffmpeg').value = data.ffmpeg_path || '';
+                document.getElementById('settings-auto-postprocess').checked = data.auto_postprocess || false;
+                document.getElementById('settings-auto-upscale').checked = data.auto_upscale || false;
+                document.getElementById('settings-auto-export').checked = data.auto_export || false;
+                
+                document.getElementById('settings-status').textContent = 'Einstellungen geladen.';
+                document.getElementById('settings-status').className = 'status';
+            } catch (error) {
+                console.error('Fehler beim Laden der Einstellungen:', error);
+                document.getElementById('settings-status').textContent = 'Fehler beim Laden!';
+                document.getElementById('settings-status').className = 'status error';
+            }
+        }
+        
+        async function saveSettings() {
+            const settings = {
+                plex_movies_root: document.getElementById('settings-plex-root').value,
+                dv_import_root: document.getElementById('settings-dv-root').value,
+                ffmpeg_path: document.getElementById('settings-ffmpeg').value,
+                auto_postprocess: document.getElementById('settings-auto-postprocess').checked,
+                auto_upscale: document.getElementById('settings-auto-upscale').checked,
+                auto_export: document.getElementById('settings-auto-export').checked
+            };
+            
+            try {
+                const response = await fetch('/api/settings', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(settings)
+                });
+                
+                const data = await response.json();
+                if (response.ok) {
+                    document.getElementById('settings-status').textContent = '✓ Einstellungen gespeichert!';
+                    document.getElementById('settings-status').className = 'status success';
+                } else {
+                    throw new Error(data.detail || 'Fehler beim Speichern');
+                }
+            } catch (error) {
+                document.getElementById('settings-status').textContent = 'Fehler: ' + error.message;
+                document.getElementById('settings-status').className = 'status error';
+            }
+        }
+        
+        async function applyChown(target) {
+            let path;
+            if (target === 'plex') {
+                path = document.getElementById('settings-plex-root').value;
+            } else if (target === 'dv') {
+                path = document.getElementById('settings-dv-root').value;
+            }
+            
+            if (!path) {
+                alert('Bitte zuerst einen Pfad angeben');
+                return;
+            }
+            
+            if (!confirm(`Berechtigungen für "${path}" ändern?\\n\\nDies führt "sudo chown -R" aus.`)) {
+                return;
+            }
+            
+            document.getElementById('settings-status').textContent = 'Ändere Berechtigungen...';
+            document.getElementById('settings-status').className = 'status';
+            
+            try {
+                const response = await fetch('/api/chown', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({path: path})
+                });
+                
+                const data = await response.json();
+                if (response.ok) {
+                    document.getElementById('settings-status').textContent = '✓ Berechtigungen erfolgreich geändert!';
+                    document.getElementById('settings-status').className = 'status success';
+                } else {
+                    throw new Error(data.detail || 'Fehler bei chown');
+                }
+            } catch (error) {
+                document.getElementById('settings-status').textContent = 'Fehler: ' + error.message;
+                document.getElementById('settings-status').className = 'status error';
+            }
+        }
+        
+        function browsePath(target) {
+            currentBrowserTarget = target;
+            
+            // Start path based on current value or default
+            let startPath = '/';
+            if (target === 'plex') {
+                startPath = document.getElementById('settings-plex-root').value || '/home';
+            } else if (target === 'dv') {
+                startPath = document.getElementById('settings-dv-root').value || '/home';
+            } else if (target === 'ffmpeg') {
+                startPath = document.getElementById('settings-ffmpeg').value || '/usr/bin';
+            }
+            
+            // Navigate to parent if it's a file
+            if (startPath && !startPath.endsWith('/')) {
+                const parts = startPath.split('/');
+                parts.pop();
+                startPath = parts.join('/') || '/';
+            }
+            
+            loadBrowserDirectory(startPath);
+            document.getElementById('browser-modal').classList.add('active');
+        }
+        
+        async function loadBrowserDirectory(path) {
+            try {
+                const response = await fetch(`/api/browse?path=${encodeURIComponent(path)}`);
+                const data = await response.json();
+                
+                currentBrowserPath = data.current_path;
+                document.getElementById('browser-current-path').textContent = data.current_path;
+                
+                const list = document.getElementById('browser-list');
+                list.innerHTML = '';
+                
+                // Parent directory entry
+                if (data.parent_path) {
+                    const parentItem = document.createElement('div');
+                    parentItem.className = 'browser-item folder';
+                    parentItem.innerHTML = '<span class="icon">📁</span><span class="name">..</span>';
+                    parentItem.onclick = () => loadBrowserDirectory(data.parent_path);
+                    list.appendChild(parentItem);
+                }
+                
+                // Directory entries
+                data.entries.forEach(entry => {
+                    const item = document.createElement('div');
+                    item.className = 'browser-item' + (entry.is_dir ? ' folder' : '');
+                    item.innerHTML = `<span class="icon">${entry.is_dir ? '📁' : '📄'}</span><span class="name">${entry.name}</span>`;
+                    
+                    if (entry.is_dir) {
+                        item.onclick = () => loadBrowserDirectory(entry.path);
+                    }
+                    
+                    list.appendChild(item);
+                });
+                
+                if (data.entries.length === 0) {
+                    list.innerHTML += '<div class="browser-item" style="color: var(--plex-text-secondary);">Leeres Verzeichnis</div>';
+                }
+            } catch (error) {
+                console.error('Fehler beim Laden:', error);
+                document.getElementById('browser-list').innerHTML = '<div class="browser-item error">Fehler: ' + error.message + '</div>';
+            }
+        }
+        
+        function closeBrowser() {
+            document.getElementById('browser-modal').classList.remove('active');
+        }
+        
+        function selectCurrentPath() {
+            if (currentBrowserTarget === 'plex') {
+                document.getElementById('settings-plex-root').value = currentBrowserPath;
+            } else if (currentBrowserTarget === 'dv') {
+                document.getElementById('settings-dv-root').value = currentBrowserPath;
+            } else if (currentBrowserTarget === 'ffmpeg') {
+                document.getElementById('settings-ffmpeg').value = currentBrowserPath;
+            }
+            closeBrowser();
+        }
+        
         // Initialize
         connectWebSocket();
         loadUpscalingProfiles();
         loadPostprocessList();
+        loadSettings();
     </script>
 </body>
 </html>"""
