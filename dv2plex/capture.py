@@ -420,8 +420,8 @@ class CaptureEngine:
                 self.is_capturing
                 and (not self.preview_stop_event or not self.preview_stop_event.is_set())
             ):
-                # Finde neue Dateien (dvgrab-*.avi)
-                current_files = set(self.splits_dir.glob("dvgrab-*.avi"))
+                # Finde neue Dateien (dvgrab*.avi oder .dv – dvgrab schreibt ohne Bindestrich)
+                current_files = set(self.splits_dir.glob("dvgrab*.avi")) | set(self.splits_dir.glob("dvgrab*.dv"))
                 new_files = current_files - known_files
                 
                 for file_path in new_files:
