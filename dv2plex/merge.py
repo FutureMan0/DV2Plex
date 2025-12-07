@@ -438,23 +438,40 @@ class MergeEngine:
                 for i, (start_time, timestamp) in enumerate(split_start_times):
                     end_time = start_time + duration
                     timestamp_str = timestamp.strftime("%Y-%m-%d %H:%M:%S")
-                    output_label = f"[out{i}]"
+                    # Escape single quotes im Text
+                    timestamp_str_escaped = timestamp_str.replace("'", "\\'")
                     
-                    filter_expr = (
-                        f"{current_input}drawtext=text='{timestamp_str}'"
-                        f":fontsize=24"
-                        f":x=10"
-                        f":y=10"
-                        f":fontcolor=white"
-                        f":box=1"
-                        f":boxcolor=black@0.5"
-                        f":enable='between(t,{start_time},{end_time})'"
-                        f"{output_label}"
-                    )
+                    if i < len(split_start_times) - 1:
+                        # Nicht der letzte Filter: hat Output-Label
+                        output_label = f"[out{i}]"
+                        filter_expr = (
+                            f"{current_input}drawtext=text='{timestamp_str_escaped}'"
+                            f":fontsize=24"
+                            f":x=10"
+                            f":y=10"
+                            f":fontcolor=white"
+                            f":box=1"
+                            f":boxcolor=black@0.5"
+                            f":enable='between(t,{start_time},{end_time})'"
+                            f"{output_label}"
+                        )
+                        current_input = output_label
+                    else:
+                        # Letzter Filter: kein Output-Label (ist automatisch Output)
+                        filter_expr = (
+                            f"{current_input}drawtext=text='{timestamp_str_escaped}'"
+                            f":fontsize=24"
+                            f":x=10"
+                            f":y=10"
+                            f":fontcolor=white"
+                            f":box=1"
+                            f":boxcolor=black@0.5"
+                            f":enable='between(t,{start_time},{end_time})'"
+                        )
+                    
                     filter_chain.append(filter_expr)
-                    current_input = output_label
                 
-                # Letzter Filter gibt finales Output
+                # Kombiniere alle Filter mit Semikolon
                 vf_filter = ";".join(filter_chain)
             
             # Wende Filter an
@@ -839,23 +856,40 @@ class MergeEngine:
                 for i, (start_time, timestamp) in enumerate(split_start_times):
                     end_time = start_time + duration
                     timestamp_str = timestamp.strftime("%Y-%m-%d %H:%M:%S")
-                    output_label = f"[out{i}]"
+                    # Escape single quotes im Text
+                    timestamp_str_escaped = timestamp_str.replace("'", "\\'")
                     
-                    filter_expr = (
-                        f"{current_input}drawtext=text='{timestamp_str}'"
-                        f":fontsize=24"
-                        f":x=10"
-                        f":y=10"
-                        f":fontcolor=white"
-                        f":box=1"
-                        f":boxcolor=black@0.5"
-                        f":enable='between(t,{start_time},{end_time})'"
-                        f"{output_label}"
-                    )
+                    if i < len(split_start_times) - 1:
+                        # Nicht der letzte Filter: hat Output-Label
+                        output_label = f"[out{i}]"
+                        filter_expr = (
+                            f"{current_input}drawtext=text='{timestamp_str_escaped}'"
+                            f":fontsize=24"
+                            f":x=10"
+                            f":y=10"
+                            f":fontcolor=white"
+                            f":box=1"
+                            f":boxcolor=black@0.5"
+                            f":enable='between(t,{start_time},{end_time})'"
+                            f"{output_label}"
+                        )
+                        current_input = output_label
+                    else:
+                        # Letzter Filter: kein Output-Label (ist automatisch Output)
+                        filter_expr = (
+                            f"{current_input}drawtext=text='{timestamp_str_escaped}'"
+                            f":fontsize=24"
+                            f":x=10"
+                            f":y=10"
+                            f":fontcolor=white"
+                            f":box=1"
+                            f":boxcolor=black@0.5"
+                            f":enable='between(t,{start_time},{end_time})'"
+                        )
+                    
                     filter_chain.append(filter_expr)
-                    current_input = output_label
                 
-                # Letzter Filter gibt finales Output
+                # Kombiniere alle Filter mit Semikolon
                 vf_filter = ";".join(filter_chain)
             
             # Wende Filter an
