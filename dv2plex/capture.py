@@ -427,8 +427,8 @@ class CaptureEngine:
                 "-i", "-",  # Input von stdin
                 "-map", "0:v",  # Video-Stream
                 "-map", "0:a:0?",  # Nur erster Audiotrack (optional, falls vorhanden)
-                # Audio-Kette: sanfte Rauschreduktion + Tiefpass gegen HF-Peaks + Limiter
-                "-af", "afftdn=nr=25:nt=w,lowpass=f=12000,alimiter=limit=0.9",
+                # Audio-Kette: Hochpass, Rauschreduktion, De-click, Notch bei ~6 kHz, Lowpass und Limiter
+                "-af", "highpass=f=100,afftdn=nr=25:nt=w,adeclick,anequalizer=f=6000:t=o:w=2000:g=-30,lowpass=f=9000,alimiter=limit=0.9",
                 "-c:v", "libx264",  # H.264 Video-Codec
                 "-preset", "veryfast",  # Encoding-Preset
                 "-crf", "18",  # Qualität (niedrigere Werte = bessere Qualität)
