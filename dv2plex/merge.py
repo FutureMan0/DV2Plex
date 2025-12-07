@@ -259,18 +259,19 @@ class MergeEngine:
         """
         Parst Timestamp aus dvgrab-Dateinamen
         
-        Format: dvgrab-2001.06.30_01-42-02.avi
-        Format: dvgrab-YYYY.MM.DD_HH-MM-SS.avi
+        Format: dvgrab-2001.06.30_01-42-02.avi oder dvgrab2001.06.30_01-42-02.avi
+        Format: dvgrab-YYYY.MM.DD_HH-MM-SS.avi oder dvgrabYYYY.MM.DD_HH-MM-SS.avi
         
         Args:
-            filename: Dateiname (z.B. "dvgrab-2001.06.30_01-42-02.avi")
+            filename: Dateiname (z.B. "dvgrab-2001.06.30_01-42-02.avi" oder "dvgrab2001.06.30_01-42-02.avi")
         
         Returns:
             datetime-Objekt oder None
         """
         try:
-            # Pattern für dvgrab-YYYY.MM.DD_HH-MM-SS.avi
-            pattern = r'dvgrab-(\d{4})\.(\d{2})\.(\d{2})_(\d{2})-(\d{2})-(\d{2})\.avi'
+            # Pattern für dvgrab-YYYY.MM.DD_HH-MM-SS.avi oder dvgrabYYYY.MM.DD_HH-MM-SS.avi
+            # Unterstützt beide Varianten (mit und ohne Bindestrich nach "dvgrab")
+            pattern = r'dvgrab-?(\d{4})\.(\d{2})\.(\d{2})_(\d{2})-(\d{2})-(\d{2})\.avi'
             match = re.search(pattern, filename)
             
             if match:
@@ -286,9 +287,12 @@ class MergeEngine:
                 if (1900 <= year <= 2100 and 1 <= month <= 12 and 1 <= day <= 31 and
                     0 <= hour < 24 and 0 <= minute < 60 and 0 <= second < 60):
                     return datetime(year, month, day, hour, minute, second, tzinfo=timezone.utc)
+                else:
+                    self.log(f"Timestamp-Validierung fehlgeschlagen für {filename}: year={year}, month={month}, day={day}, hour={hour}, minute={minute}, second={second}")
             
             return None
-        except Exception:
+        except Exception as e:
+            self.log(f"Fehler beim Parsen von Timestamp aus {filename}: {e}")
             return None
     
     def _parse_timecode_from_filename(self, filename: str) -> Optional[Tuple[int, int, int, int]]:
@@ -536,7 +540,7 @@ class MergeEngine:
         # Sortiere nach Timestamp (aus Dateinamen)
         files_with_timestamp = []
         for file_path in split_files:
-            # Versuche zuerst neues Format: dvgrab-YYYY.MM.DD_HH-MM-SS.avi
+            # Versuche zuerst neues Format: dvgrab-YYYY.MM.DD_HH-MM-SS.avi oder dvgrabYYYY.MM.DD_HH-MM-SS.avi
             timestamp = self._parse_timestamp_from_filename(file_path.name)
             if timestamp:
                 # Konvertiere zu Sekunden seit Epoch für Sortierung
@@ -549,7 +553,7 @@ class MergeEngine:
                 if timecode:
                     seconds = self._timecode_to_seconds(timecode)
                     files_with_timestamp.append((seconds, file_path, None))
-                    self.log(f"  {file_path.name} -> Timecode: {timecode[0]:02d}:{timecode[1]:02d}:{timecode[2]:02d}.{timecode[3]:03d}")
+                    self.log(f"  {file_path.name} -> Timecode: {timecode[0]:02d}:{timecode[1]:02d}:{timecode[2]:02d}.{timecode[3]:03d} (kein Timestamp gefunden)")
                 else:
                     # Fallback: Verwende mtime für Sortierung
                     mtime = file_path.stat().st_mtime
@@ -616,14 +620,15 @@ class MergeEngine:
                 text=True
             )
             
-            # Lösche temporäre Liste
-            try:
-                list_file.unlink()
-            except:
-                pass
-            
             if result.returncode == 0:
                 self.log(f"Merge erfolgreich: {output_path}")
+                
+                # Lösche temporäre Liste
+                try:
+                    if list_file.exists():
+                        list_file.unlink()
+                except:
+                    pass
                 
                 # Rendere Timestamps ins finale Video
                 if sorted_timestamps and any(ts for ts in sorted_timestamps):
@@ -639,6 +644,8 @@ class MergeEngine:
                         except Exception as e:
                             self.log(f"WARNUNG: Konnte Datei nicht ersetzen: {e}")
                             return result_ts  # Gebe Version mit Timestamps zurück
+                else:
+                    self.log(f"Keine Timestamps zum Rendern gefunden (sorted_timestamps: {sorted_timestamps})")
                 
                 return output_path
             else:
@@ -676,6 +683,13 @@ class MergeEngine:
                 if result2.returncode == 0:
                     self.log(f"Merge erfolgreich (Re-Encoded): {output_path}")
                     
+                    # Lösche temporäre Liste
+                    try:
+                        if list_file.exists():
+                            list_file.unlink()
+                    except:
+                        pass
+                    
                     # Rendere Timestamps ins finale Video
                     if sorted_timestamps and any(ts for ts in sorted_timestamps):
                         self.log("Rendere Timestamps ins finale Video...")
@@ -689,6 +703,8 @@ class MergeEngine:
                             except Exception as e:
                                 self.log(f"WARNUNG: Konnte Datei nicht ersetzen: {e}")
                                 return result_ts
+                    else:
+                        self.log(f"Keine Timestamps zum Rendern gefunden (sorted_timestamps: {sorted_timestamps})")
                     
                     return output_path
                 else:
@@ -700,13 +716,6 @@ class MergeEngine:
                     except:
                         pass
                     return None
-            
-            # Lösche temporäre Liste nach erfolgreichem Merge
-            try:
-                if list_file.exists():
-                    list_file.unlink()
-            except:
-                pass
                 
         except Exception as e:
             self.log(f"Fehler beim Merge: {e}")
