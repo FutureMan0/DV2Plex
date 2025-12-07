@@ -1047,36 +1047,118 @@ def get_html_interface() -> str:
         }
         
         .preview-container {
-            background: linear-gradient(135deg, rgba(0, 0, 0, 0.6), rgba(20, 20, 20, 0.4));
-            border: 1px solid var(--glass-border);
-            border-radius: 14px;
-            padding: 15px;
+            background: linear-gradient(145deg, #0a0a0a 0%, #1a1a1a 50%, #0d0d0d 100%);
+            border: 3px solid #2a2a2a;
+            border-radius: 16px;
+            padding: 12px;
             text-align: center;
             min-height: 260px;
-            height: clamp(260px, 36vw, 360px); /* fixierte Höhe, verhindert Springen */
+            height: clamp(260px, 36vw, 360px);
             aspect-ratio: 4 / 3;
             display: flex;
             align-items: center;
             justify-content: center;
-            backdrop-filter: blur(20px);
             position: relative;
             overflow: hidden;
+            box-shadow: 
+                0 0 0 1px rgba(255, 255, 255, 0.05),
+                0 20px 60px rgba(0, 0, 0, 0.7),
+                0 8px 25px rgba(0, 0, 0, 0.5),
+                inset 0 2px 3px rgba(255, 255, 255, 0.05),
+                inset 0 -2px 5px rgba(0, 0, 0, 0.5);
         }
         
+        /* Äußerer Glow wenn Bild vorhanden */
+        .preview-container:has(img) {
+            box-shadow: 
+                0 0 0 1px rgba(255, 255, 255, 0.05),
+                0 0 40px rgba(229, 160, 13, 0.08),
+                0 20px 60px rgba(0, 0, 0, 0.7),
+                0 8px 25px rgba(0, 0, 0, 0.5),
+                inset 0 2px 3px rgba(255, 255, 255, 0.05),
+                inset 0 -2px 5px rgba(0, 0, 0, 0.5);
+        }
+        
+        /* Innerer Rahmen für TV-Look */
         .preview-container::before {
             content: '';
             position: absolute;
-            inset: 0;
-            background: linear-gradient(135deg, rgba(229, 160, 13, 0.03), transparent);
-            pointer-events: none;
+            inset: 8px;
+            border-radius: 10px;
+            background: #000;
+            box-shadow: 
+                inset 0 0 30px rgba(0, 0, 0, 0.8),
+                inset 0 0 10px rgba(0, 0, 0, 0.9);
+            z-index: 0;
+        }
+        
+        /* Subtiler Glanz oben */
+        .preview-container::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 10%;
+            right: 10%;
+            height: 1px;
+            background: linear-gradient(90deg, 
+                transparent 0%, 
+                rgba(255, 255, 255, 0.15) 30%,
+                rgba(255, 255, 255, 0.25) 50%,
+                rgba(255, 255, 255, 0.15) 70%,
+                transparent 100%);
+            z-index: 10;
         }
         
         .preview-container img {
-            width: 100%;
-            height: 100%;
+            width: calc(100% - 4px);
+            height: calc(100% - 4px);
             object-fit: contain;
-            border-radius: 10px;
-            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+            border-radius: 8px;
+            position: relative;
+            z-index: 1;
+            box-shadow: 
+                0 0 20px rgba(0, 0, 0, 0.8),
+                0 0 40px rgba(0, 0, 0, 0.4);
+            /* Leichter Kontrast-Boost für Video */
+            filter: contrast(1.02) brightness(1.02);
+        }
+        
+        /* Placeholder Styling */
+        .preview-placeholder {
+            position: relative;
+            z-index: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            padding: 20px;
+        }
+        
+        .preview-placeholder-icon {
+            font-size: 48px;
+            opacity: 0.4;
+            filter: grayscale(0.5);
+            animation: pulse-soft 3s ease-in-out infinite;
+        }
+        
+        @keyframes pulse-soft {
+            0%, 100% { opacity: 0.3; transform: scale(1); }
+            50% { opacity: 0.5; transform: scale(1.05); }
+        }
+        
+        .preview-placeholder-text {
+            color: var(--plex-text-secondary);
+            font-size: 16px;
+            font-weight: 600;
+            letter-spacing: 0.5px;
+        }
+        
+        .preview-placeholder-hint {
+            color: var(--plex-text-secondary);
+            font-size: 11px;
+            opacity: 0.6;
+            text-align: center;
         }
         
         .list-container {
@@ -1558,7 +1640,11 @@ def get_html_interface() -> str:
             <div class="capture-grid">
                 <div>
                     <div class="preview-container" id="preview">
-                        <div style="color: var(--plex-text-secondary);">▶ Kein Preview</div>
+                        <div class="preview-placeholder">
+                            <div class="preview-placeholder-icon">📹</div>
+                            <div class="preview-placeholder-text">Kein Preview</div>
+                            <div class="preview-placeholder-hint">Starte eine Aufnahme für Live-Vorschau</div>
+                        </div>
                     </div>
                 </div>
                 <div>
@@ -1809,7 +1895,15 @@ def get_html_interface() -> str:
         
         function updatePreview(imageData) {
             const preview = document.getElementById('preview');
-            preview.innerHTML = `<img src="${imageData}" alt="Preview">`;
+            // Prüfe ob bereits ein img-Element existiert
+            let img = preview.querySelector('img');
+            if (img) {
+                // Nur src aktualisieren für flüssigere Updates
+                img.src = imageData;
+            } else {
+                // Erstes Bild - ersetze Placeholder
+                preview.innerHTML = `<img src="${imageData}" alt="Preview">`;
+            }
         }
         
         function updateProgress(value, operation) {
