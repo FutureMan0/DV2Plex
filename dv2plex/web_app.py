@@ -1617,17 +1617,8 @@ def get_html_interface() -> str:
                     <span>Frames extrahieren</span>
                 </button>
             </div>
+            <div class="status" id="cover-meta" style="display:none;"></div>
             <div class="frame-grid" id="frame-grid"></div>
-            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
-                <div class="form-group">
-                    <label>Titel</label>
-                    <input type="text" id="cover-title" placeholder="Film-Titel eingeben...">
-                </div>
-                <div class="form-group">
-                    <label>Jahr</label>
-                    <input type="text" id="cover-year" placeholder="2024">
-                </div>
-            </div>
             <div class="form-group button-group">
                 <button class="btn-primary" onclick="generateCover()" id="generate-cover-btn" disabled>
                     <span>🎬 Cover generieren</span>
@@ -1736,6 +1727,10 @@ def get_html_interface() -> str:
         let selectedCoverVideo = null;
         let extractedFrames = [];
         let selectedFrameIndex = null;
+        let selectedCoverTitle = null;
+        let selectedCoverYear = null;
+        let extractingFrames = false;
+        const COVER_FRAME_COUNT = 8; // mehr zufällige Frames
         
         // WebSocket connection
         function connectWebSocket() {
@@ -2136,7 +2131,12 @@ def get_html_interface() -> str:
                         document.querySelectorAll('#cover-video-list .list-item').forEach(i => i.classList.remove('selected'));
                         item.classList.add('selected');
                         selectedCoverVideo = video.path;
+                        selectedCoverTitle = video.title || video.display || video.path.split('/').pop();
+                        selectedCoverYear = video.year || '';
                         document.getElementById('extract-frames-btn').disabled = false;
+                        const meta = document.getElementById('cover-meta');
+                        meta.style.display = 'block';
+                        meta.textContent = `Ausgewählt: ${selectedCoverTitle}${selectedCoverYear ? ' (' + selectedCoverYear + ')' : ''}`;
                     };
                     list.appendChild(item);
                 });
@@ -2146,16 +2146,22 @@ def get_html_interface() -> str:
         }
         
         async function extractFrames() {
+            if (extractingFrames) return;
             if (!selectedCoverVideo) {
                 alert('Bitte ein Video auswählen');
                 return;
             }
             
+            extractingFrames = true;
+            document.getElementById('extract-frames-btn').disabled = true;
+            document.getElementById('cover-status').textContent = 'Extrahiere Frames...';
+            document.getElementById('cover-status').className = 'status';
+            
             try {
                 const response = await fetch('/api/cover/extract', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({video_path: selectedCoverVideo, count: 4})
+                    body: JSON.stringify({video_path: selectedCoverVideo, count: COVER_FRAME_COUNT})
                 });
                 
                 const data = await response.json();
@@ -2163,11 +2169,19 @@ def get_html_interface() -> str:
                     extractedFrames = data.frames;
                     displayFrames(data.frames);
                     document.getElementById('cover-status').textContent = `${data.frames.length} Frames extrahiert`;
+                    document.getElementById('cover-status').className = 'status success';
                 } else {
                     alert(data.detail || 'Fehler bei Frame-Extraktion');
+                    document.getElementById('cover-status').textContent = 'Fehler bei Frame-Extraktion';
+                    document.getElementById('cover-status').className = 'status error';
                 }
             } catch (error) {
                 alert('Fehler: ' + error.message);
+                document.getElementById('cover-status').textContent = 'Fehler: ' + error.message;
+                document.getElementById('cover-status').className = 'status error';
+            } finally {
+                extractingFrames = false;
+                document.getElementById('extract-frames-btn').disabled = false;
             }
         }
         
@@ -2195,13 +2209,8 @@ def get_html_interface() -> str:
                 return;
             }
             
-            const title = document.getElementById('cover-title').value;
-            const year = document.getElementById('cover-year').value;
-            
-            if (!title) {
-                alert('Bitte Titel eingeben');
-                return;
-            }
+            const title = selectedCoverTitle || (selectedCoverVideo ? selectedCoverVideo.split('/').pop() : '');
+            const year = selectedCoverYear || null;
             
             try {
                 const response = await fetch('/api/cover/generate', {
@@ -2210,7 +2219,7 @@ def get_html_interface() -> str:
                     body: JSON.stringify({
                         frame_path: extractedFrames[selectedFrameIndex].path,
                         title,
-                        year: year || null
+                        year
                     })
                 });
                 
