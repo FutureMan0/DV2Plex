@@ -343,33 +343,24 @@ class CaptureEngine:
                 "-",  # Ausgabe nach stdout
             ]
             
+            self.log(f"Preview: Starte ffmpeg für {file_path.name} ({file_size // 1024} KB)")
+            
             process = subprocess.Popen(
                 ffmpeg_cmd,
                 stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,  # Wichtig: sonst blockiert ffmpeg
                 text=False,
                 bufsize=0,
             )
             
             # Warte kurz und prüfe ob Prozess gestartet wurde
-            time.sleep(0.5)
-            if process.poll() is not None:
-                # Prozess wurde sofort beendet
-                try:
-                    if process.stderr:
-                        stderr_data = b""
-                        while True:
-                            chunk = process.stderr.read(4096)
-                            if not chunk:
-                                break
-                            stderr_data += chunk if isinstance(chunk, bytes) else chunk.encode()
-                        if stderr_data:
-                            stderr_text = stderr_data.decode('utf-8', errors='ignore')
-                            self.log(f"Preview-ffmpeg-Fehler für {file_path.name}: {stderr_text[:500]}")
-                except:
-                    pass
+            time.sleep(0.3)
+            poll = process.poll()
+            if poll is not None:
+                self.log(f"Preview: ffmpeg sofort beendet mit Code {poll}")
                 return None
             
+            self.log(f"Preview: ffmpeg läuft (PID {process.pid})")
             return process
             
         except Exception as e:
@@ -529,6 +520,7 @@ class CaptureEngine:
         preview_fps = getattr(self, 'preview_fps', 10)
         target_frame_interval = 1.0 / max(preview_fps, 5)
         
+        bytes_total = 0
         try:
             # Lese stdout bis leer (auch nach Prozessende)
             while (
@@ -542,10 +534,12 @@ class CaptureEngine:
                         # Keine Daten mehr - prüfe ob Prozess noch läuft
                         if process.poll() is not None:
                             # Prozess beendet, verarbeite restlichen Buffer und beende
+                            self.log(f"Preview: ffmpeg beendet, {bytes_total} bytes gelesen, {frame_count} frames")
                             break
                         time.sleep(0.01)
                         continue
                     
+                    bytes_total += len(chunk)
                     buffer.extend(chunk)
                     
                     # Suche nach vollständigen JPEGs
