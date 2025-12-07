@@ -463,6 +463,29 @@ class CaptureEngine:
         if not file_path.exists() or not self.preview_callback:
             return
         
+        # Warte bis Datei genug Daten hat (mind. 100KB für DV-Video)
+        min_size = 100 * 1024  # 100 KB
+        max_wait = 10  # Max 10 Sekunden warten
+        waited = 0
+        while waited < max_wait:
+            if not file_path.exists():
+                return
+            try:
+                size = file_path.stat().st_size
+                if size >= min_size:
+                    self.log(f"Preview: Datei {file_path.name} hat {size // 1024} KB, starte Wiedergabe")
+                    break
+            except:
+                pass
+            time.sleep(0.5)
+            waited += 0.5
+            # Prüfe ob Aufnahme noch läuft
+            if self.preview_stop_event and self.preview_stop_event.is_set():
+                return
+        else:
+            self.log(f"Preview: Datei {file_path.name} zu klein nach {max_wait}s Warten")
+            return
+        
         preview_fps = getattr(self, 'preview_fps', 10)
         process = self._start_preview_from_file(file_path, preview_fps)
         
