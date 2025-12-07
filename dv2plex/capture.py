@@ -53,6 +53,7 @@ class CaptureEngine:
         self.stream_distribution_stop_event: Optional[threading.Event] = None
         self.preview_pipe_writer: Optional[subprocess.Popen] = None  # Pipe-Writer für Preview
         self.recording_pipe_writer: Optional[subprocess.Popen] = None  # Pipe-Writer für Recording
+        self.recording_stderr_thread: Optional[threading.Thread] = None  # Thread für Recording-ffmpeg stderr
 
     def detect_firewire_device(self) -> Optional[str]:
         """
@@ -462,12 +463,70 @@ class CaptureEngine:
                 return False
             
             self.log("Recording-ffmpeg gestartet")
+            
+            # Starte Thread zum Lesen von stderr für Fehlerdiagnose
+            self.recording_stderr_thread = threading.Thread(
+                target=self._read_recording_stderr,
+                daemon=True,
+            )
+            self.recording_stderr_thread.start()
+            
             return True
             
         except Exception as e:
             self.log(f"Fehler beim Starten von Recording-ffmpeg: {e}")
             self.recording_ffmpeg_process = None
             return False
+
+    def _read_recording_stderr(self):
+        """Liest stderr vom Recording-ffmpeg-Prozess für Fehlerdiagnose"""
+        if not self.recording_ffmpeg_process or not self.recording_ffmpeg_process.stderr:
+            return
+        
+        try:
+            while (
+                self.recording_ffmpeg_process
+                and self.recording_ffmpeg_process.poll() is None
+            ):
+                chunk = self.recording_ffmpeg_process.stderr.read(1024)
+                if chunk:
+                    if isinstance(chunk, bytes):
+                        stderr_text = chunk.decode('utf-8', errors='ignore')
+                    else:
+                        stderr_text = str(chunk)
+                    # Logge wichtige Fehler und Fortschrittsmeldungen
+                    if any(keyword in stderr_text.lower() for keyword in ['error', 'failed', 'cannot', 'invalid']):
+                        self.log(f"Recording-ffmpeg: {stderr_text[:300]}")
+                    # Logge auch Fortschrittsmeldungen (frame=, time=, bitrate=)
+                    elif any(keyword in stderr_text.lower() for keyword in ['frame=', 'time=', 'bitrate=']):
+                        # Zeige nur alle 5 Sekunden, um Log-Spam zu vermeiden
+                        if hasattr(self, '_last_recording_log_time'):
+                            if time.time() - self._last_recording_log_time > 5:
+                                self.log(f"Recording-ffmpeg: {stderr_text.strip()[:200]}")
+                                self._last_recording_log_time = time.time()
+                        else:
+                            self._last_recording_log_time = time.time()
+                            self.log(f"Recording-ffmpeg: {stderr_text.strip()[:200]}")
+                else:
+                    time.sleep(0.1)
+        except Exception as e:
+            # Ignoriere Fehler beim Lesen von stderr
+            pass
+        finally:
+            # Wenn Prozess beendet wurde, lese restliche stderr
+            if self.recording_ffmpeg_process:
+                try:
+                    remaining = self.recording_ffmpeg_process.stderr.read()
+                    if remaining:
+                        if isinstance(remaining, bytes):
+                            stderr_text = remaining.decode('utf-8', errors='ignore')
+                        else:
+                            stderr_text = str(remaining)
+                        # Zeige wichtige Fehler
+                        if any(keyword in stderr_text.lower() for keyword in ['error', 'failed', 'cannot', 'invalid']):
+                            self.log(f"Recording-ffmpeg (beendet): {stderr_text[:500]}")
+                except:
+                    pass
 
     # Alte _start_interactive_mode() Methode entfernt - wird durch _start_unified_dvgrab() ersetzt
     # Die neue Architektur verwendet unified dvgrab mit stdout statt direkter Dateiausgabe
@@ -514,6 +573,11 @@ class CaptureEngine:
         # Warte auf Stream-Verteilungs-Thread
         if self.stream_distribution_thread and self.stream_distribution_thread.is_alive():
             self.stream_distribution_thread.join(timeout=2)
+        
+        # Warte auf Recording-stderr-Thread
+        if self.recording_stderr_thread and self.recording_stderr_thread.is_alive():
+            self.recording_stderr_thread.join(timeout=1)
+        self.recording_stderr_thread = None
         
         # Stoppe Recording-ffmpeg
         if self.recording_ffmpeg_process:
@@ -805,34 +869,8 @@ class CaptureEngine:
                         stderr_text = chunk.decode('utf-8', errors='ignore')
                     else:
                         stderr_text = str(chunk)
-                    # Logge nur wichtige Fehler
-                    if "error" in stderr_text.lower() or "failed" in stderr_text.lower() or "cannot" in stderr_text.lower():
-                        self.log(f"Preview-ffmpeg: {stderr_text[:200]}")
-                else:
-                    time.sleep(0.1)
-        except Exception as e:
-            # Ignoriere Fehler beim Lesen von stderr
-            pass
-
-    def _read_preview_stderr(self):
-        """Liest stderr vom Preview-ffmpeg-Prozess für Fehlerdiagnose"""
-        if not self.preview_process or not self.preview_process.stderr:
-            return
-        
-        try:
-            while (
-                self.preview_process
-                and self.preview_process.poll() is None
-                and (not self.preview_stop_event or not self.preview_stop_event.is_set())
-            ):
-                chunk = self.preview_process.stderr.read(1024)
-                if chunk:
-                    if isinstance(chunk, bytes):
-                        stderr_text = chunk.decode('utf-8', errors='ignore')
-                    else:
-                        stderr_text = str(chunk)
-                    # Logge nur wichtige Fehler
-                    if "error" in stderr_text.lower() or "failed" in stderr_text.lower() or "cannot" in stderr_text.lower():
+                    # Logge nur wichtige Fehler (ignoriere "Concealing bitstream errors" - das ist normal bei DV)
+                    if any(keyword in stderr_text.lower() for keyword in ['error', 'failed', 'cannot', 'invalid']) and 'concealing bitstream errors' not in stderr_text.lower():
                         self.log(f"Preview-ffmpeg: {stderr_text[:200]}")
                 else:
                     time.sleep(0.1)
