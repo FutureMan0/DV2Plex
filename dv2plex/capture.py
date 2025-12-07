@@ -432,6 +432,8 @@ class CaptureEngine:
                 "-crf", "18",  # Qualität (niedrigere Werte = bessere Qualität)
                 "-c:a", "aac",  # AAC Audio-Codec
                 "-b:a", "192k",  # Audio-Bitrate
+                "-ac", "2",  # Erzwinge Stereo
+                "-ar", "48000",  # Erzwinge 48kHz Sampling-Rate
                 "-y",  # Überschreibe vorhandene Datei
                 str(output_path),  # Ausgabedatei
             ]
@@ -884,7 +886,8 @@ class CaptureEngine:
                     else:
                         stderr_text = str(chunk)
                     # Logge nur wichtige Fehler (ignoriere "Concealing bitstream errors" - das ist normal bei DV)
-                    if any(keyword in stderr_text.lower() for keyword in ['error', 'failed', 'cannot', 'invalid']) and 'concealing bitstream errors' not in stderr_text.lower():
+                    # Ignoriere auch "Broken pipe", da dies beim Stoppen der Aufnahme normal ist
+                    if any(keyword in stderr_text.lower() for keyword in ['error', 'failed', 'cannot', 'invalid']) and 'concealing bitstream errors' not in stderr_text.lower() and 'broken pipe' not in stderr_text.lower():
                         self.log(f"Preview-ffmpeg: {stderr_text[:200]}")
                 else:
                     time.sleep(0.1)
@@ -955,7 +958,8 @@ class CaptureEngine:
                 self._stop_all_processes()
                 
                 # Wenn der Prozess sofort beendet wurde (z.B. kein Signal), logge Warnung
-                if return_code != 0 and return_code not in [130, 143]:
+                # Return-Code -9 (SIGKILL) ist normal, wenn wir den Prozess hart beenden mussten
+                if return_code != 0 and return_code not in [130, 143, -9]:
                     self.log(f"WARNUNG: Aufnahme wurde unerwartet beendet (Return-Code: {return_code}). Mögliche Ursachen:")
                     self.log("  - Kein Signal von der Kamera (Bitte Play auf der Kamera drücken)")
                     self.log("  - Kamera nicht richtig verbunden")
