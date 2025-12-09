@@ -1961,6 +1961,27 @@ def get_html_interface() -> str:
             }
         }
         
+        let captureStopPoll = null;
+
+        function startCaptureStopPoll() {
+            if (captureStopPoll) {
+                clearInterval(captureStopPoll);
+            }
+            captureStopPoll = setInterval(async () => {
+                try {
+                    const resp = await fetch('/api/status');
+                    const data = await resp.json();
+                    if (!data.capture_running) {
+                        updateStatus('capture_stopped');
+                        clearInterval(captureStopPoll);
+                        captureStopPoll = null;
+                    }
+                } catch (e) {
+                    console.error('Status-Poll fehlgeschlagen:', e);
+                }
+            }, 2000);
+        }
+
         function updateStatus(status, operation, payload = null) {
             const startBtn = document.getElementById('capture-start-btn');
             const stopBtn = document.getElementById('capture-stop-btn');
@@ -1971,6 +1992,10 @@ def get_html_interface() -> str:
                 stopBtn.disabled = false;
                 stopBtn.classList.add('btn-danger');
                 captureStatus.textContent = 'Aufnahme läuft...';
+                if (captureStopPoll) {
+                    clearInterval(captureStopPoll);
+                    captureStopPoll = null;
+                }
                 
                 if (payload) {
                     if (payload.title) {
@@ -1990,6 +2015,10 @@ def get_html_interface() -> str:
                 stopBtn.disabled = true;
                 stopBtn.classList.remove('btn-danger');
                 captureStatus.textContent = 'Fertig! Du kannst das nächste Video digitalisieren.';
+                if (captureStopPoll) {
+                    clearInterval(captureStopPoll);
+                    captureStopPoll = null;
+                }
             }
             
             if (operation === 'postprocessing') {
@@ -2109,6 +2138,7 @@ def get_html_interface() -> str:
                     if (data.message) {
                         document.getElementById('capture-status').textContent = data.message;
                     }
+                    startCaptureStopPoll();
                 } else {
                     alert(data.detail || 'Fehler beim Stoppen der Aufnahme');
                 }

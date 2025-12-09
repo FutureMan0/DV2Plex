@@ -66,6 +66,59 @@ class CaptureEngine:
         # Kompatibilität
         self.interactive_process: Optional[subprocess.Popen] = None  # Alias für interactive_dvgrab_process
         self.autosplit_dvgrab_process: Optional[subprocess.Popen] = None  # Alias für recording_dvgrab_process
+        # sudo-Keepalive, damit Rechte während langer Läufe nicht ablaufen
+        self.sudo_keepalive_thread: Optional[threading.Thread] = None
+        self.sudo_keepalive_stop: Optional[threading.Event] = None
+
+    def _start_sudo_keepalive(self):
+        """Hält sudo-Timestamp aktiv, damit dvgrab/Steuerung nicht die Rechte verliert."""
+        if os.geteuid() == 0:
+            return  # Bereits root, nichts zu tun
+        if shutil.which("sudo") is None:
+            return
+        if self.sudo_keepalive_thread and self.sudo_keepalive_thread.is_alive():
+            return
+        
+        # Prüfe, ob ein sudo-Timestamp existiert (ohne Passwortabfrage)
+        try:
+            result = subprocess.run(
+                ["sudo", "-n", "-v"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            if result.returncode != 0:
+                self.log("sudo Keepalive nicht möglich (kein sudo-Timestamp). Bitte Programm mit sudo starten.")
+                return
+        except Exception as e:
+            self.log(f"sudo Keepalive konnte nicht geprüft werden: {e}")
+            return
+        
+        self.sudo_keepalive_stop = threading.Event()
+        
+        def _keepalive():
+            while self.sudo_keepalive_stop and not self.sudo_keepalive_stop.wait(60):
+                try:
+                    subprocess.run(
+                        ["sudo", "-n", "-v"],
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                    )
+                except Exception as e:
+                    self.log(f"sudo Keepalive fehlgeschlagen: {e}")
+                    break
+        
+        self.sudo_keepalive_thread = threading.Thread(target=_keepalive, daemon=True)
+        self.sudo_keepalive_thread.start()
+        self.log("sudo Keepalive gestartet, um Root-Rechte während der Aufnahme zu halten.")
+
+    def _stop_sudo_keepalive(self):
+        """Beendet den sudo-Keepalive-Thread."""
+        if self.sudo_keepalive_stop:
+            self.sudo_keepalive_stop.set()
+        if self.sudo_keepalive_thread and self.sudo_keepalive_thread.is_alive():
+            self.sudo_keepalive_thread.join(timeout=2)
+        self.sudo_keepalive_thread = None
+        self.sudo_keepalive_stop = None
 
     def detect_firewire_device(self) -> Optional[str]:
         """
@@ -161,6 +214,8 @@ class CaptureEngine:
         
         # Prüfe, ob wir root sind
         is_root = os.geteuid() == 0
+        # Halte sudo aktiv, falls nicht root
+        self._start_sudo_keepalive()
         
         try:
             # Baue dvgrab-Befehl: -i (interaktiv, nur Steuerung)
@@ -476,7 +531,7 @@ class CaptureEngine:
         finally:
             self.log("Preview-Queue-Monitor: Beendet")
 
-    def _monitor_split_inactivity(self, timeout_seconds: int = 300):
+    def _monitor_split_inactivity(self, timeout_seconds: int = 600):
         """
         Überwacht, ob neue Splits eintreffen. Stoppt Aufnahme nach Timeout ohne neue Datei.
         """
@@ -501,7 +556,7 @@ class CaptureEngine:
                 
                 if self.last_split_time and (now - self.last_split_time) >= timeout_seconds:
                     self.auto_stop_inactivity_triggered = True
-                    self.log("Inaktivitätsmonitor: 5 Minuten keine neuen Splits - stoppe Aufnahme.")
+                    self.log("Inaktivitätsmonitor: 10 Minuten keine neuen Splits - stoppe Aufnahme.")
                     try:
                         self.stop_capture()
                     except Exception as e:
@@ -982,6 +1037,9 @@ class CaptureEngine:
                 self.log("Aufnahme läuft bereits!")
                 return False
 
+            # Halte sudo-Rechte aktiv, falls wir nicht als root laufen
+            self._start_sudo_keepalive()
+
             device = self.get_device()
             if not device:
                 self.log("Kein FireWire-Gerät verfügbar!")
@@ -1169,6 +1227,9 @@ class CaptureEngine:
             else:
                 self.log(f"WARNUNG: splits-Ordner nicht gefunden: {self.splits_dir}")
 
+            # sudo-Keepalive beenden (falls gestartet)
+            self._stop_sudo_keepalive()
+
             return True
 
         except Exception as e:
@@ -1176,6 +1237,7 @@ class CaptureEngine:
             self.is_capturing = False
             self._stop_preview()
             self._stop_all_processes()
+            self._stop_sudo_keepalive()
             return False
 
     def _read_preview_stderr(self):
