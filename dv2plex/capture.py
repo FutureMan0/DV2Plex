@@ -26,6 +26,22 @@ except ImportError:
     QImage = None
 
 
+# Datenklasse für Merge-Job
+class MergeJob:
+    """Repräsentiert einen Merge-Job in der Queue"""
+    def __init__(self, splits_dir: Path, output_path: Path, title: str = "", year: str = ""):
+        self.splits_dir = splits_dir
+        self.output_path = output_path
+        self.title = title
+        self.year = year
+        self.status = "pending"  # pending, running, completed, failed
+        self.progress = 0  # 0-100
+        self.message = ""
+        self.started_at: Optional[float] = None
+        self.completed_at: Optional[float] = None
+        self.result_path: Optional[Path] = None
+
+
 class CaptureEngine:
     """Verwaltet DV-Capture über dvgrab (Linux)"""
 
@@ -69,6 +85,138 @@ class CaptureEngine:
         # sudo-Keepalive, damit Rechte während langer Läufe nicht ablaufen
         self.sudo_keepalive_thread: Optional[threading.Thread] = None
         self.sudo_keepalive_stop: Optional[threading.Event] = None
+        # Background-Merge-System
+        self.merge_queue: Queue = Queue()  # Queue für Merge-Jobs
+        self.merge_jobs: list[MergeJob] = []  # Liste aller Jobs (für Status-Abfrage)
+        self.merge_worker_thread: Optional[threading.Thread] = None
+        self.merge_stop_event: Optional[threading.Event] = None
+        self.current_merge_job: Optional[MergeJob] = None
+        self.merge_progress_callback: Optional[Callable[[MergeJob], None]] = None
+        # Aktueller Capture-Titel/Jahr für Merge-Jobs
+        self.current_capture_title: str = ""
+        self.current_capture_year: str = ""
+        # Starte Background-Merge-Worker
+        self._start_merge_worker()
+
+    def _start_merge_worker(self):
+        """Startet den Background-Worker für Merge-Jobs"""
+        if self.merge_worker_thread and self.merge_worker_thread.is_alive():
+            return
+        
+        self.merge_stop_event = threading.Event()
+        self.merge_worker_thread = threading.Thread(
+            target=self._merge_worker_loop,
+            daemon=True,
+            name="MergeWorker"
+        )
+        self.merge_worker_thread.start()
+        self.log("Background-Merge-Worker gestartet")
+
+    def _merge_worker_loop(self):
+        """Worker-Loop für Background-Merge"""
+        while not self.merge_stop_event.is_set():
+            try:
+                # Warte auf Job (mit Timeout für graceful shutdown)
+                try:
+                    job = self.merge_queue.get(timeout=1.0)
+                except Empty:
+                    continue
+                
+                # Verarbeite Job
+                self.current_merge_job = job
+                job.status = "running"
+                job.started_at = time.time()
+                job.message = "Merge gestartet..."
+                self._notify_merge_progress(job)
+                
+                try:
+                    self.log(f"Background-Merge: Starte {job.title} ({job.year})")
+                    
+                    # Führe Merge durch
+                    merge_engine = MergeEngine(self.ffmpeg_path, log_callback=self.log)
+                    merged_file = merge_engine.merge_splits(job.splits_dir, job.output_path)
+                    
+                    if merged_file and merged_file.exists():
+                        job.status = "completed"
+                        job.progress = 100
+                        job.result_path = merged_file
+                        job.message = f"Merge abgeschlossen: {merged_file.name}"
+                        job.completed_at = time.time()
+                        self.log(f"Background-Merge erfolgreich: {merged_file}")
+                        
+                        # Sende Benachrichtigung
+                        self._notify_completion(f"Merge abgeschlossen: {job.title} ({job.year})")
+                    else:
+                        job.status = "failed"
+                        job.message = "Merge fehlgeschlagen"
+                        job.completed_at = time.time()
+                        self.log(f"Background-Merge fehlgeschlagen: {job.title}")
+                        self._notify_completion(f"Merge fehlgeschlagen: {job.title} ({job.year})")
+                    
+                except Exception as e:
+                    job.status = "failed"
+                    job.message = f"Fehler: {e}"
+                    job.completed_at = time.time()
+                    self.log(f"Background-Merge Fehler: {e}")
+                    self._notify_completion(f"Merge Fehler: {job.title} - {e}")
+                
+                finally:
+                    self._notify_merge_progress(job)
+                    self.current_merge_job = None
+                    self.merge_queue.task_done()
+                
+            except Exception as e:
+                self.log(f"Merge-Worker Fehler: {e}")
+        
+        self.log("Background-Merge-Worker beendet")
+
+    def _notify_merge_progress(self, job: MergeJob):
+        """Benachrichtigt über Merge-Progress"""
+        if self.merge_progress_callback:
+            try:
+                self.merge_progress_callback(job)
+            except Exception as e:
+                self.log(f"Merge-Progress-Callback Fehler: {e}")
+
+    def queue_merge_job(self, splits_dir: Path, output_path: Path, title: str = "", year: str = "") -> MergeJob:
+        """Fügt einen Merge-Job zur Queue hinzu"""
+        job = MergeJob(splits_dir, output_path, title, year)
+        self.merge_jobs.append(job)
+        self.merge_queue.put(job)
+        self.log(f"Merge-Job zur Queue hinzugefügt: {title} ({year})")
+        return job
+
+    def get_merge_queue_status(self) -> dict:
+        """Gibt den Status der Merge-Queue zurück"""
+        pending = [j for j in self.merge_jobs if j.status == "pending"]
+        running = self.current_merge_job
+        completed = [j for j in self.merge_jobs if j.status in ("completed", "failed")]
+        
+        return {
+            "pending_count": len(pending),
+            "current_job": {
+                "title": running.title,
+                "year": running.year,
+                "progress": running.progress,
+                "message": running.message,
+                "status": running.status
+            } if running else None,
+            "completed_count": len(completed),
+            "jobs": [
+                {
+                    "title": j.title,
+                    "year": j.year,
+                    "status": j.status,
+                    "progress": j.progress,
+                    "message": j.message
+                }
+                for j in self.merge_jobs[-10:]  # Letzte 10 Jobs
+            ]
+        }
+
+    def clear_completed_merge_jobs(self):
+        """Entfernt abgeschlossene Jobs aus der Liste"""
+        self.merge_jobs = [j for j in self.merge_jobs if j.status in ("pending", "running")]
 
     def _start_sudo_keepalive(self):
         """Hält sudo-Timestamp aktiv, damit dvgrab/Steuerung nicht die Rechte verliert."""
@@ -1021,6 +1169,8 @@ class CaptureEngine:
         preview_callback: Optional[Callable[[QImage], None]] = None,
         preview_fps: int = 10,
         auto_rewind_play: bool = True,
+        title: str = "",
+        year: str = "",
     ) -> bool:
         """
         Startet DV-Aufnahme mit dvgrab autosplit
@@ -1031,7 +1181,12 @@ class CaptureEngine:
             preview_callback: Optionaler Callback für Preview-Frames
             preview_fps: FPS für Preview
             auto_rewind_play: Setzt -rewind (automatisches Rewind vor Aufnahme)
+            title: Titel des Films (für Merge-Queue)
+            year: Jahr des Films (für Merge-Queue)
         """
+        # Speichere Titel und Jahr für Merge-Jobs
+        self.current_capture_title = title
+        self.current_capture_year = year
         try:
             if self.is_capturing:
                 self.log("Aufnahme läuft bereits!")
@@ -1209,21 +1364,24 @@ class CaptureEngine:
             else:
                 time.sleep(2)
 
-            # Führe automatisch Merge durch
+            # SOFORT: Rewind durchführen (damit Benutzer weitermachen kann)
+            self.log("Spule Kamera zurück...")
+            self._rewind_after_merge()
+            
+            # SOFORT: Benachrichtigung senden
+            self._notify_completion(f"Aufnahme beendet: {self.current_capture_title} ({self.current_capture_year}). Merge läuft im Hintergrund.")
+            
+            # HINTERGRUND: Merge-Job zur Queue hinzufügen (nicht blockierend)
             if self.splits_dir and self.splits_dir.exists():
-                merge_engine = MergeEngine(self.ffmpeg_path, log_callback=self.log)
-                merged_file = merge_engine.merge_splits(self.splits_dir, self.current_output_path)
+                split_files = list(self.splits_dir.glob("dvgrab*.avi")) + list(self.splits_dir.glob("dvgrab*.dv"))
+                self.log(f"Gefunden: {len(split_files)} Split-Dateien - Merge wird im Hintergrund durchgeführt")
                 
-                if merged_file and merged_file.exists():
-                    self.log(f"Merge erfolgreich: {merged_file}")
-                    # Zähle Split-Dateien für Info
-                    split_files = list(self.splits_dir.glob("dvgrab*.avi")) + list(self.splits_dir.glob("dvgrab*.dv"))
-                    self.log(f"Zusammengefügt: {len(split_files)} Split-Dateien")
-                    self._rewind_after_merge()
-                    self._notify_completion(f"Aufnahme fertig. Merge abgeschlossen: {merged_file}")
-                else:
-                    self.log("WARNUNG: Merge fehlgeschlagen!")
-                    self._notify_completion("Aufnahme beendet, aber Merge fehlgeschlagen.")
+                self.queue_merge_job(
+                    splits_dir=self.splits_dir,
+                    output_path=self.current_output_path,
+                    title=self.current_capture_title,
+                    year=self.current_capture_year
+                )
             else:
                 self.log(f"WARNUNG: splits-Ordner nicht gefunden: {self.splits_dir}")
 
@@ -1361,12 +1519,78 @@ class CaptureEngine:
                     self.log("  - Kein Signal von der Kamera (Bitte Play auf der Kamera drücken)")
                     self.log("  - Kamera nicht richtig verbunden")
                     self.log("  - dvgrab-Fehler (siehe stderr-Logs)")
+                
+                # Führe automatisch Merge, Rewind und Benachrichtigung durch
+                # (wie in stop_capture(), aber hier wenn dvgrab von selbst beendet)
+                self._finalize_capture_after_dvgrab_end()
 
         except Exception as e:
             self.log(f"Fehler beim Überwachen der Aufnahme: {e}")
             self.is_capturing = False
             self._stop_preview()
             self._stop_all_processes()
+
+    def _finalize_capture_after_dvgrab_end(self):
+        """
+        Führt Rewind, Benachrichtigung und Background-Merge durch, wenn dvgrab von selbst beendet wurde.
+        (z.B. Band zu Ende, Kamera gestoppt, Signal verloren)
+        """
+        try:
+            self.log("dvgrab wurde automatisch beendet - starte Finalisierung...")
+            
+            # Warte kurz, damit alle Dateien vollständig geschrieben sind
+            self.log("Warte auf vollständiges Schreiben der Split-Dateien...")
+            if self.splits_dir and self.splits_dir.exists():
+                max_wait = 10  # Maximal 10 Sekunden warten
+                waited = 0
+                while waited < max_wait:
+                    files = list(self.splits_dir.glob("dvgrab-*.avi")) + list(self.splits_dir.glob("dvgrab*.avi"))
+                    if files:
+                        # Prüfe ob alle Dateien stabil sind
+                        all_stable = True
+                        for f in files:
+                            if f.exists():
+                                size1 = f.stat().st_size
+                                time.sleep(0.5)
+                                if f.exists():
+                                    size2 = f.stat().st_size
+                                    if size1 != size2:
+                                        all_stable = False
+                                        break
+                        if all_stable:
+                            break
+                    waited += 0.5
+                    time.sleep(0.5)
+            else:
+                time.sleep(2)
+            
+            # SOFORT: Rewind durchführen (damit Benutzer weitermachen kann)
+            self.log("Spule Kamera zurück...")
+            self._rewind_after_merge()
+            
+            # SOFORT: Benachrichtigung senden
+            self._notify_completion(f"Aufnahme automatisch beendet: {self.current_capture_title} ({self.current_capture_year}). Merge läuft im Hintergrund.")
+            
+            # HINTERGRUND: Merge-Job zur Queue hinzufügen (nicht blockierend)
+            if self.splits_dir and self.splits_dir.exists():
+                split_files = list(self.splits_dir.glob("dvgrab*.avi")) + list(self.splits_dir.glob("dvgrab*.dv"))
+                self.log(f"Gefunden: {len(split_files)} Split-Dateien - Merge wird im Hintergrund durchgeführt")
+                
+                self.queue_merge_job(
+                    splits_dir=self.splits_dir,
+                    output_path=self.current_output_path,
+                    title=self.current_capture_title,
+                    year=self.current_capture_year
+                )
+            else:
+                self.log(f"WARNUNG: splits-Ordner nicht gefunden: {self.splits_dir}")
+            
+            # sudo-Keepalive beenden (falls gestartet)
+            self._stop_sudo_keepalive()
+            
+        except Exception as e:
+            self.log(f"Fehler bei Finalisierung nach dvgrab-Ende: {e}")
+            self._notify_completion(f"Aufnahme beendet mit Fehler: {e}")
 
     def _read_stderr(self):
         """Liest stderr in einem separaten Thread"""

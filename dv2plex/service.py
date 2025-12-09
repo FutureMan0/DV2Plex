@@ -237,9 +237,11 @@ class PostprocessingService:
 class CaptureService:
     """Service für Capture-Operationen"""
     
-    def __init__(self, config: Config, log_callback: Optional[Callable[[str], None]] = None):
+    def __init__(self, config: Config, log_callback: Optional[Callable[[str], None]] = None,
+                 merge_progress_callback: Optional[Callable] = None):
         self.config = config
         self.log_callback = log_callback or (lambda msg: logger.info(msg))
+        self.merge_progress_callback = merge_progress_callback
         self.capture_engine: Optional[CaptureEngine] = None
         self._capture_running = False
     
@@ -350,6 +352,10 @@ class CaptureService:
             log_callback=self._log,
         )
         
+        # Setze Merge-Progress-Callback
+        if self.merge_progress_callback:
+            self.capture_engine.merge_progress_callback = self.merge_progress_callback
+        
         preview_fps = self.config.get("ui.preview_fps", 10)
         
         capture_started = self.capture_engine.start_capture(
@@ -358,6 +364,8 @@ class CaptureService:
             preview_callback=preview_callback,
             preview_fps=preview_fps,
             auto_rewind_play=auto_rewind_play,
+            title=title,
+            year=year,
         )
         
         if capture_started:

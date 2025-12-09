@@ -72,6 +72,30 @@ active_capture: Optional[Dict[str, Any]] = None
 active_postprocessing: Optional[Dict[str, Any]] = None
 active_capture_stop_task: Optional[asyncio.Task] = None
 
+# Log-Speicher für Web-Interface (ringbuffer)
+log_buffer: List[Dict[str, Any]] = []
+LOG_BUFFER_MAX_SIZE = 500  # Maximale Anzahl Log-Einträge
+
+
+def add_log_entry(msg: str, category: str = "general"):
+    """Fügt einen Log-Eintrag zum Buffer hinzu"""
+    global log_buffer
+    
+    # Ignoriere Preview-Logs (zu viele)
+    if "Preview" in msg and category == "general":
+        return
+    
+    entry = {
+        "timestamp": datetime.now().isoformat(),
+        "message": msg,
+        "category": category
+    }
+    log_buffer.append(entry)
+    
+    # Ringbuffer: Entferne älteste Einträge wenn zu voll
+    if len(log_buffer) > LOG_BUFFER_MAX_SIZE:
+        log_buffer = log_buffer[-LOG_BUFFER_MAX_SIZE:]
+
 
 def setup_services():
     """Initialisiert die Services"""
@@ -79,9 +103,29 @@ def setup_services():
     
     def log_callback(msg: str):
         logger.info(msg)
+        add_log_entry(msg, "capture")
         broadcast_message_sync({"type": "log", "message": msg})
     
-    capture_service = CaptureService(config, log_callback=log_callback)
+    def merge_progress_callback(job):
+        """Callback für Merge-Progress-Updates"""
+        add_log_entry(f"Merge [{job.status}]: {job.title} ({job.year}) - {job.message}", "merge")
+        broadcast_message_sync({
+            "type": "merge_progress",
+            "job": {
+                "title": job.title,
+                "year": job.year,
+                "status": job.status,
+                "progress": job.progress,
+                "message": job.message
+            }
+        })
+    
+    capture_service = CaptureService(
+        config, 
+        log_callback=log_callback,
+        merge_progress_callback=merge_progress_callback
+    )
+    
     postprocessing_service = PostprocessingService(config, log_callback=log_callback)
     movie_mode_service = MovieModeService(config, log_callback=log_callback)
     cover_service = CoverService(config, log_callback=log_callback)
@@ -707,6 +751,42 @@ async def browse_directory(path: str = "/"):
         "parent_path": str(target_path.parent) if target_path != target_path.parent else None,
         "entries": entries
     }
+
+
+@app.get("/api/logs")
+async def get_logs(limit: int = 100, category: str = None):
+    """Gibt die letzten Log-Einträge zurück"""
+    logs = log_buffer[-limit:]
+    
+    if category:
+        logs = [l for l in logs if l.get("category") == category]
+    
+    return {
+        "logs": logs,
+        "total": len(log_buffer)
+    }
+
+
+@app.get("/api/merge/queue")
+async def get_merge_queue():
+    """Gibt den Status der Merge-Queue zurück"""
+    if not capture_service or not capture_service.capture_engine:
+        return {
+            "pending_count": 0,
+            "current_job": None,
+            "completed_count": 0,
+            "jobs": []
+        }
+    
+    return capture_service.capture_engine.get_merge_queue_status()
+
+
+@app.post("/api/logs/clear")
+async def clear_logs():
+    """Löscht alle Logs"""
+    global log_buffer
+    log_buffer = []
+    return {"status": "ok"}
 
 
 # WebSocket endpoint
@@ -1352,6 +1432,17 @@ def get_html_interface() -> str:
             color: #5dd879;
         }
         
+        /* Badge styling */
+        .badge {
+            display: inline-block;
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 600;
+            color: #000;
+            text-transform: uppercase;
+        }
+        
         /* Checkbox styling */
         input[type="checkbox"] {
             appearance: none;
@@ -1671,6 +1762,7 @@ def get_html_interface() -> str:
             <div class="tab" onclick="switchTab('postprocess')"><span>🎬 Upscaling</span></div>
             <div class="tab" onclick="switchTab('movie')"><span>🎞️ Movie Mode</span></div>
             <div class="tab" onclick="switchTab('cover')"><span>🖼️ Cover</span></div>
+            <div class="tab" onclick="switchTab('logs')"><span>📋 Logs</span></div>
             <div class="tab" onclick="switchTab('settings')"><span>⚙️ Einstellungen</span></div>
         </div>
         
@@ -1715,6 +1807,22 @@ def get_html_interface() -> str:
                         <button onclick="pauseCamera()"><span>⏸ Pause</span></button>
                     </div>
                     <div class="status" id="capture-status">Bereit zum Digitalisieren.</div>
+                    
+                    <!-- Merge Queue Anzeige -->
+                    <div id="merge-queue-container" style="margin-top: 15px; display: none;">
+                        <h4 style="color: var(--plex-gold); margin-bottom: 10px;">🔄 Merge-Queue</h4>
+                        <div id="merge-queue-current" style="display: none;">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                                <span id="merge-current-title">-</span>
+                                <span id="merge-current-status" class="badge">-</span>
+                            </div>
+                            <div class="progress-bar" style="height: 8px; margin-bottom: 5px;">
+                                <div class="progress-fill" id="merge-progress-fill" style="width: 0%"></div>
+                            </div>
+                            <div id="merge-current-message" style="font-size: 11px; color: var(--plex-text-secondary);"></div>
+                        </div>
+                        <div id="merge-queue-pending" style="margin-top: 10px; font-size: 12px; color: var(--plex-text-secondary);"></div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -1786,6 +1894,31 @@ def get_html_interface() -> str:
             </div>
             <div class="status" id="cover-status">Wähle ein Video und extrahiere Frames.</div>
             <div class="log-container" id="cover-log"></div>
+        </div>
+        
+        <!-- Logs Tab -->
+        <div id="logs" class="tab-content">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                <h3 style="color: var(--plex-gold);">📋 System-Logs</h3>
+                <div class="button-group">
+                    <button onclick="refreshLogs()"><span>🔄 Aktualisieren</span></button>
+                    <button onclick="clearLogs()"><span>🗑️ Löschen</span></button>
+                </div>
+            </div>
+            <div class="form-group">
+                <label>Filter</label>
+                <select id="log-filter" onchange="filterLogs()">
+                    <option value="">Alle Logs</option>
+                    <option value="capture">Capture</option>
+                    <option value="merge">Merge</option>
+                    <option value="general">Allgemein</option>
+                </select>
+            </div>
+            <div class="log-container" id="system-logs" style="max-height: 500px; overflow-y: auto; font-family: monospace; font-size: 12px;">
+                <div style="color: var(--plex-text-secondary); padding: 20px; text-align: center;">
+                    Logs werden geladen...
+                </div>
+            </div>
         </div>
         
         <!-- Settings Tab -->
@@ -1922,12 +2055,16 @@ def get_html_interface() -> str:
                     break;
                 case 'log':
                     addLog(data.message, data.operation);
+                    addToSystemLogs(data.message);
                     break;
                 case 'postprocessing_finished':
                     handlePostprocessingFinished(data);
                     break;
                 case 'cover_generation_finished':
                     handleCoverGenerationFinished(data);
+                    break;
+                case 'merge_progress':
+                    updateMergeQueue(data.job);
                     break;
             }
         }
@@ -2037,6 +2174,9 @@ def get_html_interface() -> str:
                 
                 if (data.capture_running) {
                     updateStatus('capture_started');
+                    // Starte Polling, um zu erkennen wenn dvgrab von selbst beendet wird
+                    // (z.B. Band zu Ende, Signal verloren)
+                    startCaptureStopPoll();
                 } else {
                     updateStatus('capture_stopped');
                 }
@@ -2121,6 +2261,9 @@ def get_html_interface() -> str:
                 const data = await response.json();
                 if (response.ok) {
                     updateStatus('capture_started', null, {title, year});
+                    // Starte Polling, um zu erkennen wenn dvgrab von selbst beendet wird
+                    // (z.B. Band zu Ende, Signal verloren, Inaktivitätsmonitor)
+                    startCaptureStopPoll();
                 } else {
                     alert(data.detail || 'Fehler beim Starten der Aufnahme');
                 }
@@ -2691,12 +2834,160 @@ def get_html_interface() -> str:
             closeBrowser();
         }
         
+        // Merge Queue Functions
+        function updateMergeQueue(job) {
+            const container = document.getElementById('merge-queue-container');
+            const current = document.getElementById('merge-queue-current');
+            const title = document.getElementById('merge-current-title');
+            const status = document.getElementById('merge-current-status');
+            const progress = document.getElementById('merge-progress-fill');
+            const message = document.getElementById('merge-current-message');
+            
+            if (job) {
+                container.style.display = 'block';
+                current.style.display = 'block';
+                title.textContent = `${job.title} (${job.year})`;
+                status.textContent = job.status;
+                status.className = 'badge badge-' + job.status;
+                progress.style.width = job.progress + '%';
+                message.textContent = job.message;
+                
+                // Update status badge color
+                if (job.status === 'completed') {
+                    status.style.background = '#2ecc71';
+                } else if (job.status === 'failed') {
+                    status.style.background = '#e74c3c';
+                } else if (job.status === 'running') {
+                    status.style.background = 'var(--plex-gold)';
+                } else {
+                    status.style.background = 'var(--plex-text-secondary)';
+                }
+            }
+        }
+        
+        async function loadMergeQueueStatus() {
+            try {
+                const response = await fetch('/api/merge/queue');
+                const data = await response.json();
+                
+                const container = document.getElementById('merge-queue-container');
+                const pending = document.getElementById('merge-queue-pending');
+                
+                if (data.current_job || data.pending_count > 0) {
+                    container.style.display = 'block';
+                    
+                    if (data.current_job) {
+                        updateMergeQueue(data.current_job);
+                    }
+                    
+                    if (data.pending_count > 0) {
+                        pending.textContent = `${data.pending_count} Job(s) in der Warteschlange`;
+                    } else {
+                        pending.textContent = '';
+                    }
+                } else {
+                    container.style.display = 'none';
+                }
+            } catch (e) {
+                console.error('Merge-Queue-Status konnte nicht geladen werden:', e);
+            }
+        }
+        
+        // Logs Functions
+        let allLogs = [];
+        
+        async function refreshLogs() {
+            try {
+                const response = await fetch('/api/logs?limit=200');
+                const data = await response.json();
+                allLogs = data.logs;
+                filterLogs();
+            } catch (e) {
+                console.error('Logs konnten nicht geladen werden:', e);
+            }
+        }
+        
+        function filterLogs() {
+            const filter = document.getElementById('log-filter').value;
+            const container = document.getElementById('system-logs');
+            
+            let filteredLogs = allLogs;
+            if (filter) {
+                filteredLogs = allLogs.filter(l => l.category === filter);
+            }
+            
+            if (filteredLogs.length === 0) {
+                container.innerHTML = '<div style="color: var(--plex-text-secondary); padding: 20px; text-align: center;">Keine Logs vorhanden</div>';
+                return;
+            }
+            
+            container.innerHTML = filteredLogs.map(log => {
+                const time = new Date(log.timestamp).toLocaleTimeString('de-DE');
+                const categoryColor = log.category === 'merge' ? '#E5A00D' : 
+                                     log.category === 'capture' ? '#2ecc71' : '#999';
+                return `<div style="margin-bottom: 4px; border-left: 3px solid ${categoryColor}; padding-left: 8px;">
+                    <span style="color: var(--plex-text-secondary); font-size: 10px;">[${time}]</span>
+                    <span>${log.message}</span>
+                </div>`;
+            }).join('');
+            
+            // Scroll to bottom
+            container.scrollTop = container.scrollHeight;
+        }
+        
+        function addToSystemLogs(message) {
+            const container = document.getElementById('system-logs');
+            const time = new Date().toLocaleTimeString('de-DE');
+            
+            // Add to allLogs
+            allLogs.push({
+                timestamp: new Date().toISOString(),
+                message: message,
+                category: 'general'
+            });
+            
+            // Keep only last 200
+            if (allLogs.length > 200) {
+                allLogs = allLogs.slice(-200);
+            }
+            
+            // Add to DOM
+            const div = document.createElement('div');
+            div.style.marginBottom = '4px';
+            div.style.borderLeft = '3px solid #999';
+            div.style.paddingLeft = '8px';
+            div.innerHTML = `<span style="color: var(--plex-text-secondary); font-size: 10px;">[${time}]</span>
+                <span>${message}</span>`;
+            container.appendChild(div);
+            
+            // Scroll to bottom
+            container.scrollTop = container.scrollHeight;
+        }
+        
+        async function clearLogs() {
+            try {
+                await fetch('/api/logs/clear', { method: 'POST' });
+                allLogs = [];
+                document.getElementById('system-logs').innerHTML = 
+                    '<div style="color: var(--plex-text-secondary); padding: 20px; text-align: center;">Logs gelöscht</div>';
+            } catch (e) {
+                console.error('Logs konnten nicht gelöscht werden:', e);
+            }
+        }
+        
+        // Periodic status updates
+        setInterval(() => {
+            loadMergeQueueStatus();
+        }, 5000);
+        
         // Initialize
         connectWebSocket();
         loadStatus();
         loadUpscalingProfiles();
         loadPostprocessList();
         loadSettings();
+        loadMergeQueueStatus();
+        refreshLogs();
     </script>
 </body>
 </html>"""
