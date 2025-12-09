@@ -237,11 +237,17 @@ class PostprocessingService:
 class CaptureService:
     """Service für Capture-Operationen"""
     
-    def __init__(self, config: Config, log_callback: Optional[Callable[[str], None]] = None,
-                 merge_progress_callback: Optional[Callable] = None):
+    def __init__(
+        self,
+        config: Config,
+        log_callback: Optional[Callable[[str], None]] = None,
+        merge_progress_callback: Optional[Callable] = None,
+        state_callback: Optional[Callable[[str], None]] = None,
+    ):
         self.config = config
         self.log_callback = log_callback or (lambda msg: logger.info(msg))
         self.merge_progress_callback = merge_progress_callback
+        self.state_callback = state_callback
         self.capture_engine: Optional[CaptureEngine] = None
         self._capture_running = False
     
@@ -350,6 +356,7 @@ class CaptureService:
             ffmpeg_path,
             device_path=self.config.get_firewire_device(),
             log_callback=self._log,
+            state_callback=self._on_capture_state,
         )
         
         # Setze Merge-Progress-Callback
@@ -377,14 +384,25 @@ class CaptureService:
     def stop_capture(self) -> bool:
         """Stoppt die laufende Capture-Session"""
         if self.capture_engine:
-            if self.capture_engine.stop_capture():
-                self._capture_running = False
-                return True
+            result = self.capture_engine.stop_capture()
+            self._capture_running = False
+            return result
+        self._capture_running = False
         return False
     
     def is_capturing(self) -> bool:
         """Prüft ob Capture läuft"""
         return self._capture_running
+
+    def _on_capture_state(self, state: str):
+        """Callback aus CaptureEngine (z.B. stopped)"""
+        if state == "stopped":
+            self._capture_running = False
+            if self.state_callback:
+                try:
+                    self.state_callback(state)
+                except Exception:
+                    pass
     
     def rewind_camera(self):
         """Spult die Kamera zurück"""

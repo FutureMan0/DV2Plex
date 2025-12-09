@@ -51,6 +51,7 @@ class CaptureEngine:
         device_path: Optional[str] = None,
         dvgrab_path: str = "dvgrab",
         log_callback: Optional[Callable[[str], None]] = None,
+        state_callback: Optional[Callable[[str], None]] = None,
     ):
         self.ffmpeg_path = ffmpeg_path
         self.device_path = device_path
@@ -66,6 +67,7 @@ class CaptureEngine:
         self.current_output_path: Optional[Path] = None
         self.raw_output_path: Optional[Path] = None  # DV-Rohdatei
         self.logger = logging.getLogger(__name__)
+        self.state_callback = state_callback
         self.last_split_time: Optional[float] = None  # Letzte erkannte Split-Datei
         self.auto_stop_inactivity_triggered: bool = False
         self.inactivity_monitor_thread: Optional[threading.Thread] = None
@@ -97,6 +99,14 @@ class CaptureEngine:
         self.current_capture_year: str = ""
         # Starte Background-Merge-Worker
         self._start_merge_worker()
+
+    def _notify_state(self, state: str):
+        """Optionaler Callback für Zustandsänderungen (z.B. stopped)"""
+        if self.state_callback:
+            try:
+                self.state_callback(state)
+            except Exception:
+                pass
 
     def _start_merge_worker(self):
         """Startet den Background-Worker für Merge-Jobs"""
@@ -528,21 +538,19 @@ class CaptureEngine:
             return None
         
         try:
-            # Prüfe Dateigröße - muss > 0 sein
+            # Prüfe Dateigröße - zu kleine Dateien überspringen
             file_size = file_path.stat().st_size
-            if file_size == 0:
-                self.log(f"Preview: Datei ist leer: {file_path.name}")
+            if file_size < 300 * 1024:
+                self.log(f"Preview: Datei zu klein ({file_path.name}, {file_size} bytes) – überspringe.")
                 return None
             
-            # ffmpeg liest Datei und konvertiert zu MJPEG
-            # Verwende -analyzeduration und -probesize für bessere Kompatibilität
-            # stderr auf DEVNULL setzen, sonst kann ffmpeg blockieren wenn Buffer voll
             def launch(cmd_desc, cmd_list):
-                self.log(f"Preview: Starte ffmpeg ({cmd_desc}): {' '.join(cmd_list[:5])}...")
+                # Knapp loggen, um Spam zu vermeiden
+                self.log(f"Preview: ffmpeg {cmd_desc} startet für {file_path.name}")
                 proc = subprocess.Popen(
                     cmd_list,
                     stdout=subprocess.PIPE,
-                    stderr=subprocess.DEVNULL,  # Wichtig: sonst blockiert ffmpeg
+                    stderr=subprocess.DEVNULL,  # verhindert Blockieren
                     text=False,
                     bufsize=0,
                 )
@@ -553,26 +561,8 @@ class CaptureEngine:
                     return None
                 return proc
 
-            # Variante 1: Als Raw-DV lesen (für Dateien während des Schreibens)
-            # AVI-Index existiert noch nicht, aber DV-Daten sind selbst-beschreibend
-            raw_dv_cmd = [
-                str(self.ffmpeg_path),
-                "-hide_banner",
-                "-loglevel", "error",
-                "-f", "dv",  # Force DV format (ohne AVI-Container)
-                "-i", str(file_path),
-                "-vf", f"yadif,fps={fps},scale=640:-1",
-                "-vcodec", "mjpeg",
-                "-f", "image2pipe",
-                "-q:v", "5",
-                "-",
-            ]
-            process = launch("raw-dv", raw_dv_cmd)
-            if process:
-                return process
-
-            # Variante 2: Standard AVI lesen (für fertige Dateien)
-            ffmpeg_cmd = [
+            # Variante 1: Standard lesen (AVI / DV im Container)
+            avi_cmd = [
                 str(self.ffmpeg_path),
                 "-hide_banner",
                 "-loglevel", "error",
@@ -586,18 +576,34 @@ class CaptureEngine:
                 "-q:v", "5",
                 "-",
             ]
-            process = launch("avi", ffmpeg_cmd)
+            process = launch("avi", avi_cmd)
             if process:
                 return process
 
-            # Variante 3: Ignoriere Fehler komplett
+            # Variante 2: Roh-DV erzwingen (wenn Index fehlt / .dv)
+            raw_dv_cmd = [
+                str(self.ffmpeg_path),
+                "-hide_banner",
+                "-loglevel", "error",
+                "-f", "dv",
+                "-i", str(file_path),
+                "-vf", f"yadif,fps={fps},scale=640:-1",
+                "-vcodec", "mjpeg",
+                "-f", "image2pipe",
+                "-q:v", "5",
+                "-",
+            ]
+            process = launch("raw-dv", raw_dv_cmd)
+            if process:
+                return process
+
+            # Variante 3: Fehler ignorieren (Fallback)
             fallback_cmd = [
                 str(self.ffmpeg_path),
                 "-hide_banner",
                 "-loglevel", "warning",
                 "-err_detect", "ignore_err",
                 "-fflags", "+genpts+discardcorrupt",
-                "-f", "dv",
                 "-i", str(file_path),
                 "-vf", f"yadif,fps={fps},scale=640:-1",
                 "-vcodec", "mjpeg",
@@ -939,6 +945,9 @@ class CaptureEngine:
             # Audio bleibt im Recording erhalten (Recording-ffmpeg verwendet -map 0:v -map 0:a)
             ffmpeg_cmd = [
                 str(self.ffmpeg_path),
+                "-hide_banner",
+                "-loglevel", "error",
+                "-nostdin",
                 "-f", "dv",  # DV-Format vom stdin
                 "-i", "-",  # Input von stdin
                 "-map", "0:v",  # Nur Video-Stream (MJPEG unterstützt kein Audio)
@@ -948,8 +957,8 @@ class CaptureEngine:
                 "-",  # Ausgabe nach stdout
             ]
             
+            # Nur knappe Info statt kompletten Befehl
             self.log("Starte Preview-ffmpeg...")
-            self.log(f"Preview-ffmpeg-Befehl: {' '.join(ffmpeg_cmd)}")
             
             self.preview_process = subprocess.Popen(
                 ffmpeg_cmd,
@@ -1387,6 +1396,10 @@ class CaptureEngine:
 
             # sudo-Keepalive beenden (falls gestartet)
             self._stop_sudo_keepalive()
+            self._notify_state("stopped")
+
+            # State-Callback
+            self._notify_state("stopped")
 
             return True
 
@@ -1511,6 +1524,7 @@ class CaptureEngine:
                 self.is_capturing = False
                 self._stop_preview()
                 self._stop_all_processes()
+                self._notify_state("stopped")
                 
                 # Wenn der Prozess sofort beendet wurde (z.B. kein Signal), logge Warnung
                 # Return-Code -9 (SIGKILL) ist normal, wenn wir den Prozess hart beenden mussten

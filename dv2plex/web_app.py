@@ -119,11 +119,21 @@ def setup_services():
                 "message": job.message
             }
         })
+
+    def capture_state_callback(state: str):
+        if state == "stopped":
+            broadcast_message_sync({
+                "type": "status",
+                "status": "capture_stopped",
+                "data": None,
+                "operation": "capture"
+            })
     
     capture_service = CaptureService(
         config, 
         log_callback=log_callback,
-        merge_progress_callback=merge_progress_callback
+        merge_progress_callback=merge_progress_callback,
+        state_callback=capture_state_callback,
     )
     
     postprocessing_service = PostprocessingService(config, log_callback=log_callback)
@@ -1762,6 +1772,7 @@ def get_html_interface() -> str:
             <div class="tab" onclick="switchTab('postprocess')"><span>🎬 Upscaling</span></div>
             <div class="tab" onclick="switchTab('movie')"><span>🎞️ Movie Mode</span></div>
             <div class="tab" onclick="switchTab('cover')"><span>🖼️ Cover</span></div>
+            <div class="tab" onclick="switchTab('queue')"><span>🔄 Merge-Queue</span></div>
             <div class="tab" onclick="switchTab('logs')"><span>📋 Logs</span></div>
             <div class="tab" onclick="switchTab('settings')"><span>⚙️ Einstellungen</span></div>
         </div>
@@ -1815,7 +1826,7 @@ def get_html_interface() -> str:
                             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
                                 <span id="merge-current-title">-</span>
                                 <span id="merge-current-status" class="badge">-</span>
-                            </div>
+                                </div>
                             <div class="progress-bar" style="height: 8px; margin-bottom: 5px;">
                                 <div class="progress-fill" id="merge-progress-fill" style="width: 0%"></div>
                             </div>
@@ -1894,6 +1905,31 @@ def get_html_interface() -> str:
             </div>
             <div class="status" id="cover-status">Wähle ein Video und extrahiere Frames.</div>
             <div class="log-container" id="cover-log"></div>
+        </div>
+        
+        <!-- Merge Queue Tab -->
+        <div id="queue" class="tab-content">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                <h3 style="color: var(--plex-gold);">🔄 Merge-Queue</h3>
+                <button onclick="loadMergeQueueStatus()"><span>🔄 Aktualisieren</span></button>
+            </div>
+            
+            <div id="queue-current" style="margin-bottom: 15px; display: none;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                    <div>
+                        <div id="queue-current-title" style="font-weight: 700;"></div>
+                        <div id="queue-current-message" style="font-size: 12px; color: var(--plex-text-secondary);"></div>
+                    </div>
+                    <span id="queue-current-status" class="badge">-</span>
+                </div>
+                <div class="progress-bar" style="height: 10px;">
+                    <div class="progress-fill" id="queue-progress-fill" style="width: 0%"></div>
+                </div>
+            </div>
+            
+            <div id="queue-list" class="list-container">
+                <div style="color: var(--plex-text-secondary); padding: 12px;">Keine Jobs in der Queue.</div>
+            </div>
         </div>
         
         <!-- Logs Tab -->
@@ -2870,6 +2906,7 @@ def get_html_interface() -> str:
                 const response = await fetch('/api/merge/queue');
                 const data = await response.json();
                 
+                // Capture-Tab Mini-Widget
                 const container = document.getElementById('merge-queue-container');
                 const pending = document.getElementById('merge-queue-pending');
                 
@@ -2887,6 +2924,45 @@ def get_html_interface() -> str:
                     }
                 } else {
                     container.style.display = 'none';
+                }
+
+                // Queue-Tab
+                const currentBlock = document.getElementById('queue-current');
+                const currentTitle = document.getElementById('queue-current-title');
+                const currentStatus = document.getElementById('queue-current-status');
+                const currentMessage = document.getElementById('queue-current-message');
+                const currentProgress = document.getElementById('queue-progress-fill');
+                const list = document.getElementById('queue-list');
+
+                if (data.current_job) {
+                    currentBlock.style.display = 'block';
+                    currentTitle.textContent = `${data.current_job.title} (${data.current_job.year})`;
+                    currentStatus.textContent = data.current_job.status;
+                    currentStatus.className = 'badge badge-' + data.current_job.status;
+                    currentMessage.textContent = data.current_job.message || '';
+                    currentProgress.style.width = data.current_job.progress + '%';
+                } else {
+                    currentBlock.style.display = 'none';
+                }
+
+                if (data.jobs && data.jobs.length > 0) {
+                    list.innerHTML = data.jobs.map(j => {
+                        const color = j.status === 'completed' ? '#2ecc71' :
+                                      j.status === 'failed' ? '#e74c3c' :
+                                      j.status === 'running' ? 'var(--plex-gold)' : '#999';
+                        return `<div style="padding: 10px; border-bottom: 1px solid rgba(255,255,255,0.06); display: flex; justify-content: space-between; align-items: center;">
+                            <div>
+                                <div style="font-weight: 600;">${j.title} (${j.year})</div>
+                                <div style="font-size: 12px; color: var(--plex-text-secondary);">${j.message || ''}</div>
+                            </div>
+                            <div style="text-align: right;">
+                                <div class="badge" style="background: ${color}; color: #000;">${j.status}</div>
+                                <div style="font-size: 11px; color: var(--plex-text-secondary);">${j.progress}%</div>
+                            </div>
+                        </div>`;
+                    }).join('');
+                } else {
+                    list.innerHTML = '<div style="color: var(--plex-text-secondary); padding: 12px;">Keine Jobs in der Queue.</div>';
                 }
             } catch (e) {
                 console.error('Merge-Queue-Status konnte nicht geladen werden:', e);
