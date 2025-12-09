@@ -1962,10 +1962,15 @@ def get_html_interface() -> str:
         }
         
         function updateStatus(status, operation, payload = null) {
+            const startBtn = document.getElementById('capture-start-btn');
+            const stopBtn = document.getElementById('capture-stop-btn');
+            const captureStatus = document.getElementById('capture-status');
+
             if (status === 'capture_started') {
-                document.getElementById('capture-start-btn').disabled = true;
-                document.getElementById('capture-stop-btn').disabled = false;
-                document.getElementById('capture-status').textContent = 'Aufnahme läuft...';
+                startBtn.disabled = true;
+                stopBtn.disabled = false;
+                stopBtn.classList.add('btn-danger');
+                captureStatus.textContent = 'Aufnahme läuft...';
                 
                 if (payload) {
                     if (payload.title) {
@@ -1975,10 +1980,16 @@ def get_html_interface() -> str:
                         document.getElementById('capture-year').value = payload.year;
                     }
                 }
+            } else if (status === 'capture_stopping') {
+                startBtn.disabled = true;
+                stopBtn.disabled = true;
+                stopBtn.classList.add('btn-danger');
+                captureStatus.textContent = 'Stoppe Aufnahme... Abschluss läuft.';
             } else if (status === 'capture_stopped') {
-                document.getElementById('capture-start-btn').disabled = false;
-                document.getElementById('capture-stop-btn').disabled = true;
-                document.getElementById('capture-status').textContent = 'Aufnahme beendet.';
+                startBtn.disabled = false;
+                stopBtn.disabled = true;
+                stopBtn.classList.remove('btn-danger');
+                captureStatus.textContent = 'Fertig! Du kannst das nächste Video digitalisieren.';
             }
             
             if (operation === 'postprocessing') {
@@ -2080,9 +2091,7 @@ def get_html_interface() -> str:
                 
                 const data = await response.json();
                 if (response.ok) {
-                    document.getElementById('capture-start-btn').disabled = true;
-                    document.getElementById('capture-stop-btn').disabled = false;
-                    document.getElementById('capture-status').textContent = 'Aufnahme läuft...';
+                    updateStatus('capture_started', null, {title, year});
                 } else {
                     alert(data.detail || 'Fehler beim Starten der Aufnahme');
                 }
@@ -2096,9 +2105,10 @@ def get_html_interface() -> str:
                 const response = await fetch('/api/capture/stop', {method: 'POST'});
                 const data = await response.json();
                 if (response.ok) {
-                    document.getElementById('capture-start-btn').disabled = false;
-                    document.getElementById('capture-stop-btn').disabled = true;
-                    document.getElementById('capture-status').textContent = 'Aufnahme beendet.';
+                    updateStatus('capture_stopping');
+                    if (data.message) {
+                        document.getElementById('capture-status').textContent = data.message;
+                    }
                 } else {
                     alert(data.detail || 'Fehler beim Stoppen der Aufnahme');
                 }

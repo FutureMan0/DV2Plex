@@ -51,11 +51,41 @@ check_dep dvgrab dvgrab
 
 echo ""
 
+# Prüfe, ob --no-gui übergeben wurde
+USE_SUDO=false
+for arg in "$@"; do
+    if [ "$arg" = "--no-gui" ]; then
+        USE_SUDO=true
+        break
+    fi
+done
+
+# Wenn --no-gui verwendet wird, starte mit sudo, damit sudo-Rechte nicht ablaufen
+if [ "$USE_SUDO" = true ]; then
+    # Prüfe, ob bereits als root ausgeführt
+    if [ "$EUID" -eq 0 ]; then
+        echo "ℹ Programm läuft bereits als root"
+        USE_SUDO=false
+    else
+        echo "ℹ --no-gui Modus: Starte mit sudo, damit Kamera-Steuerung dauerhaft funktioniert"
+        echo "   (sudo-Rechte laufen nicht ab, wenn das Programm als root gestartet wird)"
+    fi
+fi
+
 # Use virtual environment if available
 if [ -d "$SCRIPT_DIR/venv" ]; then
-    source "$SCRIPT_DIR/venv/bin/activate"
-    python "$SCRIPT_DIR/start.py"
+    if [ "$USE_SUDO" = true ]; then
+        # Bei sudo: Verwende venv Python direkt mit vollständigem Pfad
+        sudo -E "$SCRIPT_DIR/venv/bin/python" "$SCRIPT_DIR/start.py" "$@"
+    else
+        source "$SCRIPT_DIR/venv/bin/activate"
+        python "$SCRIPT_DIR/start.py" "$@"
+    fi
 else
     # Fallback: Use system Python
-    python3 "$SCRIPT_DIR/start.py"
+    if [ "$USE_SUDO" = true ]; then
+        sudo -E python3 "$SCRIPT_DIR/start.py" "$@"
+    else
+        python3 "$SCRIPT_DIR/start.py" "$@"
+    fi
 fi
