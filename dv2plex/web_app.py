@@ -1135,44 +1135,56 @@ def get_html_interface() -> str:
         }
         
         .tabs {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-            gap: 8px;
-            margin-bottom: 18px;
-            padding: 8px;
+            display: flex;
+            gap: 6px;
+            margin-bottom: 15px;
+            flex-wrap: wrap;
+            padding: 6px;
             background: rgba(0, 0, 0, 0.3);
             border-radius: 14px;
             backdrop-filter: blur(10px);
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
         }
         
         .tab {
-            padding: 12px 14px;
-            background: rgba(255, 255, 255, 0.03);
-            border: 1px solid var(--glass-border);
+            padding: 10px 14px;
+            background: transparent;
+            border: none;
             border-radius: 10px;
             cursor: pointer;
             color: var(--plex-text-secondary);
             font-weight: 600;
             font-size: 12px;
-            transition: all 0.25s ease;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
             position: relative;
-            text-align: center;
+            overflow: hidden;
             white-space: nowrap;
+            flex-shrink: 0;
+        }
+        
+        .tab::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(135deg, var(--plex-gold), var(--plex-orange));
+            opacity: 0;
+            transition: opacity 0.3s;
+            border-radius: 10px;
         }
         
         .tab:hover {
             color: var(--plex-text);
-            border-color: var(--plex-gold);
-            box-shadow: 0 6px 14px rgba(0,0,0,0.25);
-            transform: translateY(-1px);
+            background: rgba(255, 255, 255, 0.05);
         }
         
         .tab.active {
-            color: #0d0d0d;
+            color: #000000;
             font-weight: 700;
-            background: linear-gradient(135deg, var(--plex-gold) 0%, var(--plex-orange) 100%);
-            border-color: transparent;
-            box-shadow: 0 10px 24px rgba(229,160,13,0.25);
+        }
+        
+        .tab.active::before {
+            opacity: 1;
         }
         
         .tab span {
@@ -1389,6 +1401,19 @@ def get_html_interface() -> str:
                 0 0 40px rgba(0, 0, 0, 0.4);
             /* Leichter Kontrast-Boost für Video */
             filter: contrast(1.02) brightness(1.02);
+        }
+
+        .preview-container video {
+            width: calc(100% - 4px);
+            height: calc(100% - 4px);
+            object-fit: contain;
+            border-radius: 8px;
+            position: relative;
+            z-index: 1;
+            box-shadow: 
+                0 0 20px rgba(0, 0, 0, 0.8),
+                0 0 40px rgba(0, 0, 0, 0.4);
+            background: #000;
         }
         
         /* Placeholder Styling */
@@ -2142,11 +2167,17 @@ def get_html_interface() -> str:
         <!-- Video Player Tab -->
         <div id="player" class="tab-content">
             <h3 style="color: var(--plex-gold);">▶ Video Player</h3>
-            <p>Fertige Projekte aus dem DV_Import-Ordner. LowRes/HighRes direkt abspielen.</p>
             <div style="display: grid; grid-template-columns: 1.2fr 1fr; gap: 15px; align-items: start;">
                 <div class="list-container" id="player-project-list" style="max-height: 540px;"></div>
                 <div>
-                    <video id="player-video" controls style="width: 100%; max-height: 420px; background: #000;"></video>
+                    <div class="preview-container" id="player-preview">
+                        <div class="preview-placeholder" id="player-placeholder">
+                            <div class="preview-placeholder-icon">▶</div>
+                            <div class="preview-placeholder-text">Keine Auswahl</div>
+                            <div class="preview-placeholder-hint">Wähle ein Video zum Abspielen</div>
+                        </div>
+                        <video id="player-video" controls style="width: 100%; height: 100%; display: none;"></video>
+                    </div>
                     <div id="player-now-playing" style="margin-top: 8px; font-size: 12px; color: var(--plex-text-secondary);">Keine Auswahl</div>
                 </div>
             </div>
@@ -2859,7 +2890,10 @@ def get_html_interface() -> str:
         function playVideo(path, label) {
             const video = document.getElementById('player-video');
             const nowPlaying = document.getElementById('player-now-playing');
+            const placeholder = document.getElementById('player-placeholder');
             if (!path || !video) return;
+            if (placeholder) placeholder.style.display = 'none';
+            video.style.display = 'block';
             video.src = `/api/player/stream?path=${encodeURIComponent(path)}`;
             video.play().catch(() => {});
             nowPlaying.textContent = `Spielt: ${label}`;
