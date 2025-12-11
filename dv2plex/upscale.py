@@ -253,12 +253,14 @@ class UpscaleEngine:
                             if progress_hook:
                                 try:
                                     if "frame=" in line:
-                                ...
-                                        frame_val = int(p.split("=")[1])
-                                        est = min(100, max(last_progress, int(frame_val / 3000 * 100)))
-                                        last_progress = est
-                                        progress_hook(est)
-                                        break
+                                        parts = line.split()
+                                        for p in parts:
+                                            if p.startswith("frame="):
+                                                frame_val = int(p.split("=")[1])
+                                                est = min(100, max(last_progress, int(frame_val / 3000 * 100)))
+                                                last_progress = est
+                                                progress_hook(est)
+                                                break
                                 except Exception:
                                     pass
                 except:
