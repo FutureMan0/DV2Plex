@@ -1382,9 +1382,9 @@ class CaptureEngine:
             
             # HINTERGRUND: Merge-Job zur Queue hinzufügen (nicht blockierend)
             if self.splits_dir and self.splits_dir.exists():
-                    split_files = list(self.splits_dir.glob("dvgrab*.avi")) + list(self.splits_dir.glob("dvgrab*.dv"))
+                split_files = list(self.splits_dir.glob("dvgrab*.avi")) + list(self.splits_dir.glob("dvgrab*.dv"))
                 self.log(f"Gefunden: {len(split_files)} Split-Dateien - Merge wird im Hintergrund durchgeführt")
-                
+
                 self.queue_merge_job(
                     splits_dir=self.splits_dir,
                     output_path=self.current_output_path,
