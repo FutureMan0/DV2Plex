@@ -97,6 +97,15 @@ class CaptureEngine:
         # Aktueller Capture-Titel/Jahr für Merge-Jobs
         self.current_capture_title: str = ""
         self.current_capture_year: str = ""
+        # Laufzeit-Tracking und verzögerte Benachrichtigung
+        self.capture_start_time: Optional[float] = None
+        self.capture_duration_thread: Optional[threading.Thread] = None
+        self.capture_duration_stop: Optional[threading.Event] = None
+        self.rewind_notification_delay_seconds: int = 300  # 5 Minuten Puffer vor Benachrichtigung
+        # Rewind-Sperre nach Aufnahmen
+        self.rewind_block_until: Optional[float] = None
+        self.rewind_block_timer: Optional[threading.Timer] = None
+        self.rewind_block_active: bool = False
         # Starte Background-Merge-Worker
         self._start_merge_worker()
 
@@ -1131,6 +1140,10 @@ class CaptureEngine:
     
     def rewind(self) -> bool:
         """Spult die Kassette zurück (interaktiver Modus: 'a')"""
+        if self._is_rewind_block_active():
+            remaining = self._remaining_rewind_block_seconds()
+            self.log(f"Rewind gesperrt für {remaining} Sekunden (Auto-Rewind läuft).")
+            return False
         # Starte interaktiven dvgrab falls nicht aktiv
         if not self.interactive_dvgrab_process or self.interactive_dvgrab_process.poll() is not None:
             device = self.get_device()
@@ -1145,6 +1158,10 @@ class CaptureEngine:
 
     def play(self) -> bool:
         """Startet die Wiedergabe (interaktiver Modus: 'p')"""
+        if self._is_rewind_block_active():
+            remaining = self._remaining_rewind_block_seconds()
+            self.log(f"Play gesperrt für {remaining} Sekunden (Auto-Rewind läuft).")
+            return False
         # Starte interaktiven dvgrab falls nicht aktiv
         if not self.interactive_dvgrab_process or self.interactive_dvgrab_process.poll() is not None:
             device = self.get_device()
@@ -1159,6 +1176,10 @@ class CaptureEngine:
 
     def pause(self) -> bool:
         """Pausiert die Wiedergabe (interaktiver Modus: 'k')"""
+        if self._is_rewind_block_active():
+            remaining = self._remaining_rewind_block_seconds()
+            self.log(f"Pause gesperrt für {remaining} Sekunden (Auto-Rewind läuft).")
+            return False
         # Starte interaktiven dvgrab falls nicht aktiv
         if not self.interactive_dvgrab_process or self.interactive_dvgrab_process.poll() is not None:
             device = self.get_device()
@@ -1199,6 +1220,10 @@ class CaptureEngine:
         try:
             if self.is_capturing:
                 self.log("Aufnahme läuft bereits!")
+                return False
+            if self._is_rewind_block_active():
+                remaining = self._remaining_rewind_block_seconds()
+                self.log(f"Aufnahme gesperrt, Auto-Rewind läuft noch {remaining} Sekunden.")
                 return False
 
             # Halte sudo-Rechte aktiv, falls wir nicht als root laufen
@@ -1259,6 +1284,8 @@ class CaptureEngine:
             # 3. Markiere als aktiv (vor Preview-Threads, sonst stoppen sie sofort)
             self.is_capturing = True
             self.process = self.recording_dvgrab_process  # Für Kompatibilität
+            # 3b. Starte Laufzeit-Logger
+            self._start_capture_duration_logger()
             
             # 4. Starte Preview-Queue-System (falls aktiviert)
             if enable_preview:
@@ -1303,6 +1330,7 @@ class CaptureEngine:
             self.log(f"Fehler beim Starten der Aufnahme: {e}")
             self.is_capturing = False
             self._stop_preview()
+            self._stop_capture_duration_logger()
             self._stop_all_processes()
             return False
 
@@ -1346,6 +1374,7 @@ class CaptureEngine:
             self._stop_all_processes()
 
             self.is_capturing = False
+            self._stop_capture_duration_logger()
             self.log("Aufnahme gestoppt.")
 
             # Warte, damit alle Dateien vollständig geschrieben sind
@@ -1377,8 +1406,11 @@ class CaptureEngine:
             self.log("Spule Kamera zurück...")
             self._rewind_after_merge()
             
-            # SOFORT: Benachrichtigung senden
-            self._notify_completion(f"Aufnahme beendet: {self.current_capture_title} ({self.current_capture_year}). Merge läuft im Hintergrund.")
+            # Benachrichtigung erst nach Pufferzeit senden
+            self._notify_completion(
+                f"Aufnahme beendet: {self.current_capture_title} ({self.current_capture_year}). Merge läuft im Hintergrund.",
+                delay_seconds=self.rewind_notification_delay_seconds,
+            )
             
             # HINTERGRUND: Merge-Job zur Queue hinzufügen (nicht blockierend)
             if self.splits_dir and self.splits_dir.exists():
@@ -1524,6 +1556,7 @@ class CaptureEngine:
                 self.is_capturing = False
                 self._stop_preview()
                 self._stop_all_processes()
+                self._stop_capture_duration_logger()
                 self._notify_state("stopped")
                 
                 # Wenn der Prozess sofort beendet wurde (z.B. kein Signal), logge Warnung
@@ -1582,8 +1615,11 @@ class CaptureEngine:
             self.log("Spule Kamera zurück...")
             self._rewind_after_merge()
             
-            # SOFORT: Benachrichtigung senden
-            self._notify_completion(f"Aufnahme automatisch beendet: {self.current_capture_title} ({self.current_capture_year}). Merge läuft im Hintergrund.")
+            # Benachrichtigung erst nach Pufferzeit senden
+            self._notify_completion(
+                f"Aufnahme automatisch beendet: {self.current_capture_title} ({self.current_capture_year}). Merge läuft im Hintergrund.",
+                delay_seconds=self.rewind_notification_delay_seconds,
+            )
             
             # HINTERGRUND: Merge-Job zur Queue hinzufügen (nicht blockierend)
             if self.splits_dir and self.splits_dir.exists():
@@ -1692,37 +1728,69 @@ class CaptureEngine:
                 self.log(f"dvgrab-Fehler (Code {return_code}): {stderr_text[-500:]}")
 
     def _rewind_after_merge(self):
-        """Startet interaktiven Modus, führt Rewind aus und beendet ihn mit Ctrl+C"""
-        try:
-            device = self.get_device()
-            if not device:
-                self.log("Rewind nach Merge übersprungen: Kein FireWire-Gerät gefunden.")
-                return
-            
-            if not self._start_interactive_dvgrab(device):
-                self.log("Rewind nach Merge: Interaktiver Modus konnte nicht gestartet werden.")
-                return
-            
-            self.log("Rewind nach Merge: Sende 'a' (rewind)...")
-            self._send_interactive_command("a")
-            time.sleep(1.5)
-            
-            proc = self.interactive_dvgrab_process or self.interactive_process
-            if proc and proc.poll() is None:
-                import signal
-                self.log("Rewind nach Merge: Sende SIGINT (Ctrl+C) an interaktiven dvgrab...")
-                try:
-                    proc.send_signal(signal.SIGINT)
-                    proc.wait(timeout=5)
-                except Exception as e:
-                    self.log(f"Rewind nach Merge: Fehler bei SIGINT: {e}")
-            self.interactive_dvgrab_process = None
-            self.interactive_process = None
-        except Exception as e:
-            self.log(f"Rewind nach Merge: Fehler: {e}")
+        """Startet interaktiven Modus, führt Rewind aus und hält ihn 5 Minuten aktiv."""
+        def _run_rewind():
+            try:
+                duration = self.rewind_notification_delay_seconds
+                self._begin_rewind_block(duration)
+                device = self.get_device()
+                if not device:
+                    self.log("Rewind nach Merge übersprungen: Kein FireWire-Gerät gefunden.")
+                    return
+                
+                if not self._start_interactive_dvgrab(device):
+                    self.log("Rewind nach Merge: Interaktiver Modus konnte nicht gestartet werden.")
+                    return
+                self.log(f"Rewind nach Merge: Sende 'a' (rewind) und halte für {duration} Sekunden...")
+                self._send_interactive_command("a")
 
-    def _notify_completion(self, message: str):
-        """Sendet Abschlussmeldung ins Log und an ntfy (dv2plex-complete)"""
+                # Halte den Rewind-Prozess für die gesamte Dauer aktiv
+                end_time = time.time() + duration
+                while time.time() < end_time:
+                    # Wenn der Prozess stirbt, abbrechen und Sperre beenden
+                    proc = self.interactive_dvgrab_process or self.interactive_process
+                    if not proc or proc.poll() is not None:
+                        self.log("Rewind nach Merge: Interaktiver dvgrab beendet sich unerwartet.")
+                        break
+                    time.sleep(1)
+
+                proc = self.interactive_dvgrab_process or self.interactive_process
+                if proc and proc.poll() is None:
+                    import signal
+                    self.log("Rewind nach Merge: Sende SIGINT (Ctrl+C) an interaktiven dvgrab...")
+                    try:
+                        proc.send_signal(signal.SIGINT)
+                        proc.wait(timeout=5)
+                    except Exception as e:
+                        self.log(f"Rewind nach Merge: Fehler bei SIGINT: {e}")
+                self.interactive_dvgrab_process = None
+                self.interactive_process = None
+            except Exception as e:
+                self.log(f"Rewind nach Merge: Fehler: {e}")
+            finally:
+                self._end_rewind_block()
+
+        threading.Thread(target=_run_rewind, daemon=True, name="RewindAfterMerge").start()
+
+    def _notify_completion(self, message: str, delay_seconds: float = 0, *, _from_timer: bool = False):
+        """Sendet Abschlussmeldung ins Log und an ntfy (dv2plex-complete)
+
+        Bei gesetzter Verzögerung wird zuerst eine Planung geloggt, die eigentliche
+        Benachrichtigung aber erst nach Ablauf des Puffers verschickt.
+        """
+        if delay_seconds > 0 and not _from_timer:
+            minutes = delay_seconds / 60
+            self.log(f"Benachrichtigung wird in {minutes:.1f} Minuten gesendet: {message}")
+            timer = threading.Timer(
+                delay_seconds,
+                self._notify_completion,
+                args=[message],
+                kwargs={"_from_timer": True},
+            )
+            timer.daemon = True
+            timer.start()
+            return
+
         self.log(message)
         try:
             req = urllib.request.Request(
@@ -1734,6 +1802,85 @@ class CaptureEngine:
             self.log("ntfy-Benachrichtigung an dv2plex-complete gesendet.")
         except Exception as e:
             self.log(f"ntfy-Benachrichtigung fehlgeschlagen: {e}")
+
+    def _start_capture_duration_logger(self):
+        """Loggt die bisherige Aufnahmedauer in regelmäßigen Abständen."""
+        # Stoppe eventuell laufenden Logger
+        self._stop_capture_duration_logger()
+
+        self.capture_start_time = time.time()
+        self.capture_duration_stop = threading.Event()
+        self.log("Aufnahme läuft seit 00:00:00")
+
+        def _duration_loop():
+            # Logge alle 60 Sekunden die bisherige Laufzeit
+            while self.capture_duration_stop and not self.capture_duration_stop.wait(60):
+                if not self.capture_start_time:
+                    break
+                elapsed = int(time.time() - self.capture_start_time)
+                hours, remainder = divmod(elapsed, 3600)
+                minutes, seconds = divmod(remainder, 60)
+                self.log(f"Aufnahme läuft seit {hours:02d}:{minutes:02d}:{seconds:02d}")
+
+        self.capture_duration_thread = threading.Thread(
+            target=_duration_loop,
+            daemon=True,
+            name="CaptureDurationLogger",
+        )
+        self.capture_duration_thread.start()
+
+    def _begin_rewind_block(self, duration_seconds: int):
+        """Aktiviert eine Sperre für manuelle Steuerung und neue Aufnahmen."""
+        self._end_rewind_block()
+        self.rewind_block_active = True
+        self.rewind_block_until = time.time() + duration_seconds
+        self.rewind_block_timer = threading.Timer(duration_seconds, self._end_rewind_block)
+        self.rewind_block_timer.daemon = True
+        self.rewind_block_timer.start()
+        self.log(f"Rewind-Sperre aktiv für {duration_seconds} Sekunden.")
+
+    def _end_rewind_block(self):
+        """Beendet die Sperre für manuelle Steuerung und Aufnahmen."""
+        if self.rewind_block_timer:
+            self.rewind_block_timer.cancel()
+        self.rewind_block_timer = None
+        was_active = self.rewind_block_active
+        self.rewind_block_active = False
+        self.rewind_block_until = None
+        if was_active:
+            self.log("Rewind-Sperre aufgehoben. Aufnahme und Steuerung wieder möglich.")
+
+    def _is_rewind_block_active(self) -> bool:
+        """Prüft, ob derzeit eine Rewind-Sperre läuft."""
+        if not self.rewind_block_active:
+            return False
+        if self.rewind_block_until and time.time() > self.rewind_block_until:
+            self._end_rewind_block()
+            return False
+        return True
+
+    def _remaining_rewind_block_seconds(self) -> int:
+        """Gibt die verbleibende Sperrzeit (Sekunden) zurück."""
+        if not self._is_rewind_block_active() or not self.rewind_block_until:
+            return 0
+        return max(0, int(self.rewind_block_until - time.time()))
+
+    # Öffentliche Helper für andere Schichten (GUI/Web)
+    def is_rewind_block_active(self) -> bool:
+        return self._is_rewind_block_active()
+
+    def get_rewind_block_remaining(self) -> int:
+        return self._remaining_rewind_block_seconds()
+
+    def _stop_capture_duration_logger(self):
+        """Beendet den Logger für die Aufnahmedauer."""
+        if self.capture_duration_stop:
+            self.capture_duration_stop.set()
+        if self.capture_duration_thread and self.capture_duration_thread.is_alive():
+            self.capture_duration_thread.join(timeout=1)
+        self.capture_duration_thread = None
+        self.capture_duration_stop = None
+        self.capture_start_time = None
 
     def _read_preview_stream(self):
         """Liest Preview-Frames vom ffmpeg-Stream"""

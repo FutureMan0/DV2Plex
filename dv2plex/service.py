@@ -351,17 +351,25 @@ class CaptureService:
         else:
             part_number = 1
         
-        # Create capture engine
-        self.capture_engine = CaptureEngine(
-            ffmpeg_path,
-            device_path=self.config.get_firewire_device(),
-            log_callback=self._log,
-            state_callback=self._on_capture_state,
-        )
-        
-        # Setze Merge-Progress-Callback
-        if self.merge_progress_callback:
-            self.capture_engine.merge_progress_callback = self.merge_progress_callback
+        # Create or reuse capture engine (wichtig, um Rewind-Sperre zu behalten)
+        if not self.capture_engine:
+            self.capture_engine = CaptureEngine(
+                ffmpeg_path,
+                device_path=self.config.get_firewire_device(),
+                log_callback=self._log,
+                state_callback=self._on_capture_state,
+            )
+            # Setze Merge-Progress-Callback
+            if self.merge_progress_callback:
+                self.capture_engine.merge_progress_callback = self.merge_progress_callback
+        else:
+            # Update evtl. Gerätpfad falls geändert
+            self.capture_engine.device_path = self.config.get_firewire_device()
+
+        # Blockiere Start, falls Auto-Rewind noch läuft
+        if self.capture_engine.is_rewind_block_active():
+            remaining = self.capture_engine.get_rewind_block_remaining()
+            return False, f"Auto-Rewind läuft noch {remaining} Sekunden. Bitte warten."
         
         preview_fps = self.config.get("ui.preview_fps", 10)
         

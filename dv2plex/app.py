@@ -1684,16 +1684,41 @@ class MainWindow(QMainWindow):
         """Stoppt DV-Aufnahme"""
         if self.capture_engine:
             if self.capture_engine.stop_capture():
-                self.capture_start_btn.setEnabled(True)
+                # Start gesperrt bis Rewind-Puffer vorbei
+                block_seconds = 0
+                if hasattr(self.capture_engine, "get_rewind_block_remaining"):
+                    block_seconds = max(
+                        self.capture_engine.rewind_notification_delay_seconds,
+                        self.capture_engine.get_rewind_block_remaining(),
+                    )
+                else:
+                    block_seconds = getattr(self.capture_engine, "rewind_notification_delay_seconds", 300)
+
+                self.capture_start_btn.setEnabled(False)
                 self.capture_stop_btn.setEnabled(False)
-                # Re-enable camera control
+                # Kamera-Steuerung während Auto-Rewind deaktiviert lassen
                 if self.rewind_btn:
-                    self.rewind_btn.setEnabled(True)
+                    self.rewind_btn.setEnabled(False)
                 if self.play_btn:
-                    self.play_btn.setEnabled(True)
+                    self.play_btn.setEnabled(False)
                 if self.pause_btn:
-                    self.pause_btn.setEnabled(True)
-                self.update_status("Aufnahme beendet.")
+                    self.pause_btn.setEnabled(False)
+                minutes = block_seconds / 60
+                self.update_status(f"Aufnahme beendet. Auto-Rewind läuft (~{minutes:.1f} min).")
+
+                # Re-Aktivierung nach Sperrfrist
+                def _enable_controls_after_block():
+                    if self.capture_start_btn:
+                        self.capture_start_btn.setEnabled(True)
+                    if self.rewind_btn:
+                        self.rewind_btn.setEnabled(True)
+                    if self.play_btn:
+                        self.play_btn.setEnabled(True)
+                    if self.pause_btn:
+                        self.pause_btn.setEnabled(True)
+                    self.update_status("Bereit für nächste Aufnahme.")
+
+                QTimer.singleShot(int(block_seconds * 1000), _enable_controls_after_block)
                 
                 self.capture_preview_active = False
                 
