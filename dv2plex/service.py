@@ -387,7 +387,6 @@ class CaptureService:
             result = self.capture_engine.stop_capture()
             self._capture_running = False
             return result
-                self._capture_running = False
         return False
     
     def is_capturing(self) -> bool:
