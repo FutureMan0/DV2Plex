@@ -10,6 +10,9 @@ import os
 from pathlib import Path
 from typing import Optional, List, Tuple, Callable
 from threading import Thread, Event
+from queue import Queue, Empty
+import urllib.request
+import urllib.error
 
 from .config import Config
 from .capture import CaptureEngine
@@ -121,6 +124,9 @@ class PostprocessingService:
         self.log_callback = log_callback or (lambda msg: logger.info(msg))
         self._running = False
         self._stop_event = Event()
+        self._queue: Queue = Queue()
+        self._worker_thread: Optional[Thread] = None
+        self._worker_stop = Event()
     
     def _log(self, message: str):
         """Log-Nachricht ausgeben"""
@@ -134,101 +140,158 @@ class PostprocessingService:
         status_callback: Optional[Callable[[str], None]] = None
     ) -> Tuple[bool, str]:
         """
-        Verarbeitet einen Film (Upscale vorhandenes Merge → optional Export)
-        
-        Returns:
-            (success, message)
+        Legt einen Postprocessing-Job in die Queue (Upscale vorhandenes Merge → optional Export).
         """
-        if self._running:
-            return False, "Postprocessing läuft bereits"
-        
-        self._running = True
-        self._stop_event.clear()
-        
-        try:
-            title, year = parse_movie_folder_name(movie_dir.name)
-            movie_name = movie_dir.name
-            title = title or movie_name
-            display_name = f"{title} ({year})" if year else movie_name
-            
-            if status_callback:
-                status_callback(f"Postprocessing: {display_name}")
-            if progress_callback:
-                progress_callback(0)
-            
-            # Suche vorhandenes Merge
-            self._log(f"=== Suche vorhandenes Merge: {display_name} ===")
-            lowres_dir = movie_dir / "LowRes"
-            merged_file = self._find_existing_merge(lowres_dir)
-            
-            if not merged_file or not merged_file.exists():
-                return False, f"Kein fertiges Merge gefunden für {display_name}! Erwartet z.B. movie_merged.mp4 in {lowres_dir}"
-            
-            if progress_callback:
-                progress_callback(15)
-            
-            # Timestamp-Overlay wird übersprungen (bereits im LowRes enthalten)
-            self._log("Überspringe Timestamp-Overlay (bereits im LowRes enthalten).")
-            if progress_callback:
-                progress_callback(25)
-            
-            # Upscale
-            self._log("=== Starte Upscaling ===")
-            highres_dir = movie_dir / "HighRes"
-            highres_dir.mkdir(parents=True, exist_ok=True)
-            
-            profile = self.config.get_upscaling_profile(profile_name)
-            output_file = highres_dir / f"{movie_name}_4k.mp4"
-            
-            upscale_engine = UpscaleEngine(
-                self.config.get_realesrgan_path(),
-                ffmpeg_path=self.config.get_ffmpeg_path(),
-                log_callback=self._log
-            )
-            
-            def ffmpeg_progress_hook(pct: int):
-                if progress_callback:
-                    # Map 0-100 ffmpeg pct into 25-90 range to keep headroom
-                    mapped = 25 + int(0.65 * pct)
-                    progress_callback(min(90, max(25, mapped)))
+        self.enqueue_movie(movie_dir, profile_name, progress_callback, status_callback)
+        return True, "Job zur Postprocessing-Queue hinzugefügt."
 
-            if upscale_engine.upscale(merged_file, output_file, profile, progress_hook=ffmpeg_progress_hook):
-                if progress_callback:
-                    progress_callback(95)
-                
-                # Export
-                auto_export = self.config.get("capture.auto_export", False)
-                if auto_export:
-                    self._log("=== Starte Plex-Export ===")
-                    plex_exporter = PlexExporter(
-                        self.config.get_plex_movies_root(),
-                        log_callback=self._log
-                    )
-                    
-                    result = plex_exporter.export_movie(
-                        output_file,
-                        title,
-                        year or ""
-                    )
-                    
-                    if result:
-                        if progress_callback:
-                            progress_callback(100)
-                        return True, f"Film erfolgreich verarbeitet und nach Plex exportiert:\n{result}"
-                    else:
-                        return True, f"Postprocessing abgeschlossen (Export fehlgeschlagen)"
-                else:
+    def enqueue_movie(
+        self,
+        movie_dir: Path,
+        profile_name: str,
+        progress_callback: Optional[Callable[[int], None]] = None,
+        status_callback: Optional[Callable[[str], None]] = None
+    ):
+        self._queue.put({
+            "movie_dir": movie_dir,
+            "profile_name": profile_name,
+            "progress_callback": progress_callback,
+            "status_callback": status_callback,
+        })
+        self._start_worker()
+
+    def _start_worker(self):
+        if self._worker_thread and self._worker_thread.is_alive():
+            return
+        self._worker_stop.clear()
+        self._worker_thread = Thread(target=self._worker_loop, daemon=True)
+        self._worker_thread.start()
+
+    def _worker_loop(self):
+        while not self._worker_stop.is_set():
+            try:
+                job = self._queue.get(timeout=1)
+            except Empty:
+                continue
+
+            self._running = True
+            movie_dir = job["movie_dir"]
+            profile_name = job["profile_name"]
+            progress_callback = job.get("progress_callback")
+            status_callback = job.get("status_callback")
+
+            try:
+                success, message = self._process_movie_now(
+                    movie_dir,
+                    profile_name,
+                    progress_callback,
+                    status_callback,
+                )
+                # ntfy Notify
+                self._notify_ntfy(f"Upscaling {'erfolgreich' if success else 'fehlgeschlagen'}: {message}")
+            except Exception as e:
+                logger.exception("Fehler im Postprocessing-Worker")
+                self._notify_ntfy(f"Upscaling fehlgeschlagen: {e}")
+            finally:
+                self._running = False
+                self._queue.task_done()
+
+    def _process_movie_now(
+        self,
+        movie_dir: Path,
+        profile_name: str,
+        progress_callback: Optional[Callable[[int], None]] = None,
+        status_callback: Optional[Callable[[str], None]] = None
+    ) -> Tuple[bool, str]:
+        title, year = parse_movie_folder_name(movie_dir.name)
+        movie_name = movie_dir.name
+        title = title or movie_name
+        display_name = f"{title} ({year})" if year else movie_name
+
+        if status_callback:
+            status_callback(f"Postprocessing: {display_name}")
+        if progress_callback:
+            progress_callback(0)
+
+        # Suche vorhandenes Merge
+        self._log(f"=== Suche vorhandenes Merge: {display_name} ===")
+        lowres_dir = movie_dir / "LowRes"
+        merged_file = self._find_existing_merge(lowres_dir)
+
+        if not merged_file or not merged_file.exists():
+            return False, f"Kein fertiges Merge gefunden für {display_name}! Erwartet z.B. movie_merged.mp4 in {lowres_dir}"
+
+        if progress_callback:
+            progress_callback(15)
+
+        # Timestamp-Overlay wird übersprungen (bereits im LowRes enthalten)
+        self._log("Überspringe Timestamp-Overlay (bereits im LowRes enthalten).")
+        if progress_callback:
+            progress_callback(25)
+
+        # Upscale
+        self._log("=== Starte Upscaling ===")
+        highres_dir = movie_dir / "HighRes"
+        highres_dir.mkdir(parents=True, exist_ok=True)
+
+        profile = self.config.get_upscaling_profile(profile_name)
+        output_file = highres_dir / f"{movie_name}_4k.mp4"
+
+        upscale_engine = UpscaleEngine(
+            self.config.get_realesrgan_path(),
+            ffmpeg_path=self.config.get_ffmpeg_path(),
+            log_callback=self._log
+        )
+
+        def ffmpeg_progress_hook(pct: int):
+            if progress_callback:
+                mapped = 25 + int(0.65 * pct)
+                progress_callback(min(90, max(25, mapped)))
+
+        if upscale_engine.upscale(merged_file, output_file, profile, progress_hook=ffmpeg_progress_hook):
+            if progress_callback:
+                progress_callback(95)
+
+            # Export
+            auto_export = self.config.get("capture.auto_export", False)
+            if auto_export:
+                self._log("=== Starte Plex-Export ===")
+                plex_exporter = PlexExporter(
+                    self.config.get_plex_movies_root(),
+                    log_callback=self._log
+                )
+
+                result = plex_exporter.export_movie(
+                    output_file,
+                    title,
+                    year or ""
+                )
+
+                if result:
                     if progress_callback:
                         progress_callback(100)
-                    return True, f"Film erfolgreich verarbeitet:\n{output_file}"
+                    return True, f"{display_name} exportiert: {result}"
+                else:
+                    return True, f"{display_name} verarbeitet (Export fehlgeschlagen)"
             else:
-                return False, "Upscaling fehlgeschlagen!"
-        
+                if progress_callback:
+                    progress_callback(100)
+                return True, f"{display_name} verarbeitet: {output_file}"
+        else:
+            return False, f"Upscaling fehlgeschlagen für {display_name}"
+
+    def _notify_ntfy(self, message: str):
+        """Sendet eine ntfy-Benachrichtigung für Upscaling-Events."""
+        try:
+            req = urllib.request.Request(
+                "https://ntfy.sh/dv2plex-upscale",
+                data=message.encode("utf-8"),
+                method="POST",
+            )
+            urllib.request.urlopen(req, timeout=5)
+            self._log("ntfy-Benachrichtigung (upscale) gesendet.")
         except Exception as e:
-            logger.exception("Fehler beim Postprocessing")
-            return False, f"Fehler beim Postprocessing: {e}"
-        finally:
-            self._running = False
+            self._log(f"ntfy-Benachrichtigung fehlgeschlagen: {e}")
 
     def _find_existing_merge(self, lowres_dir: Path) -> Optional[Path]:
         """Sucht nach vorhandenen movie_merged-Dateien im LowRes-Ordner."""
