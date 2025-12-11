@@ -134,7 +134,7 @@ class PostprocessingService:
         status_callback: Optional[Callable[[str], None]] = None
     ) -> Tuple[bool, str]:
         """
-        Verarbeitet einen Film (Merge → Upscale → optional Export)
+        Verarbeitet einen Film (Upscale vorhandenes Merge → optional Export)
         
         Returns:
             (success, message)
@@ -156,28 +156,27 @@ class PostprocessingService:
             if progress_callback:
                 progress_callback(0)
             
-            # Merge
-            self._log(f"=== Starte Merge: {display_name} ===")
+            # Suche vorhandenes Merge
+            self._log(f"=== Suche vorhandenes Merge: {display_name} ===")
             lowres_dir = movie_dir / "LowRes"
-            merge_engine = MergeEngine(
-                self.config.get_ffmpeg_path(),
-                log_callback=self._log
-            )
-            merged_file = merge_engine.merge_parts(lowres_dir)
+            merged_file = self._find_existing_merge(lowres_dir)
             
             if not merged_file or not merged_file.exists():
-                return False, f"Merge fehlgeschlagen für {display_name}!"
+                return False, f"Kein fertiges Merge gefunden für {display_name}! Erwartet z.B. movie_merged.mp4 in {lowres_dir}"
             
             if progress_callback:
-                progress_callback(20)
+                progress_callback(15)
             
             # Timestamp overlay (if enabled)
             timestamp_overlay = self.config.get("capture.timestamp_overlay", True)
             if timestamp_overlay:
                 self._log("=== Füge Timestamp-Overlays hinzu ===")
                 timestamp_duration = self.config.get("capture.timestamp_duration", 4)
-
                 temp_merged = merged_file.parent / f"{merged_file.stem}_with_timestamps{merged_file.suffix}"
+                merge_engine = MergeEngine(
+                    self.config.get_ffmpeg_path(),
+                    log_callback=self._log
+                )
                 result_file = merge_engine.add_timestamp_overlay(
                     merged_file,
                     temp_merged,
@@ -248,6 +247,23 @@ class PostprocessingService:
             return False, f"Fehler beim Postprocessing: {e}"
         finally:
             self._running = False
+
+    def _find_existing_merge(self, lowres_dir: Path) -> Optional[Path]:
+        """Sucht nach vorhandenen movie_merged-Dateien im LowRes-Ordner."""
+        if not lowres_dir.exists():
+            return None
+
+        candidates = []
+        patterns = ["movie_merged*.mp4", "movie_merged*.avi", "movie_merged*.mov", "movie_merged*.mkv"]
+        for pattern in patterns:
+            candidates.extend(lowres_dir.glob(pattern))
+
+        if not candidates:
+            return None
+
+        # Wähle die neueste Datei
+        candidates.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+        return candidates[0]
     
     def is_running(self) -> bool:
         """Prüft ob Postprocessing läuft"""
