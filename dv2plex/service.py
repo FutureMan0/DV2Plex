@@ -32,7 +32,7 @@ def parse_movie_folder_name(folder_name: str) -> Tuple[str, str]:
 
 
 def find_pending_movies(config: Config) -> List[Path]:
-    """Findet alle Filme, die noch verarbeitet werden müssen"""
+    """Findet alle Filme, die noch verarbeitet werden müssen."""
     pending: List[Path] = []
     dv_root = config.get_dv_import_root()
     if not dv_root.exists():
@@ -44,11 +44,17 @@ def find_pending_movies(config: Config) -> List[Path]:
         lowres_dir = movie_dir / "LowRes"
         if not lowres_dir.exists():
             continue
-        parts = list(lowres_dir.glob("part_*.avi")) + list(lowres_dir.glob("part_*.mp4"))
-        if not parts:
+        # Nur fertige Merges berücksichtigen
+        merged_files = []
+        merged_files += list(lowres_dir.glob("movie_merged*.mp4"))
+        merged_files += list(lowres_dir.glob("movie_merged*.avi"))
+        merged_files += list(lowres_dir.glob("movie_merged*.mov"))
+        merged_files += list(lowres_dir.glob("movie_merged*.mkv"))
+        if not merged_files:
             continue
         highres_dir = movie_dir / "HighRes"
         expected_file = highres_dir / f"{movie_dir.name}_4k.mp4"
+        # Wenn kein _4k-Output existiert, als pending anzeigen
         if not expected_file.exists():
             pending.append(movie_dir)
     
