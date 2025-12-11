@@ -7,6 +7,7 @@ import logging
 import base64
 import asyncio
 import threading
+import mimetypes
 from pathlib import Path
 from typing import Optional, List, Dict, Any
 from datetime import datetime
@@ -527,6 +528,72 @@ async def pause_camera():
     
     capture_service.pause_camera()
     return {"success": True}
+
+
+def _ensure_in_dv_import_root(file_path: Path) -> Path:
+    """Validiert, dass sich der Pfad innerhalb des DV_Import-Verzeichnisses befindet."""
+    root = config.get_dv_import_root().resolve()
+    try:
+        resolved = file_path.resolve()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Ungültiger Pfad")
+    try:
+        resolved.relative_to(root)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Pfad liegt nicht im DV_Import-Ordner")
+    return resolved
+
+
+def _list_videos_in_folder(folder: Path) -> List[Dict[str, str]]:
+    """Gibt alle Video-Dateien in einem Ordner zurück."""
+    exts = {".mp4", ".avi", ".mkv", ".mov"}
+    if not folder.exists() or not folder.is_dir():
+        return []
+    files = []
+    for f in sorted(folder.iterdir()):
+        if f.is_file() and f.suffix.lower() in exts:
+            try:
+                safe_path = _ensure_in_dv_import_root(f)
+            except HTTPException:
+                continue
+            files.append({"name": f.name, "path": str(safe_path)})
+    return files
+
+
+@app.get("/api/player/projects")
+async def list_player_projects():
+    """Listet alle Projekte (LowRes/HighRes) im DV_Import-Ordner auf."""
+    root = config.get_dv_import_root()
+    projects = []
+    if not root.exists():
+        return {"projects": projects}
+
+    for project_dir in sorted(root.iterdir()):
+        if not project_dir.is_dir():
+            continue
+        lowres = _list_videos_in_folder(project_dir / "LowRes")
+        highres = _list_videos_in_folder(project_dir / "HighRes")
+        if not lowres and not highres:
+            continue
+        projects.append({
+            "title": project_dir.name,
+            "lowres": lowres,
+            "highres": highres,
+        })
+
+    return {"projects": projects}
+
+
+@app.get("/api/player/stream")
+async def stream_video(path: str):
+    """Spielt eine Videodatei aus dem DV_Import-Ordner ab."""
+    if not path:
+        raise HTTPException(status_code=400, detail="Pfad fehlt")
+    file_path = _ensure_in_dv_import_root(Path(path))
+    if not file_path.exists() or not file_path.is_file():
+        raise HTTPException(status_code=404, detail="Datei nicht gefunden")
+    mime_type, _ = mimetypes.guess_type(file_path.name)
+    return FileResponse(file_path, media_type=mime_type or "video/mp4", filename=file_path.name)
 
 
 @app.post("/api/postprocess/process")
@@ -1870,6 +1937,7 @@ def get_html_interface() -> str:
             <div class="tab" onclick="switchTab('movie')"><span>🎞️ Movie Mode</span></div>
             <div class="tab" onclick="switchTab('cover')"><span>🖼️ Cover</span></div>
             <div class="tab" onclick="switchTab('queue')"><span>🔄 Merge-Queue</span></div>
+            <div class="tab" onclick="switchTab('player')"><span>▶ Video Player</span></div>
             <div class="tab" onclick="switchTab('logs')"><span>📋 Logs</span></div>
             <div class="tab" onclick="switchTab('settings')"><span>⚙️ Einstellungen</span></div>
         </div>
@@ -2026,6 +2094,19 @@ def get_html_interface() -> str:
             
             <div id="queue-list" class="list-container">
                 <div style="color: var(--plex-text-secondary); padding: 12px;">Keine Jobs in der Queue.</div>
+            </div>
+        </div>
+
+        <!-- Video Player Tab -->
+        <div id="player" class="tab-content">
+            <h3 style="color: var(--plex-gold);">▶ Video Player</h3>
+            <p>Fertige Projekte aus dem DV_Import-Ordner. LowRes/HighRes direkt abspielen.</p>
+            <div style="display: grid; grid-template-columns: 1.2fr 1fr; gap: 15px; align-items: start;">
+                <div class="list-container" id="player-project-list"></div>
+                <div>
+                    <video id="player-video" controls style="width: 100%; max-height: 420px; background: #000;"></video>
+                    <div id="player-now-playing" style="margin-top: 8px; font-size: 12px; color: var(--plex-text-secondary);">Keine Auswahl</div>
+                </div>
             </div>
         </div>
         
@@ -2379,6 +2460,8 @@ def get_html_interface() -> str:
                 loadMovieList();
             } else if (tabName === 'cover') {
                 loadCoverVideoList();
+            } else if (tabName === 'player') {
+                loadPlayerProjects();
             } else if (tabName === 'settings') {
                 loadSettings();
             }
@@ -2654,6 +2737,93 @@ def get_html_interface() -> str:
             } catch (error) {
                 alert('Fehler: ' + error.message);
             }
+        }
+        
+        // Video Player functions
+        async function loadPlayerProjects() {
+            const list = document.getElementById('player-project-list');
+            list.innerHTML = '<div style="padding: 14px; color: var(--plex-text-secondary);">Lade Projekte...</div>';
+            try {
+                const response = await fetch('/api/player/projects');
+                const data = await response.json();
+                renderPlayerProjects(data.projects || []);
+            } catch (error) {
+                console.error('Fehler beim Laden der Projekte:', error);
+                list.innerHTML = '<div style="padding: 14px; color: var(--plex-text-secondary);">Fehler beim Laden.</div>';
+            }
+        }
+
+        function renderPlayerProjects(projects) {
+            const list = document.getElementById('player-project-list');
+            list.innerHTML = '';
+            if (!projects.length) {
+                list.innerHTML = '<div style="padding: 14px; color: var(--plex-text-secondary);">Keine Projekte gefunden. Prüfe den DV_Import-Ordner.</div>';
+                return;
+            }
+
+            projects.forEach(project => {
+                const card = document.createElement('div');
+                card.className = 'list-item';
+                card.style.display = 'flex';
+                card.style.flexDirection = 'column';
+                card.style.gap = '6px';
+
+                const title = document.createElement('div');
+                title.style.fontWeight = '700';
+                title.textContent = project.title;
+                card.appendChild(title);
+
+                const lowresSection = document.createElement('div');
+                lowresSection.innerHTML = '<div style="font-size: 12px; color: var(--plex-text-secondary);">LowRes</div>';
+                if (project.lowres && project.lowres.length) {
+                    project.lowres.forEach(file => {
+                        const btn = document.createElement('button');
+                        btn.className = 'btn-secondary';
+                        btn.style.marginRight = '6px';
+                        btn.textContent = file.name;
+                        btn.onclick = () => playVideo(file.path, `${project.title} · LowRes · ${file.name}`);
+                        lowresSection.appendChild(btn);
+                    });
+                } else {
+                    const empty = document.createElement('div');
+                    empty.style.fontSize = '12px';
+                    empty.style.color = 'var(--plex-text-secondary)';
+                    empty.textContent = 'Keine LowRes-Dateien';
+                    lowresSection.appendChild(empty);
+                }
+                card.appendChild(lowresSection);
+
+                const highresSection = document.createElement('div');
+                highresSection.innerHTML = '<div style="font-size: 12px; color: var(--plex-text-secondary);">HighRes</div>';
+                if (project.highres && project.highres.length) {
+                    project.highres.forEach(file => {
+                        const btn = document.createElement('button');
+                        btn.className = 'btn-secondary';
+                        btn.style.marginRight = '6px';
+                        btn.textContent = file.name;
+                        btn.onclick = () => playVideo(file.path, `${project.title} · HighRes · ${file.name}`);
+                        highresSection.appendChild(btn);
+                    });
+                } else {
+                    const empty = document.createElement('div');
+                    empty.style.fontSize = '12px';
+                    empty.style.color = 'var(--plex-text-secondary)';
+                    empty.textContent = 'Keine HighRes-Dateien';
+                    highresSection.appendChild(empty);
+                }
+                card.appendChild(highresSection);
+
+                list.appendChild(card);
+            });
+        }
+
+        function playVideo(path, label) {
+            const video = document.getElementById('player-video');
+            const nowPlaying = document.getElementById('player-now-playing');
+            if (!path || !video) return;
+            video.src = `/api/player/stream?path=${encodeURIComponent(path)}`;
+            video.play().catch(() => {});
+            nowPlaying.textContent = `Spielt: ${label}`;
         }
         
         // Cover functions
