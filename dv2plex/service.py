@@ -137,12 +137,13 @@ class PostprocessingService:
         movie_dir: Path,
         profile_name: str,
         progress_callback: Optional[Callable[[int], None]] = None,
-        status_callback: Optional[Callable[[str], None]] = None
+        status_callback: Optional[Callable[[str], None]] = None,
+        finished_callback: Optional[Callable[[bool, str], None]] = None,
     ) -> Tuple[bool, str]:
         """
         Legt einen Postprocessing-Job in die Queue (Upscale vorhandenes Merge → optional Export).
         """
-        self.enqueue_movie(movie_dir, profile_name, progress_callback, status_callback)
+        self.enqueue_movie(movie_dir, profile_name, progress_callback, status_callback, finished_callback)
         return True, "Job zur Postprocessing-Queue hinzugefügt."
 
     def enqueue_movie(
