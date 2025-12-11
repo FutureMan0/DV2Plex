@@ -696,7 +696,7 @@ class CaptureEngine:
 
     def _monitor_split_inactivity(self, timeout_seconds: int = 600):
         """
-        Überwacht, ob neue Splits eintreffen. Stoppt Aufnahme nach Timeout ohne neue Datei.
+        Überwacht, ob neue Splits eintreffen. Stoppt NICHT mehr automatisch, nur Log-Hinweise.
         """
         if not self.splits_dir:
             return
@@ -708,7 +708,7 @@ class CaptureEngine:
         self.log("Inaktivitätsmonitor: gestartet")
         
         try:
-            while self.is_capturing and not self.auto_stop_inactivity_triggered:
+            while self.is_capturing:
                 now = time.time()
                 
                 current_files = set(self.splits_dir.glob("dvgrab*.avi")) | set(self.splits_dir.glob("dvgrab*.dv"))
@@ -718,13 +718,11 @@ class CaptureEngine:
                     known_files |= new_files
                 
                 if self.last_split_time and (now - self.last_split_time) >= timeout_seconds:
-                    self.auto_stop_inactivity_triggered = True
-                    self.log("Inaktivitätsmonitor: 10 Minuten keine neuen Splits - stoppe Aufnahme.")
-                    try:
-                        self.stop_capture()
-                    except Exception as e:
-                        self.log(f"Inaktivitätsmonitor: Fehler beim Stoppen: {e}")
-                    break
+                    # Nur informieren, nicht stoppen
+                    minutes = timeout_seconds / 60
+                    self.log(f"Inaktivitätsmonitor: {minutes:.1f} Minuten keine neuen Splits (keine Aktion, Aufnahme läuft weiter).")
+                    # Warte weiter, aber vermeide Dauerspam
+                    self.last_split_time = now
                 
                 time.sleep(5)
         except Exception as e:
