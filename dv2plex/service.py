@@ -150,13 +150,15 @@ class PostprocessingService:
         movie_dir: Path,
         profile_name: str,
         progress_callback: Optional[Callable[[int], None]] = None,
-        status_callback: Optional[Callable[[str], None]] = None
+        status_callback: Optional[Callable[[str], None]] = None,
+        finished_callback: Optional[Callable[[bool, str], None]] = None,
     ):
         self._queue.put({
             "movie_dir": movie_dir,
             "profile_name": profile_name,
             "progress_callback": progress_callback,
             "status_callback": status_callback,
+            "finished_callback": finished_callback,
         })
         self._start_worker()
 
@@ -179,6 +181,7 @@ class PostprocessingService:
             profile_name = job["profile_name"]
             progress_callback = job.get("progress_callback")
             status_callback = job.get("status_callback")
+            finished_callback = job.get("finished_callback")
 
             try:
                 success, message = self._process_movie_now(
@@ -189,6 +192,11 @@ class PostprocessingService:
                 )
                 # ntfy Notify
                 self._notify_ntfy(f"Upscaling {'erfolgreich' if success else 'fehlgeschlagen'}: {message}")
+                if finished_callback:
+                    try:
+                        finished_callback(success, message)
+                    except Exception:
+                        logger.exception("Fehler im finished_callback")
             except Exception as e:
                 logger.exception("Fehler im Postprocessing-Worker")
                 self._notify_ntfy(f"Upscaling fehlgeschlagen: {e}")

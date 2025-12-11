@@ -621,20 +621,26 @@ async def process_movie(request: PostprocessRequest):
         
         def status_cb(status: str):
             broadcast_message_sync({"type": "status", "status": status, "operation": "postprocessing"})
+
+        def finished_cb(success: bool, message: str):
+            global active_postprocessing
+            active_postprocessing = None
+            broadcast_message_sync({
+                "type": "postprocessing_finished",
+                "success": success,
+                "message": message
+            })
         
         success, message = postprocessing_service.process_movie(
             movie_dir,
             request.profile_name,
             progress_callback=progress_cb,
-            status_callback=status_cb
+            status_callback=status_cb,
+            finished_callback=finished_cb,
         )
-        
-        active_postprocessing = None
-        broadcast_message_sync({
-            "type": "postprocessing_finished",
-            "success": success,
-            "message": message
-        })
+        # Wenn die Queue nur angenommen hat, nicht sofort abschließen; finished_cb macht das
+        if not success:
+            finished_cb(False, message)
     
     thread = threading.Thread(target=run_postprocessing, daemon=True)
     thread.start()
