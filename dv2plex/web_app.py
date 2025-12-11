@@ -1135,56 +1135,44 @@ def get_html_interface() -> str:
         }
         
         .tabs {
-            display: flex;
-            gap: 6px;
-            margin-bottom: 15px;
-            flex-wrap: wrap;
-            padding: 6px;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+            gap: 8px;
+            margin-bottom: 18px;
+            padding: 8px;
             background: rgba(0, 0, 0, 0.3);
             border-radius: 14px;
             backdrop-filter: blur(10px);
-            overflow-x: auto;
-            -webkit-overflow-scrolling: touch;
         }
         
         .tab {
-            padding: 10px 14px;
-            background: transparent;
-            border: none;
+            padding: 12px 14px;
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid var(--glass-border);
             border-radius: 10px;
             cursor: pointer;
             color: var(--plex-text-secondary);
             font-weight: 600;
             font-size: 12px;
-            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            transition: all 0.25s ease;
             position: relative;
-            overflow: hidden;
+            text-align: center;
             white-space: nowrap;
-            flex-shrink: 0;
-        }
-        
-        .tab::before {
-            content: '';
-            position: absolute;
-            inset: 0;
-            background: linear-gradient(135deg, var(--plex-gold), var(--plex-orange));
-            opacity: 0;
-            transition: opacity 0.3s;
-            border-radius: 10px;
         }
         
         .tab:hover {
             color: var(--plex-text);
-            background: rgba(255, 255, 255, 0.05);
+            border-color: var(--plex-gold);
+            box-shadow: 0 6px 14px rgba(0,0,0,0.25);
+            transform: translateY(-1px);
         }
         
         .tab.active {
-            color: #000000;
+            color: #0d0d0d;
             font-weight: 700;
-        }
-        
-        .tab.active::before {
-            opacity: 1;
+            background: linear-gradient(135deg, var(--plex-gold) 0%, var(--plex-orange) 100%);
+            border-color: transparent;
+            box-shadow: 0 10px 24px rgba(229,160,13,0.25);
         }
         
         .tab span {
@@ -1446,7 +1434,7 @@ def get_html_interface() -> str:
             border: 1px solid var(--glass-border);
             border-radius: 14px;
             padding: 10px;
-            max-height: 300px;
+            max-height: 360px;
             overflow-y: auto;
             backdrop-filter: blur(10px);
             -webkit-overflow-scrolling: touch;
@@ -1490,6 +1478,60 @@ def get_html_interface() -> str:
             background: linear-gradient(135deg, rgba(229, 160, 13, 0.2), rgba(204, 123, 25, 0.15));
             border-color: var(--plex-gold);
             box-shadow: 0 0 20px rgba(229, 160, 13, 0.15);
+        }
+
+        /* Player styles */
+        #player-project-list {
+            display: grid;
+            gap: 12px;
+        }
+
+        .player-card {
+            padding: 14px;
+            border-radius: 12px;
+            background: linear-gradient(145deg, rgba(255,255,255,0.04), rgba(0,0,0,0.35));
+            border: 1px solid var(--glass-border);
+            box-shadow: 0 12px 30px rgba(0,0,0,0.35);
+        }
+
+        .player-card h4 {
+            margin: 0 0 4px 0;
+            color: var(--plex-text);
+        }
+
+        .player-section {
+            margin-top: 6px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            align-items: center;
+        }
+
+        .player-section small {
+            color: var(--plex-text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+        }
+
+        .player-chip {
+            padding: 8px 12px;
+            border-radius: 10px;
+            background: rgba(255,255,255,0.06);
+            border: 1px solid var(--glass-border);
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .player-chip:hover {
+            border-color: var(--plex-gold);
+            color: var(--plex-gold);
+            transform: translateY(-1px);
+        }
+
+        #player-video {
+            border-radius: 14px;
+            border: 1px solid var(--glass-border);
+            box-shadow: 0 12px 30px rgba(0,0,0,0.35);
         }
         
         .list-item .icon {
@@ -2102,7 +2144,7 @@ def get_html_interface() -> str:
             <h3 style="color: var(--plex-gold);">▶ Video Player</h3>
             <p>Fertige Projekte aus dem DV_Import-Ordner. LowRes/HighRes direkt abspielen.</p>
             <div style="display: grid; grid-template-columns: 1.2fr 1fr; gap: 15px; align-items: start;">
-                <div class="list-container" id="player-project-list"></div>
+                <div class="list-container" id="player-project-list" style="max-height: 540px;"></div>
                 <div>
                     <video id="player-video" controls style="width: 100%; max-height: 420px; background: #000;"></video>
                     <div id="player-now-playing" style="margin-top: 8px; font-size: 12px; color: var(--plex-text-secondary);">Keine Auswahl</div>
@@ -2763,26 +2805,23 @@ def get_html_interface() -> str:
 
             projects.forEach(project => {
                 const card = document.createElement('div');
-                card.className = 'list-item';
-                card.style.display = 'flex';
-                card.style.flexDirection = 'column';
-                card.style.gap = '6px';
+                card.className = 'player-card';
 
-                const title = document.createElement('div');
+                const title = document.createElement('h4');
                 title.style.fontWeight = '700';
                 title.textContent = project.title;
                 card.appendChild(title);
 
                 const lowresSection = document.createElement('div');
-                lowresSection.innerHTML = '<div style="font-size: 12px; color: var(--plex-text-secondary);">LowRes</div>';
+                lowresSection.className = 'player-section';
+                lowresSection.innerHTML = '<small>LowRes</small>';
                 if (project.lowres && project.lowres.length) {
                     project.lowres.forEach(file => {
-                        const btn = document.createElement('button');
-                        btn.className = 'btn-secondary';
-                        btn.style.marginRight = '6px';
-                        btn.textContent = file.name;
-                        btn.onclick = () => playVideo(file.path, `${project.title} · LowRes · ${file.name}`);
-                        lowresSection.appendChild(btn);
+                        const chip = document.createElement('div');
+                        chip.className = 'player-chip';
+                        chip.textContent = file.name;
+                        chip.onclick = () => playVideo(file.path, `${project.title} · LowRes · ${file.name}`);
+                        lowresSection.appendChild(chip);
                     });
                 } else {
                     const empty = document.createElement('div');
@@ -2794,15 +2833,15 @@ def get_html_interface() -> str:
                 card.appendChild(lowresSection);
 
                 const highresSection = document.createElement('div');
-                highresSection.innerHTML = '<div style="font-size: 12px; color: var(--plex-text-secondary);">HighRes</div>';
+                highresSection.className = 'player-section';
+                highresSection.innerHTML = '<small>HighRes</small>';
                 if (project.highres && project.highres.length) {
                     project.highres.forEach(file => {
-                        const btn = document.createElement('button');
-                        btn.className = 'btn-secondary';
-                        btn.style.marginRight = '6px';
-                        btn.textContent = file.name;
-                        btn.onclick = () => playVideo(file.path, `${project.title} · HighRes · ${file.name}`);
-                        highresSection.appendChild(btn);
+                        const chip = document.createElement('div');
+                        chip.className = 'player-chip';
+                        chip.textContent = file.name;
+                        chip.onclick = () => playVideo(file.path, `${project.title} · HighRes · ${file.name}`);
+                        highresSection.appendChild(chip);
                     });
                 } else {
                     const empty = document.createElement('div');
