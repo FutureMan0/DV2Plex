@@ -604,9 +604,6 @@ async def process_movie(request: PostprocessRequest):
     if not postprocessing_service:
         raise HTTPException(status_code=500, detail="Postprocessing-Service nicht initialisiert")
     
-    if postprocessing_service.is_running():
-        raise HTTPException(status_code=400, detail="Postprocessing läuft bereits")
-    
     movie_dir = Path(request.movie_dir)
     if not movie_dir.exists():
         raise HTTPException(status_code=404, detail=f"Film-Ordner nicht gefunden: {movie_dir}")
