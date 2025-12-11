@@ -33,32 +33,46 @@ def parse_movie_folder_name(folder_name: str) -> Tuple[str, str]:
 
 def find_pending_movies(config: Config) -> List[Path]:
     """Findet alle Filme, die noch verarbeitet werden müssen."""
-    pending: List[Path] = []
+    pending_set: set[Path] = set()
     dv_root = config.get_dv_import_root()
     if not dv_root.exists():
-        return pending
+        return []
     
+    def add_if_pending(project_dir: Path):
+        """Fügt Projekt hinzu, falls kein HighRes-Output existiert."""
+        highres_dir = project_dir / "HighRes"
+        expected_file = highres_dir / f"{project_dir.name}_4k.mp4"
+        if not expected_file.exists():
+            pending_set.add(project_dir)
+
+    # 1) Klassische Struktur: DV_Import/<Projekt>/LowRes/movie_merged.*
     for movie_dir in sorted(dv_root.iterdir()):
         if not movie_dir.is_dir():
             continue
         lowres_dir = movie_dir / "LowRes"
         if not lowres_dir.exists():
             continue
-        # Nur fertige Merges berücksichtigen
         merged_files = []
         merged_files += list(lowres_dir.glob("movie_merged*.mp4"))
         merged_files += list(lowres_dir.glob("movie_merged*.avi"))
         merged_files += list(lowres_dir.glob("movie_merged*.mov"))
         merged_files += list(lowres_dir.glob("movie_merged*.mkv"))
-        if not merged_files:
+        if merged_files:
+            add_if_pending(movie_dir)
+
+    # 2) Fallback: Suche nach movie_merged* irgendwo unter DV_Import (z.B. wenn Struktur abweicht)
+    for merged_file in dv_root.glob("**/movie_merged*.*"):
+        # Projektordner ist der Parent von LowRes, sonst der direkte Parent
+        parent = merged_file.parent
+        project_dir = parent.parent if parent.name.lower() == "lowres" else parent
+        # Nur Projekte innerhalb des DV_Import akzeptieren
+        try:
+            project_dir.relative_to(dv_root)
+        except ValueError:
             continue
-        highres_dir = movie_dir / "HighRes"
-        expected_file = highres_dir / f"{movie_dir.name}_4k.mp4"
-        # Wenn kein _4k-Output existiert, als pending anzeigen
-        if not expected_file.exists():
-            pending.append(movie_dir)
-    
-    return pending
+        add_if_pending(project_dir)
+
+    return sorted(pending_set)
 
 
 def find_upscaled_videos(config: Config) -> List[Tuple[Path, str, str]]:
