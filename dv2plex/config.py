@@ -143,6 +143,14 @@ class Config:
                 "log_directory": str(dv2plex_dir / "logs"),
                 "max_log_files": 10
             },
+            "update": {
+                "enabled": True,
+                "interval_minutes": 60,
+                "branch": "master",
+                "service_name": "dv2plex",
+                "skip_during_capture": True,
+                "skip_during_merge": True
+            },
             "cover": {
                 "default_model": "runwayml/stable-diffusion-v1-5",
                 "default_prompt": "cinematic movie poster, dramatic lighting, vintage film look, high detail, professional photography",

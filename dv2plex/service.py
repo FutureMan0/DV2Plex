@@ -387,12 +387,34 @@ class CaptureService:
             result = self.capture_engine.stop_capture()
             self._capture_running = False
             return result
-        self._capture_running = False
+                self._capture_running = False
         return False
     
     def is_capturing(self) -> bool:
         """Prüft ob Capture läuft"""
         return self._capture_running
+
+    def has_active_merge(self) -> bool:
+        """Prüft ob ein Merge-Job aktiv oder ausstehend ist"""
+        engine = getattr(self, "capture_engine", None)
+        if not engine:
+            return False
+
+        # Aktiver Job
+        current_job = getattr(engine, "current_merge_job", None)
+        if current_job and current_job.status in ("running", "pending"):
+            return True
+
+        # Jobs in Liste oder Queue
+        jobs = getattr(engine, "merge_jobs", [])
+        if any(j.status in ("running", "pending") for j in jobs):
+            return True
+
+        queue = getattr(engine, "merge_queue", None)
+        if queue and hasattr(queue, "empty") and not queue.empty():
+            return True
+
+        return False
 
     def _on_capture_state(self, state: str):
         """Callback aus CaptureEngine (z.B. stopped)"""

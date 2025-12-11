@@ -33,6 +33,7 @@ from dv2plex.service import (
     find_available_videos,
     parse_movie_folder_name
 )
+from dv2plex.update_manager import UpdateManager
 
 # Try to import QImage for preview conversion
 try:
@@ -62,6 +63,8 @@ capture_service: Optional[CaptureService] = None
 postprocessing_service: Optional[PostprocessingService] = None
 movie_mode_service: Optional[MovieModeService] = None
 cover_service: Optional[CoverService] = None
+update_manager: Optional[UpdateManager] = None
+update_task: Optional[asyncio.Task] = None
 main_event_loop: Optional[asyncio.AbstractEventLoop] = None
 
 # WebSocket connections for broadcasting
@@ -139,6 +142,14 @@ def setup_services():
     postprocessing_service = PostprocessingService(config, log_callback=log_callback)
     movie_mode_service = MovieModeService(config, log_callback=log_callback)
     cover_service = CoverService(config, log_callback=log_callback)
+    update_manager = UpdateManager(
+        project_root,
+        config.get("update.branch", "master"),
+        config.get("update.service_name", "dv2plex"),
+        config,
+        capture_service,
+        log_callback=lambda msg: add_log_entry(msg, "update"),
+    )
 
 
 async def broadcast_message(message: Dict[str, Any]):
@@ -186,6 +197,36 @@ def broadcast_message_sync(message: Dict[str, Any]):
             loop.run_until_complete(broadcast_message(message))
         except Exception as e:
             logger.error(f"Fehler bei WebSocket-Broadcast: {e}")
+
+
+async def _start_update_scheduler():
+    """Startet den periodischen Update-Check."""
+    global update_task
+    if update_task and not update_task.done():
+        return
+    if not update_manager:
+        return
+
+    async def _loop():
+        await asyncio.sleep(5)
+        while True:
+            interval_minutes = int(config.get("update.interval_minutes", 60) or 60)
+            interval_minutes = max(1, interval_minutes)
+            if config.get("update.enabled", True):
+                try:
+                    result = await update_manager.check_and_update(auto=True)
+                    if result.get("blocked"):
+                        add_log_entry(f"Update übersprungen: {result.get('reason')}", "update")
+                    elif result.get("updated"):
+                        add_log_entry("Auto-Update erfolgreich ausgeführt", "update")
+                    elif result.get("error"):
+                        add_log_entry(f"Auto-Update Fehler: {result.get('error')}", "update")
+                except Exception as e:
+                    logger.error(f"Auto-Update Scheduler Fehler: {e}")
+                    add_log_entry(f"Auto-Update Scheduler Fehler: {e}", "update")
+            await asyncio.sleep(interval_minutes * 60)
+
+    update_task = asyncio.create_task(_loop())
 
 
 def qimage_to_base64(image) -> Optional[str]:
@@ -284,6 +325,47 @@ async def get_status():
         "postprocessing_running": postprocessing_service.is_running() if postprocessing_service else False,
         "device_available": capture_service.get_device() is not None if capture_service else False,
         "active_capture": active_capture
+    }
+
+
+@app.get("/api/update/status")
+async def get_update_status(refresh: bool = False):
+    """Gibt den Update-Status zurück"""
+    if not update_manager:
+        raise HTTPException(status_code=500, detail="Update-Manager nicht initialisiert")
+    status = await update_manager.get_status(refresh=refresh)
+    busy_reason = update_manager.busy_reason()
+    return {
+        "status": {
+            "local": status.local,
+            "remote": status.remote,
+            "ahead": status.ahead,
+            "behind": status.behind,
+            "fetched": status.fetched,
+            "ok": status.ok,
+            "error": status.error,
+            "last_checked": status.last_checked,
+            "blocked_reason": status.blocked_reason or busy_reason,
+        },
+        "last_result": update_manager.last_result,
+    }
+
+
+@app.post("/api/update/run")
+async def trigger_update():
+    """Löst ein manuelles Update aus (git pull + Restart)"""
+    if not update_manager:
+        raise HTTPException(status_code=500, detail="Update-Manager nicht initialisiert")
+    result = await update_manager.check_and_update(auto=False)
+    if result.get("blocked"):
+        raise HTTPException(status_code=409, detail=result.get("reason") or "Update blockiert")
+    if result.get("error"):
+        raise HTTPException(status_code=500, detail=result.get("error"))
+    return {
+        "success": result.get("updated", False),
+        "message": result.get("message")
+        or ("Kein Update nötig" if not result.get("updated") else "Update ausgeführt"),
+        "status": result.get("status"),
     }
 
 
@@ -629,6 +711,8 @@ async def get_settings():
         "auto_postprocess": config.get("capture.auto_postprocess", False),
         "auto_upscale": config.get("capture.auto_upscale", True),
         "auto_export": config.get("capture.auto_export", False),
+        "update_enabled": config.get("update.enabled", True),
+        "update_interval_minutes": config.get("update.interval_minutes", 60),
     }
 
 
@@ -647,6 +731,10 @@ async def update_settings(settings: Dict[str, Any]):
         config.set("capture.auto_upscale", settings["auto_upscale"])
     if "auto_export" in settings:
         config.set("capture.auto_export", settings["auto_export"])
+    if "update_enabled" in settings:
+        config.set("update.enabled", settings["update_enabled"])
+    if "update_interval_minutes" in settings:
+        config.set("update.interval_minutes", settings["update_interval_minutes"])
     
     config.save_config()
     return {"success": True, "message": "Einstellungen gespeichert"}
@@ -839,6 +927,15 @@ async def on_startup():
     """Merkt sich die Event-Loop für thread-sichere Broadcasts"""
     global main_event_loop
     main_event_loop = asyncio.get_running_loop()
+    await _start_update_scheduler()
+    if update_manager:
+        try:
+            result = await asyncio.to_thread(update_manager._ensure_service_enabled)
+            if not result.get("success", False):
+                add_log_entry(f"Autostart konnte nicht gesetzt werden: {result.get('error')}", "update")
+        except Exception as e:
+            logger.error(f"Fehler beim Aktivieren des Autostarts: {e}")
+            add_log_entry(f"Fehler beim Aktivieren des Autostarts: {e}", "update")
 
 
 def get_html_interface() -> str:
@@ -1826,7 +1923,7 @@ def get_html_interface() -> str:
                             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
                                 <span id="merge-current-title">-</span>
                                 <span id="merge-current-status" class="badge">-</span>
-                                </div>
+                </div>
                             <div class="progress-bar" style="height: 8px; margin-bottom: 5px;">
                                 <div class="progress-fill" id="merge-progress-fill" style="width: 0%"></div>
                             </div>

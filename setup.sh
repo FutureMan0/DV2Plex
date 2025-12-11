@@ -337,6 +337,46 @@ else
     echo "   3. Install dependencies: pip3 install -r dv2plex/bin/realesrgan/requirements.txt --user"
 fi
 
+# 12. Install and start systemd service
+echo ""
+echo "12. Installing systemd service (dv2plex.service)..."
+
+if command -v systemctl >/dev/null 2>&1; then
+    SERVICE_NAME="dv2plex"
+    SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
+    WORKDIR="$(pwd)"
+    USER_NAME="$(whoami)"
+
+    sudo bash -c "cat > \"${SERVICE_FILE}\" <<EOF
+[Unit]
+Description=DV2Plex Service
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=${WORKDIR}
+ExecStart=/bin/bash -lc 'cd ${WORKDIR} && ./run.sh --no-gui'
+Restart=on-failure
+User=${USER_NAME}
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target
+EOF"
+
+    sudo systemctl daemon-reload
+    sudo systemctl enable "${SERVICE_NAME}"
+    sudo systemctl restart "${SERVICE_NAME}"
+
+    if systemctl is-active --quiet "${SERVICE_NAME}"; then
+        echo "✓ Service installiert und gestartet: ${SERVICE_NAME}"
+    else
+        echo "⚠ Service konnte nicht gestartet werden. Bitte Logs prüfen: sudo journalctl -u ${SERVICE_NAME}"
+    fi
+else
+    echo "⚠ systemd nicht verfügbar. Bitte Service manuell einrichten."
+fi
+
 echo ""
 echo "=========================================="
 echo "Setup completed!"
