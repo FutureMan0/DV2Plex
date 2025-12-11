@@ -2113,6 +2113,17 @@ def get_html_interface() -> str:
                     </button>
                 </div>
             </div>
+
+            <div class="settings-section">
+                <h3>⬆️ Updates</h3>
+                <div class="status" id="update-status">Update-Status wird geladen...</div>
+                <div class="button-group">
+                    <button onclick="refreshUpdateStatus()"><span>🔄 Status aktualisieren</span></button>
+                    <button class="btn-primary" onclick="runUpdate()" id="update-run-btn">
+                        <span>⬆️ Update jetzt</span>
+                    </button>
+                </div>
+            </div>
             
             <div class="button-group">
                 <button class="btn-primary" onclick="saveSettings()">
@@ -2809,6 +2820,7 @@ def get_html_interface() -> str:
                 
                 document.getElementById('settings-status').textContent = 'Einstellungen geladen.';
                 document.getElementById('settings-status').className = 'status';
+                refreshUpdateStatus();
             } catch (error) {
                 console.error('Fehler beim Laden der Einstellungen:', error);
                 document.getElementById('settings-status').textContent = 'Fehler beim Laden!';
@@ -2843,6 +2855,54 @@ def get_html_interface() -> str:
             } catch (error) {
                 document.getElementById('settings-status').textContent = 'Fehler: ' + error.message;
                 document.getElementById('settings-status').className = 'status error';
+            }
+        }
+
+        function setUpdateStatus(text, kind = 'normal') {
+            const el = document.getElementById('update-status');
+            el.textContent = text;
+            el.className = 'status';
+            if (kind === 'success') el.classList.add('success');
+            if (kind === 'error') el.classList.add('error');
+        }
+
+        async function refreshUpdateStatus() {
+            try {
+                setUpdateStatus('Lade Update-Status...');
+                const response = await fetch('/api/update/status');
+                const data = await response.json();
+                if (!response.ok) {
+                    throw new Error(data.detail || 'Fehler beim Laden des Update-Status');
+                }
+                const status = data.status || {};
+                const blocked = status.blocked_reason ? ` (blockiert: ${status.blocked_reason})` : '';
+                const behind = typeof status.behind === 'number' ? status.behind : '?';
+                const remote = status.remote ? status.remote.slice(0, 7) : 'unbekannt';
+                const local = status.local ? status.local.slice(0, 7) : 'unbekannt';
+                setUpdateStatus(`Local ${local} | Remote ${remote} | Behind ${behind}${blocked}`, 'success');
+            } catch (error) {
+                console.error(error);
+                setUpdateStatus('Fehler beim Laden des Update-Status: ' + error.message, 'error');
+            }
+        }
+
+        async function runUpdate() {
+            const btn = document.getElementById('update-run-btn');
+            btn.disabled = true;
+            setUpdateStatus('Update wird ausgeführt...');
+            try {
+                const response = await fetch('/api/update/run', {method: 'POST'});
+                const data = await response.json();
+                if (!response.ok) {
+                    throw new Error(data.detail || data.error || 'Update fehlgeschlagen');
+                }
+                const msg = data.message || (data.success ? 'Update erfolgreich' : 'Kein Update nötig');
+                setUpdateStatus(msg, data.success ? 'success' : 'normal');
+            } catch (error) {
+                setUpdateStatus('Fehler: ' + error.message, 'error');
+            } finally {
+                btn.disabled = false;
+                refreshUpdateStatus();
             }
         }
         
