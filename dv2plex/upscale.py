@@ -31,7 +31,8 @@ class UpscaleEngine:
         self,
         input_path: Path,
         output_path: Path,
-        profile: Dict[str, Any]
+        profile: Dict[str, Any],
+        progress_hook: Optional[Callable[[int], None]] = None,
     ) -> bool:
         """
         Führt Video-Upscaling mit Real-ESRGAN Video-Skript durch (direkt Video-zu-Video)
@@ -166,7 +167,7 @@ class UpscaleEngine:
             target_scale = profile.get("scale_factor", 4)
             if target_scale > 2:
                 self.log(f"Skaliere mit ffmpeg auf {target_scale}x (4K)...")
-                if not self._ffmpeg_upscale_to_4k(realesrgan_output, output_path, profile):
+                if not self._ffmpeg_upscale_to_4k(realesrgan_output, output_path, profile, progress_hook):
                     return False
             else:
                 # Wenn target_scale <= 2, kopiere einfach die Real-ESRGAN Ausgabe
@@ -189,7 +190,7 @@ class UpscaleEngine:
             except:
                 pass
     
-    def _ffmpeg_only_upscale(self, input_video: Path, output_path: Path, profile: Dict[str, Any]) -> bool:
+    def _ffmpeg_only_upscale(self, input_video: Path, output_path: Path, profile: Dict[str, Any], progress_hook: Optional[Callable[[int], None]] = None) -> bool:
         """Nur ffmpeg Upscaling (schnell, keine AI) - einfacher Ansatz"""
         if not self.ffmpeg_path or not self.ffmpeg_path.exists():
             self.log("ffmpeg nicht gefunden")
@@ -232,6 +233,7 @@ class UpscaleEngine:
             import time
             last_log_time = time.time()
             stderr_lines = []
+            last_progress = 0
             
             while True:
                 returncode = self.process.poll()
@@ -248,6 +250,17 @@ class UpscaleEngine:
                             if current_time - last_log_time >= 2.0:
                                 self.log(f"ffmpeg: {line[:100]}")
                                 last_log_time = current_time
+                            if progress_hook:
+                                try:
+                                    if "frame=" in line:
+                                ...
+                                        frame_val = int(p.split("=")[1])
+                                        est = min(100, max(last_progress, int(frame_val / 3000 * 100)))
+                                        last_progress = est
+                                        progress_hook(est)
+                                        break
+                                except Exception:
+                                    pass
                 except:
                     pass
                 
@@ -279,7 +292,7 @@ class UpscaleEngine:
             self.log(f"Fehler beim ffmpeg Upscaling: {e}")
             return False
     
-    def _ffmpeg_upscale_to_4k(self, input_video: Path, output_path: Path, profile: Dict[str, Any]) -> bool:
+    def _ffmpeg_upscale_to_4k(self, input_video: Path, output_path: Path, profile: Dict[str, Any], progress_hook: Optional[Callable[[int], None]] = None) -> bool:
         """Skaliert Video mit ffmpeg schnell auf 4K hoch (Lanczos)"""
         if not self.ffmpeg_path or not self.ffmpeg_path.exists():
             self.log("ffmpeg nicht gefunden für 4K-Upscaling")
@@ -315,6 +328,44 @@ class UpscaleEngine:
                 stderr=subprocess.PIPE,
                 text=True
             )
+            import time
+            last_log_time = time.time()
+            last_progress = 0
+            stderr_lines = []
+
+            while True:
+                returncode = self.process.poll()
+                if returncode is not None:
+                    break
+
+                try:
+                    line = self.process.stderr.readline()
+                    if line:
+                        line = line.strip()
+                        stderr_lines.append(line)
+                        if line.startswith("frame=") or ("fps=" in line and "size=" in line):
+                            current_time = time.time()
+                            if current_time - last_log_time >= 2.0:
+                                self.log(f"ffmpeg: {line[:100]}")
+                                last_log_time = current_time
+                            if progress_hook:
+                                try:
+                                    if "frame=" in line:
+                                        parts = line.split()
+                                        for p in parts:
+                                            if p.startswith("frame="):
+                                                frame_val = int(p.split("=")[1])
+                                                est = min(100, max(last_progress, int(frame_val / 4000 * 100)))
+                                                last_progress = est
+                                                progress_hook(est)
+                                                break
+                                except Exception:
+                                    pass
+                except:
+                    pass
+
+                time.sleep(0.1)
+
             stdout, stderr = self.process.communicate()
             
             if self.process.returncode != 0:

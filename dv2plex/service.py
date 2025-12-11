@@ -186,9 +186,15 @@ class PostprocessingService:
                 log_callback=self._log
             )
             
-            if upscale_engine.upscale(merged_file, output_file, profile):
+            def ffmpeg_progress_hook(pct: int):
                 if progress_callback:
-                    progress_callback(75)
+                    # Map 0-100 ffmpeg pct into 25-90 range to keep headroom
+                    mapped = 25 + int(0.65 * pct)
+                    progress_callback(min(90, max(25, mapped)))
+
+            if upscale_engine.upscale(merged_file, output_file, profile, progress_hook=ffmpeg_progress_hook):
+                if progress_callback:
+                    progress_callback(95)
                 
                 # Export
                 auto_export = self.config.get("capture.auto_export", False)
