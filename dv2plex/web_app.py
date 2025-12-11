@@ -102,7 +102,7 @@ def add_log_entry(msg: str, category: str = "general"):
 
 def setup_services():
     """Initialisiert die Services"""
-    global capture_service, postprocessing_service, movie_mode_service, cover_service
+    global capture_service, postprocessing_service, movie_mode_service, cover_service, update_manager
     
     def log_callback(msg: str):
         logger.info(msg)
