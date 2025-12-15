@@ -31,10 +31,15 @@ Copyright (c) 2021, xinntao
 Licensed under the BSD 3-Clause License
 https://github.com/xinntao/Real-ESRGAN
 
-### PySide6 (Qt for Python)
-Copyright (c) The Qt Company Ltd.
-Licensed under the LGPL v3.0
-https://www.qt.io/qt-for-python/
+### pywebview
+Copyright (c) pywebview contributors
+Licensed under the BSD 3-Clause License
+https://pywebview.flowrl.com/
+
+### FastAPI
+Copyright (c) Sebastián Ramírez
+Licensed under the MIT License
+https://fastapi.tiangolo.com/
 
 ### PyTorch
 Copyright (c) 2016-2024 Facebook, Inc.

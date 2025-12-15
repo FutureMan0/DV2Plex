@@ -25,7 +25,7 @@ DV2Plex is a modern, cross-platform application for digitizing MiniDV tapes. The
 
 - 🎥 **Complete Workflow**: From capture to finished Plex export in one application
 - 🤖 **AI Upscaling**: Automatic upscaling to 4K with Real-ESRGAN
-- 🎨 **Modern GUI**: Intuitive user interface with live preview
+- 🖥️ **Desktop Web-App**: Native desktop window powered by a local Web UI (live preview included)
 - 🔄 **Automation**: Automatic merging, upscaling, and exporting
 - 📦 **Plex Integration**: Direct export in Plex standard format
 - 🖼️ **Cover Generation**: Automatic cover creation with Stable Diffusion
@@ -88,9 +88,14 @@ Will be automatically downloaded on first start.
 #### 4. Start Application
 
 ```bash
+# Desktop (default)
 python -m dv2plex
-# or
-python start.py
+
+# Headless server (no GUI)
+python -m dv2plex --server --host 0.0.0.0 --port 5000
+
+# Desktop window against an existing server
+python -m dv2plex --url http://127.0.0.1:5000
 ```
 
 ### Build as Standalone Application
@@ -154,7 +159,8 @@ See [docs/Upscaling_Profile_Referenz.md](docs/Upscaling_Profile_Referenz.md) for
 ```
 dv2plex/
 ├── dv2plex/              # Main Python package
-│   ├── app.py            # GUI main program
+│   ├── desktop_app.py    # Desktop launcher (pywebview)
+│   ├── web_app.py        # FastAPI Web UI
 │   ├── capture.py        # Capture engine
 │   ├── merge.py          # Merge engine
 │   ├── upscale.py        # Upscale engine
@@ -236,7 +242,8 @@ This project is licensed under the MIT License. See [LICENSE](LICENSE) for detai
 
 ### Dependencies & Libraries
 
-- **[PySide6](https://www.qt.io/qt-for-python/)** - GUI Framework
+- **[pywebview](https://pywebview.flowrl.com/)** - Desktop Web-App wrapper
+- **[FastAPI](https://fastapi.tiangolo.com/)** - Web UI backend
 - **[Real-ESRGAN](https://github.com/xinntao/Real-ESRGAN)** - AI-based upscaling
 - **[ffmpeg](https://ffmpeg.org/)** - Video processing
 - **[PyTorch](https://pytorch.org/)** - Deep Learning Framework

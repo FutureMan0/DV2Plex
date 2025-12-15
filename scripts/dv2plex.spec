@@ -57,16 +57,16 @@ a = Analysis(
         (str(realesrgan_dir / "options"), "dv2plex/bin/realesrgan/options"),
     ],
     hiddenimports=[
-        # PySide6 Module
-        'PySide6.QtCore',
-        'PySide6.QtGui',
-        'PySide6.QtWidgets',
-        'PySide6.QtOpenGL',
-        'PySide6.QtOpenGLWidgets',
+        # Desktop Wrapper (pywebview)
+        'webview',
+        'webview.platforms',
+        'webview.platforms.gtk',
+        'webview.platforms.linux',
         
         # DV2Plex Module
         'dv2plex',
-        'dv2plex.app',
+        'dv2plex.desktop_app',
+        'dv2plex.web_app',
         'dv2plex.config',
         'dv2plex.capture',
         'dv2plex.merge',

@@ -22,28 +22,29 @@ def check_dependencies():
     """Prüft ob alle notwendigen Dependencies installiert sind"""
     print("Prüfe Dependencies...")
     
-    required_packages = [
-        'PyInstaller',
-        'PySide6',
-        'torch',
-        'torchvision',
-        'basicsr',
-        'facexlib',
-        'gfpgan',
-        'opencv-python',
-        'numpy',
-        'Pillow',
-        'ffmpeg-python',
-        'diffusers',
-        'transformers',
-        'accelerate',
-        'safetensors',
-    ]
+    # Package-Name -> Import-Name (weil pip-Namen nicht immer importierbar sind)
+    required_imports = {
+        'PyInstaller': 'PyInstaller',
+        'pywebview': 'webview',
+        'torch': 'torch',
+        'torchvision': 'torchvision',
+        'basicsr': 'basicsr',
+        'facexlib': 'facexlib',
+        'gfpgan': 'gfpgan',
+        'opencv-python': 'cv2',
+        'numpy': 'numpy',
+        'Pillow': 'PIL',
+        'ffmpeg-python': 'ffmpeg',
+        'diffusers': 'diffusers',
+        'transformers': 'transformers',
+        'accelerate': 'accelerate',
+        'safetensors': 'safetensors',
+    }
     
     missing = []
-    for package in required_packages:
+    for package, import_name in required_imports.items():
         try:
-            __import__(package.replace('-', '_'))
+            __import__(import_name)
             print(f"  ✓ {package}")
         except ImportError:
             print(f"  ✗ {package} fehlt")

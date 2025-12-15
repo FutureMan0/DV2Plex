@@ -176,7 +176,6 @@ from pathlib import Path
 from typing import Optional
 
 import numpy as np
-from PySide6.QtWidgets import QWidget
 
 from dv2plex.config import Config
 

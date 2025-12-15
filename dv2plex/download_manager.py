@@ -162,6 +162,9 @@ def check_python_package(package_name: str) -> bool:
         import_name = 'PIL'
     elif package_name == 'cv2':
         import_name = 'cv2'
+    elif package_name == 'pywebview':
+        # pip name is pywebview, import name is webview
+        import_name = 'webview'
     
     # First check if package is installed in pip
     # This is important because packages can be installed but not importable
@@ -390,7 +393,7 @@ def check_and_download_on_startup(base_dir: Path, auto_download: bool = False, c
     if check_python_deps:
         logger.info("Prüfe Python-Dependencies...")
         critical_packages = [
-            'PySide6',
+            'pywebview',
             'torch',
             'torchvision',
             'numpy',

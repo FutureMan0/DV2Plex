@@ -36,15 +36,7 @@ from dv2plex.service import (
 )
 from dv2plex.update_manager import UpdateManager
 
-# Try to import QImage for preview conversion
-try:
-    from PySide6.QtGui import QImage
-    from PySide6.QtCore import QBuffer
-    QIMAGE_AVAILABLE = True
-except ImportError:
-    QImage = None
-    QBuffer = None
-    QIMAGE_AVAILABLE = False
+QIMAGE_AVAILABLE = False
 
 
 # Setup logging
@@ -230,23 +222,6 @@ async def _start_update_scheduler():
     update_task = asyncio.create_task(_loop())
 
 
-def qimage_to_base64(image) -> Optional[str]:
-    """Konvertiert QImage zu Base64-kodiertem JPEG"""
-    if not QIMAGE_AVAILABLE or image is None or QBuffer is None:
-        return None
-    
-    try:
-        # Convert QImage to JPEG bytes using QBuffer (QIODevice)
-        buffer = QBuffer()
-        buffer.open(QBuffer.OpenModeFlag.WriteOnly)
-        image.save(buffer, "JPEG")
-        jpeg_bytes = bytes(buffer.data())
-        return base64.b64encode(jpeg_bytes).decode('utf-8')
-    except Exception as e:
-        logger.error(f"Fehler bei QImage-Konvertierung: {e}")
-        return None
-
-
 # Pydantic models for API
 class CaptureStartRequest(BaseModel):
     title: str
@@ -289,7 +264,7 @@ class ChownRequest(BaseModel):
 # Preview callback for capture
 def preview_callback(image):
     """Callback für Preview-Frames während Capture"""
-    # Erwartet rohe JPEG-Bytes; falls QImage geliefert würde, konvertieren wir ebenfalls
+    # Erwartet rohe JPEG-Bytes
     if isinstance(image, (bytes, bytearray)):
         try:
             base64_image = base64.b64encode(image).decode('utf-8')
@@ -297,16 +272,6 @@ def preview_callback(image):
                 "type": "preview_frame",
                 "data": f"data:image/jpeg;base64,{base64_image}"
             })
-        except Exception:
-            pass
-    elif QIMAGE_AVAILABLE and image:
-        try:
-            base64_image = qimage_to_base64(image)
-            if base64_image:
-                broadcast_message_sync({
-                    "type": "preview_frame",
-                    "data": f"data:image/jpeg;base64,{base64_image}"
-                })
         except Exception:
             pass
 

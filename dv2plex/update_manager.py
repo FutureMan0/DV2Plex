@@ -262,3 +262,4 @@ class UpdateManager:
     def busy_reason(self) -> Optional[str]:
         """Öffentliche Abfrage des Busy-Status."""
         return self._busy_reason()
+

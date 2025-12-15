@@ -2,7 +2,7 @@
 Eintrittspunkt für python -m dv2plex
 """
 
-from dv2plex.app import main
+from dv2plex.cli import main
 
 if __name__ == "__main__":
     main()

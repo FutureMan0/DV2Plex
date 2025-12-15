@@ -409,10 +409,10 @@ echo "Next steps:"
 echo "1. Connect your MiniDV camera via FireWire"
 if [ "${BASH_SOURCE[0]}" != "${0}" ] && [ -d "venv" ]; then
     echo "2. Start the application with: ./run.sh"
-    echo "3. Or: python -m dv2plex.app (venv ist bereits aktiviert)"
+    echo "3. Or: python -m dv2plex (venv ist bereits aktiviert)"
 else
     echo "2. Aktivieren Sie das venv: source venv/bin/activate"
     echo "3. Start the application with: ./run.sh"
-    echo "4. Or: python -m dv2plex.app"
+    echo "4. Or: python -m dv2plex"
 fi
 echo ""

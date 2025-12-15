@@ -19,11 +19,7 @@ from queue import Queue, Empty
 
 from .merge import MergeEngine
 
-try:
-    from PySide6.QtGui import QImage
-except ImportError:
-    # Fallback falls PySide6 nicht verfügbar
-    QImage = None
+from typing import Union
 
 
 # Datenklasse für Merge-Job
@@ -63,7 +59,8 @@ class CaptureEngine:
         self.capture_thread: Optional[threading.Thread] = None
         self.preview_reader_thread: Optional[threading.Thread] = None
         self.preview_stop_event: Optional[threading.Event] = None
-        self.preview_callback: Optional[Callable[[QImage], None]] = None
+        # Preview liefert rohe JPEG-Bytes (kein Qt/QImage mehr)
+        self.preview_callback: Optional[Callable[[bytes], None]] = None
         self.current_output_path: Optional[Path] = None
         self.raw_output_path: Optional[Path] = None  # DV-Rohdatei
         self.logger = logging.getLogger(__name__)
@@ -1194,7 +1191,7 @@ class CaptureEngine:
         self,
         output_path: Path,
         part_number: int = 1,
-        preview_callback: Optional[Callable[[QImage], None]] = None,
+        preview_callback: Optional[Callable[[bytes], None]] = None,
         preview_fps: int = 10,
         auto_rewind_play: bool = True,
         title: str = "",
@@ -1206,7 +1203,7 @@ class CaptureEngine:
         Args:
             output_path: Ausgabeordner (LowRes-Verzeichnis)
             part_number: Part-Nummer (wird nicht mehr verwendet, aber für Kompatibilität behalten)
-            preview_callback: Optionaler Callback für Preview-Frames
+            preview_callback: Optionaler Callback für Preview-Frames (rohe JPEG-Bytes)
             preview_fps: FPS für Preview
             auto_rewind_play: Setzt -rewind (automatisches Rewind vor Aufnahme)
             title: Titel des Films (für Merge-Queue)
@@ -1961,17 +1958,16 @@ class CaptureEngine:
                         jpeg_data = bytes(buffer[: end_idx + 2])
                         buffer = buffer[end_idx + 2 :]
 
-                        if QImage and self.preview_callback:
+                        if self.preview_callback:
                             try:
-                                image = QImage.fromData(jpeg_data)
-                                if not image.isNull():
-                                    current_time = time.time()
-                                    if current_time - last_frame_time >= target_frame_interval:
-                                        self.preview_callback(image)
-                                        frame_count += 1
-                                        last_frame_time = current_time
-                                        if frame_count == 1:
-                                            self.log("Preview-Stream: Erstes Frame empfangen")
+                                current_time = time.time()
+                                if current_time - last_frame_time >= target_frame_interval:
+                                    # Sende rohe JPEG-Bytes (kein Qt/QImage)
+                                    self.preview_callback(jpeg_data)
+                                    frame_count += 1
+                                    last_frame_time = current_time
+                                    if frame_count == 1:
+                                        self.log("Preview-Stream: Erstes Frame empfangen")
                             except Exception:
                                 pass
 

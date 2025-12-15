@@ -144,7 +144,7 @@ check_dependency() {
     fi
 }
 
-check_dependency "PySide6"
+check_dependency "webview"
 check_dependency "torch"
 check_dependency "torchvision"
 check_dependency "basicsr"

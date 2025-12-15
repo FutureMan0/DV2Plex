@@ -106,7 +106,7 @@ hiddenimports=[
 
 The distribution can be very large (several GB) due to:
 - PyTorch
-- PySide6
+- pywebview (Desktop Wrapper) + Web UI dependencies
 - Real-ESRGAN dependencies
 
 This is normal for a standalone distribution.

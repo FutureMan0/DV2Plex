@@ -9,7 +9,8 @@ dv2plex/
 ├── dv2plex/                    # Main Python package
 │   ├── __init__.py            # Package initialization
 │   ├── __main__.py            # Entry point for python -m dv2plex
-│   ├── app.py                 # GUI main program (PySide6)
+│   ├── desktop_app.py         # Desktop launcher (pywebview)
+│   ├── web_app.py             # FastAPI Web UI
 │   ├── config.py              # Configuration management
 │   ├── capture.py             # DV capture engine
 │   ├── merge.py               # Video merge engine
@@ -52,7 +53,8 @@ dv2plex/
 
 ### Core Modules
 
-- **`dv2plex/app.py`**: Main GUI application with PySide6
+- **`dv2plex/desktop_app.py`**: Desktop application wrapper (pywebview)
+- **`dv2plex/web_app.py`**: Web UI backend (FastAPI/uvicorn)
 - **`dv2plex/config.py`**: Central configuration management
 - **`dv2plex/capture.py`**: DV capture with ffmpeg
 - **`dv2plex/merge.py`**: Merging multiple video parts
@@ -77,13 +79,19 @@ dv2plex/
 
 ## Module Description
 
-### app.py
+### desktop_app.py
 
-Main GUI application with:
-- Modern liquid glass design
-- Tab-based navigation
-- Live preview
-- Workflow orchestration
+Desktop launcher that:
+- Starts the local FastAPI/uvicorn server
+- Opens the UI inside a pywebview window
+- Shuts down the server when the window closes
+
+### web_app.py
+
+FastAPI-based Web UI with:
+- Live preview (JPEG frames over WebSocket)
+- Capture/post-processing control
+- Status/log views
 
 ### config.py
 

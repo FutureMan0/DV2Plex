@@ -71,3 +71,4 @@ def test_busy_reason_merge(tmp_path: Path):
     manager = UpdateManager(tmp_path, "master", "dv2plex", DummyConfig(), capture)
 
     assert manager.busy_reason() == "Merge läuft"
+
