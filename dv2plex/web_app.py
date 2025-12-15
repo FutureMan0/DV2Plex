@@ -2017,6 +2017,11 @@ def get_html_interface() -> str:
                         <button onclick="playCamera()"><span>▶ Play</span></button>
                         <button onclick="pauseCamera()"><span>⏸ Pause</span></button>
                     </div>
+                    <!-- Zeit-Anzeige (Uhrzeit + Dauer seit Aufnahme-Start) -->
+                    <div class="status" id="capture-timebar" style="display:flex; justify-content:space-between; align-items:center; gap: 12px;">
+                        <span>🕒 Uhrzeit: <strong id="capture-clock">--:--:--</strong></span>
+                        <span>⏱ Dauer: <strong id="capture-elapsed">--:--:--</strong></span>
+                    </div>
                     <div class="status" id="capture-status">Bereit zum Digitalisieren.</div>
                     
                     <!-- Merge Queue Anzeige -->
@@ -2286,7 +2291,42 @@ def get_html_interface() -> str:
         let selectedCoverTitle = null;
         let selectedCoverYear = null;
         let extractingFrames = false;
+        let captureStartedAtIso = null;
         const COVER_FRAME_COUNT = 8; // mehr zufällige Frames
+
+        function formatElapsed(ms) {
+            const total = Math.max(0, Math.floor(ms / 1000));
+            const h = Math.floor(total / 3600);
+            const m = Math.floor((total % 3600) / 60);
+            const s = total % 60;
+            return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+        }
+
+        function setCaptureStartedAt(isoString) {
+            captureStartedAtIso = isoString || null;
+        }
+
+        function updateCaptureTimeUI() {
+            const clockEl = document.getElementById('capture-clock');
+            if (clockEl) {
+                clockEl.textContent = new Date().toLocaleTimeString('de-DE');
+            }
+
+            const elapsedEl = document.getElementById('capture-elapsed');
+            if (!elapsedEl) return;
+
+            if (!captureStartedAtIso) {
+                elapsedEl.textContent = '--:--:--';
+                return;
+            }
+
+            const start = new Date(captureStartedAtIso);
+            if (isNaN(start.getTime())) {
+                elapsedEl.textContent = '--:--:--';
+                return;
+            }
+            elapsedEl.textContent = formatElapsed(Date.now() - start.getTime());
+        }
         
         // WebSocket connection
         function connectWebSocket() {
@@ -2395,6 +2435,9 @@ def get_html_interface() -> str:
                 stopBtn.disabled = false;
                 stopBtn.classList.add('btn-danger');
                 captureStatus.textContent = 'Aufnahme läuft...';
+                if (payload && payload.started_at) {
+                    setCaptureStartedAt(payload.started_at);
+                }
                 if (captureStopPoll) {
                     clearInterval(captureStopPoll);
                     captureStopPoll = null;
@@ -2418,6 +2461,7 @@ def get_html_interface() -> str:
                 stopBtn.disabled = true;
                 stopBtn.classList.remove('btn-danger');
                 captureStatus.textContent = 'Fertig! Du kannst das nächste Video digitalisieren.';
+                setCaptureStartedAt(null);
                 if (captureStopPoll) {
                     clearInterval(captureStopPoll);
                     captureStopPoll = null;
@@ -2439,7 +2483,7 @@ def get_html_interface() -> str:
                 const data = await response.json();
                 
                 if (data.capture_running) {
-                    updateStatus('capture_started');
+                    updateStatus('capture_started', null, data.active_capture || null);
                     // Starte Polling, um zu erkennen wenn dvgrab von selbst beendet wird
                     // (z.B. Band zu Ende, Signal verloren)
                     startCaptureStopPoll();
@@ -2453,6 +2497,9 @@ def get_html_interface() -> str:
                     }
                     if (data.active_capture.year) {
                         document.getElementById('capture-year').value = data.active_capture.year;
+                    }
+                    if (data.active_capture.started_at) {
+                        setCaptureStartedAt(data.active_capture.started_at);
                     }
                 }
             } catch (error) {
@@ -3423,10 +3470,16 @@ def get_html_interface() -> str:
         setInterval(() => {
             loadMergeQueueStatus();
         }, 5000);
+
+        // Clock/Dauer im Digitalisieren-Tab
+        setInterval(() => {
+            updateCaptureTimeUI();
+        }, 1000);
         
         // Initialize
         connectWebSocket();
         loadStatus();
+        updateCaptureTimeUI();
         loadUpscalingProfiles();
         loadPostprocessList();
         loadSettings();
