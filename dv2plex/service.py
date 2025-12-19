@@ -477,6 +477,12 @@ class CaptureService:
             self._capture_running = True
             return True, None
         else:
+            # Reiche detaillierte dvgrab-Fehler weiter (hilft enorm bei systemd/Permissions/Device-Problemen)
+            detail = None
+            if self.capture_engine:
+                detail = getattr(self.capture_engine, "last_dvgrab_error", None)
+            if detail:
+                return False, detail
             return False, "Aufnahme konnte nicht gestartet werden"
     
     def stop_capture(self) -> bool:

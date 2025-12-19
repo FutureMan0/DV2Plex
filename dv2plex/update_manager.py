@@ -263,3 +263,4 @@ class UpdateManager:
         """Öffentliche Abfrage des Busy-Status."""
         return self._busy_reason()
 
+

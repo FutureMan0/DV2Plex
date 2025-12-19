@@ -72,3 +72,4 @@ def test_busy_reason_merge(tmp_path: Path):
 
     assert manager.busy_reason() == "Merge läuft"
 
+

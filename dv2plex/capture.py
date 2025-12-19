@@ -103,6 +103,9 @@ class CaptureEngine:
         self.rewind_block_until: Optional[float] = None
         self.rewind_block_timer: Optional[threading.Timer] = None
         self.rewind_block_active: bool = False
+        # Diagnose: letzter dvgrab-Start (für bessere Fehlermeldungen via API)
+        self.last_dvgrab_command: Optional[list[str]] = None
+        self.last_dvgrab_error: Optional[str] = None
         # Starte Background-Merge-Worker
         self._start_merge_worker()
 
@@ -352,16 +355,18 @@ class CaptureEngine:
         Formatiert das Gerät für dvgrab-Kommandos
         
         Args:
-            device: Gerätepfad (z.B. /dev/raw1394) oder Karten-Nummer (z.B. "0")
+            device: Karten-Nummer (z.B. "0") oder erkannter Gerätepfad (z.B. /dev/raw1394).
+                    Hinweis: dvgrab akzeptiert keinen Gerätepfad als Argument; es nutzt i.d.R. /dev/raw1394 automatisch.
         
         Returns:
-            Liste von Argumenten für dvgrab (z.B. ["-card", "0"] oder ["-i", "/dev/raw1394"])
+            Liste von Argumenten für dvgrab (z.B. ["-card", "0"]) oder [].
         """
         # Wenn es eine reine Zahl ist, verwende -card Option
         if device.isdigit():
             return ["-card", device]
-        # Sonst verwende -i mit dem Gerätepfad
-        return ["-i", device]
+        # Gerätepfad wird von dvgrab nicht als Option akzeptiert -> keine Argumente setzen.
+        # (Wichtig: dvgrab-Option "-i" bedeutet "interactive mode" und würde sonst falsch interpretiert.)
+        return []
 
     def _start_interactive_dvgrab(self, device: str) -> bool:
         """
@@ -391,13 +396,16 @@ class CaptureEngine:
             
             # Wenn nicht root, versuche mit sudo
             if not is_root:
-                cmd = ["sudo"] + dvgrab_cmd
+                # -n: niemals Passwort abfragen (systemd/Services haben kein TTY)
+                cmd = ["sudo", "-n"] + dvgrab_cmd
                 self.log("HINWEIS: dvgrab benötigt root-Rechte. Versuche mit sudo...")
             else:
                 cmd = dvgrab_cmd
             
             self.log("Starte interaktiven dvgrab für Steuerung...")
             self.log(f"dvgrab-Befehl: {' '.join(cmd)}")
+            self.last_dvgrab_command = cmd
+            self.last_dvgrab_error = None
             
             # Starte dvgrab (stdin für interaktive Befehle)
             self.interactive_dvgrab_process = subprocess.Popen(
@@ -432,12 +440,21 @@ class CaptureEngine:
                 self.log(f"Fehler beim Starten von interaktivem dvgrab: Return-Code {self.interactive_dvgrab_process.returncode}")
                 if error_output:
                     self.log(f"Fehler-Ausgabe: {error_output[:500]}")
+                    self.last_dvgrab_error = (
+                        f"Interaktiver dvgrab-Start fehlgeschlagen (Code {self.interactive_dvgrab_process.returncode}). "
+                        f"Ausgabe: {error_output.strip()[-500:]}"
+                    )
+                else:
+                    self.last_dvgrab_error = (
+                        f"Interaktiver dvgrab-Start fehlgeschlagen (Code {self.interactive_dvgrab_process.returncode})."
+                    )
                 
                 self.interactive_dvgrab_process = None
                 return False
                 
         except Exception as e:
             self.log(f"Fehler beim Starten von interaktivem dvgrab: {e}")
+            self.last_dvgrab_error = f"Interaktiver dvgrab-Start fehlgeschlagen: {e}"
             self.interactive_dvgrab_process = None
             return False
 
@@ -478,7 +495,8 @@ class CaptureEngine:
             
             # Wenn nicht root, versuche mit sudo
             if not is_root:
-                cmd = ["sudo"] + dvgrab_cmd
+                # -n: niemals Passwort abfragen (systemd/Services haben kein TTY)
+                cmd = ["sudo", "-n"] + dvgrab_cmd
                 self.log("HINWEIS: dvgrab benötigt root-Rechte. Versuche mit sudo...")
             else:
                 cmd = dvgrab_cmd
@@ -486,6 +504,8 @@ class CaptureEngine:
             self.log("Starte non-interaktiven dvgrab für Aufnahme...")
             self.log(f"dvgrab-Befehl: {' '.join(cmd)}")
             self.log(f"Ausgabe-Verzeichnis: {splits_dir}")
+            self.last_dvgrab_command = cmd
+            self.last_dvgrab_error = None
             
             # Starte dvgrab (non-interaktiv, schreibt direkt Dateien)
             self.recording_dvgrab_process = subprocess.Popen(
@@ -518,12 +538,21 @@ class CaptureEngine:
                 self.log(f"Fehler beim Starten von recording dvgrab: Return-Code {self.recording_dvgrab_process.returncode}")
                 if error_output:
                     self.log(f"Fehler-Ausgabe: {error_output[:500]}")
+                    self.last_dvgrab_error = (
+                        f"dvgrab-Start fehlgeschlagen (Code {self.recording_dvgrab_process.returncode}). "
+                        f"Ausgabe: {error_output.strip()[-500:]}"
+                    )
+                else:
+                    self.last_dvgrab_error = (
+                        f"dvgrab-Start fehlgeschlagen (Code {self.recording_dvgrab_process.returncode})."
+                    )
                 
                 self.recording_dvgrab_process = None
                 return False
                 
         except Exception as e:
             self.log(f"Fehler beim Starten von recording dvgrab: {e}")
+            self.last_dvgrab_error = f"dvgrab-Start fehlgeschlagen: {e}"
             self.recording_dvgrab_process = None
             return False
 
