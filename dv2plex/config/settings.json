@@ -1,9 +1,9 @@
 {
   "version": "1.0",
   "paths": {
-    "plex_movies_root": "PlexMovies/",
-    "dv_import_root": "dv2plex/DV_Import",
-    "ffmpeg_path": "",
+    "plex_movies_root": "PlexMovies",
+    "dv_import_root": "/media/luis/EveryThing/Projects/linux/ACR/dv2plex/DV_Import",
+    "ffmpeg_path": "/usr/bin/ffmpeg",
     "realesrgan_path": ""
   },
   "device": {
@@ -92,12 +92,21 @@
   "ui": {
     "window_width": 1280,
     "window_height": 720,
-    "preview_fps": 30
+    "preview_fps": 30,
+    "theme": "xbox360"
   },
   "logging": {
     "level": "INFO",
     "log_directory": "",
     "max_log_files": 10
+  },
+  "update": {
+    "enabled": true,
+    "interval_minutes": 60,
+    "branch": "master",
+    "service_name": "dv2plex",
+    "skip_during_capture": true,
+    "skip_during_merge": true
   },
   "cover": {
     "default_model": "runwayml/stable-diffusion-v1-5",

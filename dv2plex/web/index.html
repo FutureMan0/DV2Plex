@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>DV2Plex - MiniDV Digitalisierung</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="container">
+        <div class="logo-container">
+            <h1>DV2Plex</h1>
+        </div>
+        
+        <div class="tabs">
+            <div class="tab active" onclick="switchTab('capture')"><span>📹 Digitalisieren</span></div>
+            <div class="tab" onclick="switchTab('postprocess')"><span>🎬 Upscaling</span></div>
+            <div class="tab" onclick="switchTab('movie')"><span>🎞️ Movie Mode</span></div>
+            <div class="tab" onclick="switchTab('cover')"><span>🖼️ Cover</span></div>
+            <div class="tab" onclick="switchTab('queue')"><span>🔄 Merge-Queue</span></div>
+            <div class="tab" onclick="switchTab('player')"><span>▶ Video Player</span></div>
+            <div class="tab" onclick="switchTab('logs')"><span>📋 Logs</span></div>
+            <div class="tab" onclick="switchTab('settings')"><span>⚙️ Einstellungen</span></div>
+        </div>
+        
+        <!-- Capture Tab -->
+        <div id="capture" class="tab-content active">
+            <div class="capture-grid">
+                <div>
+                    <div class="preview-container" id="preview">
+                        <div class="preview-placeholder">
+                            <div class="preview-placeholder-icon">📹</div>
+                            <div class="preview-placeholder-text">Kein Preview</div>
+                            <div class="preview-placeholder-hint">Starte eine Aufnahme für Live-Vorschau</div>
+                        </div>
+                    </div>
+                </div>
+                <div>
+                    <div class="form-group">
+                        <label>Titel</label>
+                        <input type="text" id="capture-title" placeholder="Film-Titel eingeben...">
+                    </div>
+                    <div class="form-group">
+                        <label>Jahr</label>
+                        <input type="text" id="capture-year" placeholder="2024">
+                    </div>
+                    <div class="form-group">
+                        <label style="display: flex; align-items: center; cursor: pointer;">
+                            <input type="checkbox" id="auto-rewind" checked>
+                            <span>Automatisches Rewind</span>
+                        </label>
+                    </div>
+                    <div class="form-group button-group">
+                        <button class="btn-primary" onclick="startCapture()" id="capture-start-btn">
+                            <span>▶ Aufnahme starten</span>
+                        </button>
+                        <button onclick="stopCapture()" id="capture-stop-btn" disabled>
+                            <span>■ Stoppen</span>
+                        </button>
+                    </div>
+                    <div class="form-group button-group">
+                        <button onclick="rewindCamera()"><span>⏪ Zurück</span></button>
+                        <button onclick="playCamera()"><span>▶ Play</span></button>
+                        <button onclick="pauseCamera()"><span>⏸ Pause</span></button>
+                    </div>
+                    <!-- Zeit-Anzeige (Uhrzeit + Dauer seit Aufnahme-Start) -->
+                    <div class="status" id="capture-timebar" style="display:flex; justify-content:space-between; align-items:center; gap: 12px;">
+                        <span>🕒 Uhrzeit: <strong id="capture-clock">--:--:--</strong></span>
+                        <span>⏱ Dauer: <strong id="capture-elapsed">--:--:--</strong></span>
+                    </div>
+                    <div class="status" id="capture-status">Bereit zum Digitalisieren.</div>
+                    
+                    <!-- Merge Queue Anzeige -->
+                    <div id="merge-queue-container" style="margin-top: 15px; display: none;">
+                        <h4 style="color: var(--plex-gold); margin-bottom: 10px;">🔄 Merge-Queue</h4>
+                        <div id="merge-queue-current" style="display: none;">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                                <span id="merge-current-title">-</span>
+                                <span id="merge-current-status" class="badge">-</span>
+                </div>
+                            <div class="progress-bar" style="height: 8px; margin-bottom: 5px;">
+                                <div class="progress-fill" id="merge-progress-fill" style="width: 0%"></div>
+                            </div>
+                            <div id="merge-current-message" style="font-size: 11px; color: var(--plex-text-secondary);"></div>
+                        </div>
+                        <div id="merge-queue-pending" style="margin-top: 10px; font-size: 12px; color: var(--plex-text-secondary);"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Postprocess Tab -->
+        <div id="postprocess" class="tab-content">
+            <div class="form-group">
+                <label>Upscaling-Profil</label>
+                <select id="profile-select">
+                    <!-- Wird dynamisch geladen -->
+                </select>
+            </div>
+            <div class="list-container" id="postprocess-list"></div>
+            <div class="form-group button-group" style="margin-top: 18px;">
+                <button class="btn-primary" onclick="processSelected()">
+                    <span>Ausgewählten verarbeiten</span>
+                </button>
+                <button onclick="processAll()"><span>Alle verarbeiten</span></button>
+            </div>
+            <div class="progress-bar" id="postprocess-progress" style="display: none;">
+                <div class="progress-fill" id="postprocess-progress-fill" style="width: 0%">0%</div>
+            </div>
+            <div class="status" id="postprocess-status">Bereit für Upscaling.</div>
+            <div class="log-container" id="postprocess-log"></div>
+        </div>
+        
+        <!-- Movie Mode Tab -->
+        <div id="movie" class="tab-content">
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
+                <div class="form-group">
+                    <label>Titel</label>
+                    <input type="text" id="movie-title" placeholder="Film-Titel eingeben...">
+                </div>
+                <div class="form-group">
+                    <label>Jahr</label>
+                    <input type="text" id="movie-year" placeholder="2024">
+                </div>
+            </div>
+            <div class="list-container" id="movie-list"></div>
+            <div class="form-group button-group" style="margin-top: 18px;">
+                <button class="btn-primary" onclick="mergeVideos()" id="merge-btn" disabled>
+                    <span>Videos mergen</span>
+                </button>
+                <button onclick="exportVideo()" id="export-btn" disabled>
+                    <span>Nach Plex exportieren</span>
+                </button>
+            </div>
+            <div class="status" id="movie-status">Wähle Videos zum Mergen oder Exportieren.</div>
+            <div class="log-container" id="movie-log"></div>
+        </div>
+        
+        <!-- Cover Tab -->
+        <div id="cover" class="tab-content">
+            <div class="list-container" id="cover-video-list"></div>
+            <div class="form-group button-group" style="margin-top: 14px;">
+                <button class="btn-primary" onclick="extractFrames()" id="extract-frames-btn" disabled>
+                    <span>Frames extrahieren</span>
+                </button>
+            </div>
+            <div class="status" id="cover-meta" style="display:none;"></div>
+            <div class="frame-grid" id="frame-grid"></div>
+            <div class="form-group button-group">
+                <button class="btn-primary" onclick="generateCover()" id="generate-cover-btn" disabled>
+                    <span>🎬 Cover generieren</span>
+                </button>
+            </div>
+            <div class="progress-bar" id="cover-progress" style="display: none;">
+                <div class="progress-fill" id="cover-progress-fill" style="width: 0%">0%</div>
+            </div>
+            <div class="status" id="cover-status">Wähle ein Video und extrahiere Frames.</div>
+            <div class="log-container" id="cover-log"></div>
+        </div>
+        
+        <!-- Merge Queue Tab -->
+        <div id="queue" class="tab-content">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                <h3 style="color: var(--plex-gold);">🔄 Merge-Queue</h3>
+                <button onclick="loadMergeQueueStatus()"><span>🔄 Aktualisieren</span></button>
+            </div>
+            
+            <div id="queue-current" style="margin-bottom: 15px; display: none;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                    <div>
+                        <div id="queue-current-title" style="font-weight: 700;"></div>
+                        <div id="queue-current-message" style="font-size: 12px; color: var(--plex-text-secondary);"></div>
+                    </div>
+                    <span id="queue-current-status" class="badge">-</span>
+                </div>
+                <div class="progress-bar" style="height: 10px;">
+                    <div class="progress-fill" id="queue-progress-fill" style="width: 0%"></div>
+                </div>
+            </div>
+            
+            <div id="queue-list" class="list-container">
+                <div style="color: var(--plex-text-secondary); padding: 12px;">Keine Jobs in der Queue.</div>
+            </div>
+        </div>
+
+        <!-- Video Player Tab -->
+        <div id="player" class="tab-content">
+            <h3 style="color: var(--plex-gold);">▶ Video Player</h3>
+            <div style="display: grid; grid-template-columns: 1.2fr 1fr; gap: 15px; align-items: start;">
+                <div class="list-container" id="player-project-list" style="max-height: 540px;"></div>
+                <div>
+                    <div class="preview-container" id="player-preview">
+                        <div class="preview-placeholder" id="player-placeholder">
+                            <div class="preview-placeholder-icon">▶</div>
+                            <div class="preview-placeholder-text">Keine Auswahl</div>
+                            <div class="preview-placeholder-hint">Wähle ein Video zum Abspielen</div>
+                        </div>
+                        <video id="player-video" controls style="width: 100%; height: 100%; display: none;"></video>
+                    </div>
+                    <div id="player-now-playing" style="margin-top: 8px; font-size: 12px; color: var(--plex-text-secondary);">Keine Auswahl</div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Logs Tab -->
+        <div id="logs" class="tab-content">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                <h3 style="color: var(--plex-gold);">📋 System-Logs</h3>
+                <div class="button-group">
+                    <button onclick="refreshLogs()"><span>🔄 Aktualisieren</span></button>
+                    <button onclick="clearLogs()"><span>🗑️ Löschen</span></button>
+                </div>
+            </div>
+            <div class="form-group">
+                <label>Filter</label>
+                <select id="log-filter" onchange="filterLogs()">
+                    <option value="">Alle Logs</option>
+                    <option value="capture">Capture</option>
+                    <option value="merge">Merge</option>
+                    <option value="general">Allgemein</option>
+                </select>
+            </div>
+            <div class="log-container" id="system-logs" style="max-height: 500px; overflow-y: auto; font-family: monospace; font-size: 12px;">
+                <div style="color: var(--plex-text-secondary); padding: 20px; text-align: center;">
+                    Logs werden geladen...
+                </div>
+            </div>
+        </div>
+        
+        <!-- Settings Tab -->
+        <div id="settings" class="tab-content">
+            <div class="settings-section">
+                <h3>📁 Pfade</h3>
+                <div class="form-group">
+                    <label>Plex Movies Ordner</label>
+                    <div class="path-selector">
+                        <input type="text" id="settings-plex-root" placeholder="/home/user/Plex/Movies">
+                        <button onclick="browsePath('plex')"><span>📂</span></button>
+                        <button class="btn-primary" onclick="applyChown('plex')"><span>🔓</span></button>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>DV Import Ordner</label>
+                    <div class="path-selector">
+                        <input type="text" id="settings-dv-root" placeholder="/home/user/DV_Import">
+                        <button onclick="browsePath('dv')"><span>📂</span></button>
+                        <button class="btn-primary" onclick="applyChown('dv')"><span>🔓</span></button>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>FFmpeg Pfad (leer = System)</label>
+                    <div class="path-selector">
+                        <input type="text" id="settings-ffmpeg" placeholder="Leer für System-PATH">
+                        <button onclick="browsePath('ffmpeg')"><span>📂</span></button>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="settings-section">
+                <h3>⚡ Automatisierung</h3>
+                <div class="form-group">
+                    <label style="display: flex; align-items: center; cursor: pointer; text-transform: none; font-size: 14px;">
+                        <input type="checkbox" id="settings-auto-postprocess">
+                        <span>Auto-Postprocessing nach Capture</span>
+                    </label>
+                </div>
+                <div class="form-group">
+                    <label style="display: flex; align-items: center; cursor: pointer; text-transform: none; font-size: 14px;">
+                        <input type="checkbox" id="settings-auto-upscale">
+                        <span>Auto-Upscaling aktivieren</span>
+                    </label>
+                </div>
+                <div class="form-group">
+                    <label style="display: flex; align-items: center; cursor: pointer; text-transform: none; font-size: 14px;">
+                        <input type="checkbox" id="settings-auto-export">
+                        <span>Auto-Export nach Plex</span>
+                    </label>
+                </div>
+            </div>
+
+            <div class="settings-section">
+                <h3>🎨 Design</h3>
+                <div class="form-group">
+                    <label>Farb-Theme</label>
+                    <select id="settings-theme">
+                        <option value="plex">Plex (Standard)</option>
+                        <option value="xbox360">Xbox 360 (Gelb/Blau/Rot/Grün)</option>
+                    </select>
+                </div>
+            </div>
+            
+            <div class="settings-section">
+                <h3>🔧 System</h3>
+                <div class="button-group">
+                    <button onclick="fixConfigPermissions()">
+                        <span>🔓 Config-Berechtigungen korrigieren</span>
+                    </button>
+                </div>
+            </div>
+
+            <div class="settings-section">
+                <h3>⬆️ Updates</h3>
+                <div class="status" id="update-status">Update-Status wird geladen...</div>
+                <div class="button-group">
+                    <button onclick="refreshUpdateStatus()"><span>🔄 Status aktualisieren</span></button>
+                    <button class="btn-primary" onclick="runUpdate()" id="update-run-btn">
+                        <span>⬆️ Update jetzt</span>
+                    </button>
+                </div>
+            </div>
+            
+            <div class="button-group">
+                <button class="btn-primary" onclick="saveSettings()">
+                    <span>💾 Einstellungen speichern</span>
+                </button>
+                <button onclick="loadSettings()">
+                    <span>🔄 Zurücksetzen</span>
+                </button>
+            </div>
+            
+            <div class="status" id="settings-status">Einstellungen werden geladen...</div>
+        </div>
+    </div>
+    
+    <!-- File Browser Modal -->
+    <div class="modal" id="browser-modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>📁 Verzeichnis wählen</h2>
+                <button class="close-btn" onclick="closeBrowser()">×</button>
+            </div>
+            <div class="current-path" id="browser-current-path">/</div>
+            <div class="browser-list list-container" id="browser-list"></div>
+            <div class="modal-footer">
+                <button onclick="closeBrowser()"><span>Abbrechen</span></button>
+                <button class="btn-primary" onclick="selectCurrentPath()"><span>✓ Auswählen</span></button>
+            </div>
+        </div>
+    </div>
+</body>
+</html>
