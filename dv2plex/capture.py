@@ -481,7 +481,9 @@ class CaptureEngine:
             
             # Baue dvgrab-Befehl: optional -rewind, immer -autosplit -t -f dv1
             # Ausgabe-Präfix: dvgrab fügt automatisch Timestamp hinzu (dvgrab-YYYY.MM.DD_HH-MM-SS.avi)
-            output_prefix = str(splits_dir / "dvgrab")
+            # Wichtig: dvgrab leitet den Container aus der Dateiendung ab.
+            # Ohne Endung kommt es zu "Unknown filename extension".
+            output_prefix = str(splits_dir / "dvgrab.avi")
             base_cmd = [self.dvgrab_path] + self._format_device_for_dvgrab(device)
             if use_rewind:
                 base_cmd.append("-rewind")  # Automatisches Rewind (optional)
