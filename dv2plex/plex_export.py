@@ -4,6 +4,8 @@ Plex-Exporter für den Export in die Plex-Movie-Library
 
 import shutil
 import re
+import os
+import subprocess
 from pathlib import Path
 from typing import Optional, Callable
 import logging
@@ -68,8 +70,8 @@ class PlexExporter:
             self.log(f"Quelle: {source_path}")
             self.log(f"Ziel: {target_file}")
             
-            # Kopiere Datei
-            shutil.copy2(source_path, target_file)
+            # Kopiere Datei (unter Linux bevorzugt über Subprozess)
+            self._copy_file(source_path, target_file)
             
             self.log(f"Export erfolgreich: {target_file}")
             return target_file
@@ -146,8 +148,8 @@ class PlexExporter:
             self.log(f"Quelle: {source_path}")
             self.log(f"Ziel: {target_file}")
             
-            # Kopiere Datei
-            shutil.copy2(source_path, target_file)
+            # Kopiere Datei (unter Linux bevorzugt über Subprozess)
+            self._copy_file(source_path, target_file)
             
             self.log(f"Export erfolgreich: {target_file}")
             return target_file
@@ -231,4 +233,30 @@ class PlexExporter:
         self.logger.info(message)
         if self.log_callback:
             self.log_callback(message)
+
+    def _copy_file(self, source_path: Path, target_file: Path) -> None:
+        """
+        Kopiert eine Datei nach target_file.
+
+        - Linux/macOS: bevorzugt via Subprozess (cp -p), damit der Copy-Job als eigener Prozess läuft.
+        - Windows/sonst: Fallback auf shutil.copy2.
+        """
+        source_path = Path(source_path)
+        target_file = Path(target_file)
+        target_file.parent.mkdir(parents=True, exist_ok=True)
+
+        # POSIX: cp -p (entspricht grob copy2 inkl. Metadaten)
+        if os.name == "posix" and shutil.which("cp"):
+            result = subprocess.run(
+                ["cp", "-p", str(source_path), str(target_file)],
+                capture_output=True,
+                text=True,
+            )
+            if result.returncode != 0:
+                stderr = (result.stderr or result.stdout or "").strip()
+                raise RuntimeError(f"cp fehlgeschlagen (code={result.returncode}): {stderr}")
+            return
+
+        # Fallback
+        shutil.copy2(source_path, target_file)
 

@@ -338,8 +338,12 @@ class Config:
         """Gibt den Root-Pfad für Plex-Movies zurück"""
         path = self.get("paths.plex_movies_root")
         if path:
-            # Expandiere ~ zu vollständigem Pfad
-            return Path(path).expanduser()
+            # Expandiere ~ zu vollständigem Pfad und mache relative Pfade robust (unabhängig vom CWD, z.B. systemd).
+            p = Path(path).expanduser()
+            if not p.is_absolute():
+                # Relativpfade wie "PlexMovies" sollen stabil zum Projekt-Root auflösen.
+                p = (self.base_dir / p).resolve()
+            return p
         # Linux Standard: ~/Plex/Movies
         return Path.home() / "Plex" / "Movies"
     

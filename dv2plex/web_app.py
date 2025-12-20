@@ -795,7 +795,8 @@ async def apply_chown(request: ChownRequest):
         
         # sudo chown -R ausführen
         result = subprocess.run(
-            ["sudo", "chown", "-R", f"{current_user}:{current_user}", str(path)],
+            # -n: niemals interaktiv nach einem Passwort fragen (wichtig für systemd/Services)
+            ["sudo", "-n", "chown", "-R", f"{current_user}:{current_user}", str(path)],
             capture_output=True,
             text=True,
             timeout=60
@@ -805,7 +806,13 @@ async def apply_chown(request: ChownRequest):
             logger.info(f"chown erfolgreich auf {path}")
             return {"success": True, "message": f"Berechtigungen für {path} geändert"}
         else:
-            error_msg = result.stderr or "Unbekannter Fehler"
+            error_msg = (result.stderr or result.stdout or "Unbekannter Fehler").strip()
+            if "password" in error_msg.lower() or "a password is required" in error_msg.lower():
+                error_msg = (
+                    f"{error_msg}\n"
+                    "Hinweis: sudo benötigt ein Passwort. In der Web-UI/als Service geht das nicht interaktiv.\n"
+                    "Lösung: sudoers passend konfigurieren oder Berechtigungen einmalig per Shell setzen."
+                )
             logger.error(f"chown fehlgeschlagen: {error_msg}")
             raise HTTPException(status_code=500, detail=f"chown fehlgeschlagen: {error_msg}")
     except subprocess.TimeoutExpired:
@@ -828,7 +835,8 @@ async def fix_config_permissions():
         
         # sudo chown -R auf config-Ordner ausführen
         result = subprocess.run(
-            ["sudo", "chown", "-R", f"{current_user}:{current_user}", str(config_dir)],
+            # -n: niemals interaktiv nach einem Passwort fragen (wichtig für systemd/Services)
+            ["sudo", "-n", "chown", "-R", f"{current_user}:{current_user}", str(config_dir)],
             capture_output=True,
             text=True,
             timeout=30
@@ -838,7 +846,13 @@ async def fix_config_permissions():
             logger.info(f"Config-Berechtigungen korrigiert: {config_dir}")
             return {"success": True, "message": f"Berechtigungen für {config_dir} korrigiert"}
         else:
-            error_msg = result.stderr or "Unbekannter Fehler"
+            error_msg = (result.stderr or result.stdout or "Unbekannter Fehler").strip()
+            if "password" in error_msg.lower() or "a password is required" in error_msg.lower():
+                error_msg = (
+                    f"{error_msg}\n"
+                    "Hinweis: sudo benötigt ein Passwort. In der Web-UI/als Service geht das nicht interaktiv.\n"
+                    "Lösung: sudoers passend konfigurieren oder Berechtigungen einmalig per Shell setzen."
+                )
             raise HTTPException(status_code=500, detail=f"chown fehlgeschlagen: {error_msg}")
     except subprocess.TimeoutExpired:
         raise HTTPException(status_code=500, detail="Timeout bei chown-Ausführung")
