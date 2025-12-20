@@ -291,6 +291,36 @@ function markMovieItem(videoPath, state, errorMessage = null) {
     }
 }
 
+function formatBytes(bytes) {
+    if (bytes === null || bytes === undefined || isNaN(bytes)) return '—';
+    const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+    let v = Number(bytes);
+    let i = 0;
+    while (v >= 1024 && i < units.length - 1) {
+        v /= 1024;
+        i++;
+    }
+    return `${v.toFixed(i === 0 ? 0 : 2)} ${units[i]}`;
+}
+
+function updateMovieStorageStatus(storage) {
+    const el = document.getElementById('movie-storage-status');
+    if (!el || !storage) return;
+    el.style.display = 'block';
+
+    const free = storage.free_bytes;
+    const req = storage.required_bytes;
+    const fitsAll = storage.fits_all;
+
+    const freeTxt = free == null ? '—' : formatBytes(free);
+    const reqTxt = req == null ? '—' : formatBytes(req);
+    const countTxt = storage.required_count ?? 0;
+    const rootTxt = storage.plex_root || '';
+
+    el.textContent = `Ziel: ${rootTxt} · Frei: ${freeTxt} · Benötigt (nicht exportiert): ${reqTxt} (${countTxt} Videos) · ${fitsAll ? 'Passt ✅' : 'Zu wenig Speicher ❌'}`;
+    el.className = 'status ' + (fitsAll ? 'success' : 'error');
+}
+
 async function loadStatus() {
     try {
         const response = await fetch('/api/status');
@@ -544,6 +574,7 @@ async function loadMovieList() {
         const list = document.getElementById('movie-list');
         list.innerHTML = '';
         movieItemsByPath = {};
+        updateMovieStorageStatus(data.storage);
         
         data.videos.forEach(video => {
             const item = document.createElement('div');
@@ -551,9 +582,16 @@ async function loadMovieList() {
             const exported = !!video.exported;
             const badgeText = exported ? 'Exportiert' : 'Nicht exportiert';
             const badgeBg = exported ? 'rgba(40, 167, 69, 0.9)' : 'rgba(153, 153, 153, 0.9)';
+            const sizeTxt = formatBytes(video.size_bytes);
+            const fitsNow = (video.fits_now === undefined || video.fits_now === null) ? true : !!video.fits_now;
+            const fitsIcon = exported ? '✅' : (fitsNow ? '✅' : '❌');
+            const fitsTitle = exported
+                ? 'Bereits exportiert'
+                : (fitsNow ? 'Passt auf die Platte (Stand jetzt)' : 'Zu wenig freier Speicher (Stand jetzt)');
             item.innerHTML = `
                 <span class="icon">🎞️</span>
                 <span class="name" title="${video.display}">${video.display}</span>
+                <span class="badge" style="background: rgba(0,0,0,0.25); border: 1px solid rgba(255,255,255,0.12); color: var(--plex-text);" title="${fitsTitle}">${fitsIcon} ${sizeTxt}</span>
                 <span class="badge" style="background:${badgeBg}; color:#000;" title="${video.expected_target || ''}">${badgeText}</span>
             `;
             item.onclick = () => {

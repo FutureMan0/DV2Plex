@@ -8,6 +8,7 @@ import base64
 import asyncio
 import threading
 import mimetypes
+import shutil
 from pathlib import Path
 from typing import Optional, List, Dict, Any
 from datetime import datetime
@@ -380,10 +381,37 @@ async def get_movie_list():
     videos = find_upscaled_videos(config)
     result = []
     plex_root = config.get_plex_movies_root()
+
+    # Speicherplatz am Ziel ermitteln (Filesystem von plex_root)
+    total_bytes = used_bytes = free_bytes = None
+    try:
+        usage = shutil.disk_usage(str(plex_root))
+        total_bytes = int(usage.total)
+        used_bytes = int(usage.used)
+        free_bytes = int(usage.free)
+    except Exception as e:
+        logger.warning(f"Konnte Disk-Usage nicht ermitteln für {plex_root}: {e}")
+
+    required_bytes = 0
+    required_count = 0
     for video_path, title, year in videos:
         movie_name = f"{title} ({year})" if year else title
         expected_target = plex_root / movie_name / f"{movie_name}.mp4"
         exported = expected_target.exists()
+        # Größe der Quell-Datei (HighRes)
+        size_bytes = None
+        try:
+            size_bytes = int(video_path.stat().st_size)
+        except Exception:
+            size_bytes = None
+
+        if not exported and size_bytes is not None:
+            required_bytes += size_bytes
+            required_count += 1
+
+        fits_now = True
+        if not exported and free_bytes is not None and size_bytes is not None:
+            fits_now = size_bytes <= free_bytes
         result.append({
             "path": str(video_path),
             "title": title,
@@ -391,8 +419,26 @@ async def get_movie_list():
             "display": f"{title} ({year})" if year else f"{title} - {video_path.name}",
             "exported": exported,
             "expected_target": str(expected_target),
+            "size_bytes": size_bytes,
+            "fits_now": fits_now,
         })
-    return {"videos": result}
+
+    fits_all = True
+    if free_bytes is not None:
+        fits_all = required_bytes <= free_bytes
+
+    return {
+        "videos": result,
+        "storage": {
+            "plex_root": str(plex_root),
+            "total_bytes": total_bytes,
+            "used_bytes": used_bytes,
+            "free_bytes": free_bytes,
+            "required_bytes": int(required_bytes),
+            "required_count": int(required_count),
+            "fits_all": fits_all,
+        }
+    }
 
 
 @app.get("/api/cover/videos")
