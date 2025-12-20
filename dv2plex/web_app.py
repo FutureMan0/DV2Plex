@@ -76,6 +76,14 @@ active_export_all: Dict[str, Any] = {
     "failed": 0,
     "current": None,
 }
+active_export_single: Dict[str, Any] = {
+    "running": False,
+    "current": None,
+}
+active_movie_merge: Dict[str, Any] = {
+    "running": False,
+    "current": None,
+}
 
 # Log-Speicher für Web-Interface (ringbuffer)
 log_buffer: List[Dict[str, Any]] = []
@@ -679,58 +687,157 @@ async def process_movie(request: PostprocessRequest):
 
 @app.post("/api/movie/merge")
 async def merge_videos(request: MergeRequest):
-    """Merged mehrere Videos zu einem Film"""
+    """Merged mehrere Videos zu einem Film (läuft im Hintergrund)"""
     if not movie_mode_service:
         raise HTTPException(status_code=500, detail="Movie-Mode-Service nicht initialisiert")
     
     video_paths = [Path(p) for p in request.video_paths]
-    
-    success, merged_file, error = movie_mode_service.merge_videos(
-        video_paths,
-        request.title,
-        request.year
-    )
-    
-    if success and merged_file:
-        # Export to Plex
-        export_success, exported_path, export_error = movie_mode_service.export_to_plex(
-            merged_file,
-            request.title,
-            request.year
-        )
-        
-        # Clean up temp file
+
+    global active_movie_merge
+    if active_movie_merge.get("running"):
+        raise HTTPException(status_code=409, detail="Merge läuft bereits")
+
+    # Schnell validieren, damit wir sofort Fehler zurückgeben
+    if len(video_paths) < 2:
+        raise HTTPException(status_code=400, detail="Mindestens 2 Videos erforderlich")
+    if not request.title or not request.year:
+        raise HTTPException(status_code=400, detail="Titel und Jahr müssen angegeben werden")
+
+    active_movie_merge = {"running": True, "current": f"{request.title} ({request.year})"}
+
+    def run_merge():
+        global active_movie_merge
         try:
-            merged_file.unlink()
-        except:
-            pass
-        
-        if export_success:
-            return {"success": True, "message": f"Videos erfolgreich gemerged und exportiert: {exported_path}"}
-        else:
-            return {"success": False, "message": export_error or "Export fehlgeschlagen"}
-    else:
-        raise HTTPException(status_code=400, detail=error or "Merge fehlgeschlagen")
+            broadcast_message_sync({"type": "progress", "value": 0, "operation": "movie_merge"})
+            broadcast_message_sync({
+                "type": "status",
+                "status": "movie_merge_started",
+                "operation": "movie_merge",
+                "data": {"title": request.title, "year": request.year, "count": len(video_paths)},
+            })
+
+            success, merged_file, error = movie_mode_service.merge_videos(
+                video_paths,
+                request.title,
+                request.year
+            )
+
+            if not success or not merged_file:
+                broadcast_message_sync({
+                    "type": "status",
+                    "status": "movie_merge_failed",
+                    "operation": "movie_merge",
+                    "data": {"error": error or "Merge fehlgeschlagen"},
+                })
+                return
+
+            # Export to Plex
+            export_success, exported_path, export_error = movie_mode_service.export_to_plex(
+                merged_file,
+                request.title,
+                request.year
+            )
+
+            # Clean up temp file
+            try:
+                merged_file.unlink()
+            except Exception:
+                pass
+
+            if export_success:
+                broadcast_message_sync({"type": "progress", "value": 100, "operation": "movie_merge"})
+                broadcast_message_sync({
+                    "type": "status",
+                    "status": "movie_merge_finished",
+                    "operation": "movie_merge",
+                    "data": {"exported_path": str(exported_path) if exported_path else None},
+                })
+            else:
+                broadcast_message_sync({
+                    "type": "status",
+                    "status": "movie_merge_failed",
+                    "operation": "movie_merge",
+                    "data": {"error": export_error or "Export fehlgeschlagen"},
+                })
+        except Exception as e:
+            logger.exception("Fehler beim Movie-Merge")
+            broadcast_message_sync({
+                "type": "status",
+                "status": "movie_merge_failed",
+                "operation": "movie_merge",
+                "data": {"error": str(e)},
+            })
+        finally:
+            active_movie_merge["running"] = False
+            active_movie_merge["current"] = None
+
+    threading.Thread(target=run_merge, daemon=True).start()
+    return {"success": True, "message": "Merge gestartet (läuft im Hintergrund)."}
 
 
 @app.post("/api/movie/export")
 async def export_video(request: ExportRequest):
-    """Exportiert ein einzelnes Video nach PlexMovies"""
+    """Exportiert ein einzelnes Video nach PlexMovies (läuft im Hintergrund)"""
     if not movie_mode_service:
         raise HTTPException(status_code=500, detail="Movie-Mode-Service nicht initialisiert")
     
     video_path = Path(request.video_path)
-    
-    success, exported_path, error = movie_mode_service.export_to_plex(
-        video_path,
-        request.title,
-        request.year
-    )
-    
-    if success:
-        return {"success": True, "message": f"Video erfolgreich exportiert: {exported_path}"}
-    else:
-        raise HTTPException(status_code=400, detail=error or "Export fehlgeschlagen")
+
+    global active_export_single
+    if active_export_single.get("running"):
+        raise HTTPException(status_code=409, detail="Export läuft bereits")
+
+    if not video_path.exists():
+        raise HTTPException(status_code=404, detail=f"Video nicht gefunden: {video_path}")
+
+    active_export_single = {"running": True, "current": str(video_path)}
+
+    def run_export_single():
+        global active_export_single
+        try:
+            broadcast_message_sync({"type": "progress", "value": 0, "operation": "movie_export_single"})
+            broadcast_message_sync({
+                "type": "status",
+                "status": "movie_export_single_started",
+                "operation": "movie_export_single",
+                "data": {"video_path": str(video_path)},
+            })
+
+            success, exported_path, error = movie_mode_service.export_to_plex(
+                video_path,
+                request.title,
+                request.year
+            )
+
+            if success:
+                broadcast_message_sync({"type": "progress", "value": 100, "operation": "movie_export_single"})
+                broadcast_message_sync({
+                    "type": "status",
+                    "status": "movie_export_single_done",
+                    "operation": "movie_export_single",
+                    "data": {"video_path": str(video_path), "exported_path": str(exported_path) if exported_path else None},
+                })
+            else:
+                broadcast_message_sync({
+                    "type": "status",
+                    "status": "movie_export_single_failed",
+                    "operation": "movie_export_single",
+                    "data": {"video_path": str(video_path), "error": error or "Export fehlgeschlagen"},
+                })
+        except Exception as e:
+            logger.exception("Fehler beim Export (single)")
+            broadcast_message_sync({
+                "type": "status",
+                "status": "movie_export_single_failed",
+                "operation": "movie_export_single",
+                "data": {"video_path": str(video_path), "error": str(e)},
+            })
+        finally:
+            active_export_single["running"] = False
+            active_export_single["current"] = None
+
+    threading.Thread(target=run_export_single, daemon=True).start()
+    return {"success": True, "message": "Export gestartet (läuft im Hintergrund)."}
 
 
 @app.post("/api/movie/export-all")

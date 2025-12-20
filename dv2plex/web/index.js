@@ -3,6 +3,8 @@ let selectedPostprocessMovie = null;
 let selectedMovieVideos = [];
 let movieItemsByPath = {};
 let movieExportAllRunning = false;
+let movieExportSingleRunning = false;
+let movieMergeRunning = false;
 let selectedCoverVideo = null;
 let extractedFrames = [];
 let selectedFrameIndex = null;
@@ -151,6 +153,14 @@ function updateProgress(value, operation) {
             fill.style.width = value + '%';
             fill.textContent = value + '%';
         }
+    } else if (operation === 'movie_export_single' || operation === 'movie_merge') {
+        const progress = document.getElementById('movie-export-progress');
+        const fill = document.getElementById('movie-export-progress-fill');
+        if (progress && fill) {
+            progress.style.display = 'block';
+            fill.style.width = value + '%';
+            fill.textContent = value + '%';
+        }
     }
 }
 
@@ -263,6 +273,75 @@ function updateStatus(status, operation, payload = null) {
             markMovieItem(payload?.video_path, 'exported');
         } else if (status === 'movie_export_item_failed') {
             markMovieItem(payload?.video_path, 'failed', payload?.error);
+        }
+    }
+
+    // Single export handling (async)
+    if (operation === 'movie_export_single') {
+        const exportBtn = document.getElementById('export-btn');
+        const exportAllBtn = document.getElementById('export-all-btn');
+        const movieStatus = document.getElementById('movie-status');
+        if (status === 'movie_export_single_started') {
+            movieExportSingleRunning = true;
+            if (exportBtn) exportBtn.disabled = true;
+            if (exportAllBtn) exportAllBtn.disabled = true;
+            if (movieStatus) {
+                movieStatus.textContent = 'Export gestartet (läuft im Hintergrund)...';
+                movieStatus.className = 'status';
+            }
+            markMovieItem(payload?.video_path, 'running');
+            updateMovieButtons();
+        } else if (status === 'movie_export_single_done') {
+            movieExportSingleRunning = false;
+            if (exportBtn) exportBtn.disabled = false;
+            if (exportAllBtn) exportAllBtn.disabled = false;
+            if (movieStatus) {
+                movieStatus.textContent = 'Export fertig.';
+                movieStatus.className = 'status success';
+            }
+            markMovieItem(payload?.video_path, 'exported');
+            updateMovieButtons();
+            loadMovieList();
+        } else if (status === 'movie_export_single_failed') {
+            movieExportSingleRunning = false;
+            if (exportBtn) exportBtn.disabled = false;
+            if (exportAllBtn) exportAllBtn.disabled = false;
+            if (movieStatus) {
+                movieStatus.textContent = `Export fehlgeschlagen: ${payload?.error ?? 'Unbekannter Fehler'}`;
+                movieStatus.className = 'status error';
+            }
+            markMovieItem(payload?.video_path, 'failed', payload?.error);
+            updateMovieButtons();
+        }
+    }
+
+    // Merge handling (async)
+    if (operation === 'movie_merge') {
+        const mergeBtn = document.getElementById('merge-btn');
+        const movieStatus = document.getElementById('movie-status');
+        if (status === 'movie_merge_started') {
+            movieMergeRunning = true;
+            if (mergeBtn) mergeBtn.disabled = true;
+            if (movieStatus) {
+                movieStatus.textContent = `Merge gestartet (${payload?.count ?? '?'} Videos) – läuft im Hintergrund...`;
+                movieStatus.className = 'status';
+            }
+            updateMovieButtons();
+        } else if (status === 'movie_merge_finished') {
+            movieMergeRunning = false;
+            if (movieStatus) {
+                movieStatus.textContent = 'Merge + Export fertig.';
+                movieStatus.className = 'status success';
+            }
+            updateMovieButtons();
+            loadMovieList();
+        } else if (status === 'movie_merge_failed') {
+            movieMergeRunning = false;
+            if (movieStatus) {
+                movieStatus.textContent = `Merge fehlgeschlagen: ${payload?.error ?? 'Unbekannter Fehler'}`;
+                movieStatus.className = 'status error';
+            }
+            updateMovieButtons();
         }
     }
 }
@@ -618,7 +697,9 @@ function updateMovieButtons() {
     const exportAllBtn = document.getElementById('export-all-btn');
     mergeBtn.disabled = selectedMovieVideos.length < 2;
     exportBtn.disabled = selectedMovieVideos.length !== 1;
-    if (exportAllBtn) exportAllBtn.disabled = movieExportAllRunning;
+    if (mergeBtn) mergeBtn.disabled = (selectedMovieVideos.length < 2) || movieMergeRunning;
+    if (exportBtn) exportBtn.disabled = (selectedMovieVideos.length !== 1) || movieExportSingleRunning || movieExportAllRunning;
+    if (exportAllBtn) exportAllBtn.disabled = movieExportAllRunning || movieExportSingleRunning || movieMergeRunning;
 }
 
 async function exportAllVideos() {
@@ -682,10 +763,11 @@ async function mergeVideos() {
         
         const data = await response.json();
         if (response.ok) {
-            document.getElementById('movie-status').textContent = 'Erfolgreich!';
-            document.getElementById('movie-status').className = 'status success';
-            addLog(data.message, 'movie');
-            loadMovieList();
+            document.getElementById('movie-status').textContent = data.message || 'Merge gestartet...';
+            document.getElementById('movie-status').className = 'status';
+            addLog(data.message || 'Merge gestartet', 'movie');
+            movieMergeRunning = true;
+            updateMovieButtons();
         } else {
             alert(data.detail || 'Fehler beim Mergen');
         }
@@ -713,9 +795,11 @@ async function exportVideo() {
         
         const data = await response.json();
         if (response.ok) {
-            document.getElementById('movie-status').textContent = 'Erfolgreich!';
-            document.getElementById('movie-status').className = 'status success';
-            addLog(data.message, 'movie');
+            document.getElementById('movie-status').textContent = data.message || 'Export gestartet...';
+            document.getElementById('movie-status').className = 'status';
+            addLog(data.message || 'Export gestartet', 'movie');
+            movieExportSingleRunning = true;
+            updateMovieButtons();
         } else {
             alert(data.detail || 'Fehler beim Exportieren');
         }
