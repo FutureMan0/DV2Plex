@@ -111,7 +111,7 @@ ENV/
 dv2plex/logs/
 
 # Konfiguration (kann angepasst werden)
-# dv2plex/config/settings.json
+dv2plex/config/settings.json
 
 # Arbeitsordner
 dv2plex/DV_Import/
