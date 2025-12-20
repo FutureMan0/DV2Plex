@@ -67,6 +67,14 @@ websocket_connections: List[WebSocket] = []
 active_capture: Optional[Dict[str, Any]] = None
 active_postprocessing: Optional[Dict[str, Any]] = None
 active_capture_stop_task: Optional[asyncio.Task] = None
+active_export_all: Dict[str, Any] = {
+    "running": False,
+    "total": 0,
+    "done": 0,
+    "skipped": 0,
+    "failed": 0,
+    "current": None,
+}
 
 # Log-Speicher für Web-Interface (ringbuffer)
 log_buffer: List[Dict[str, Any]] = []
@@ -246,6 +254,10 @@ class ExportRequest(BaseModel):
     year: Optional[str] = None
 
 
+class ExportAllRequest(BaseModel):
+    skip_existing: bool = True
+
+
 class CoverExtractRequest(BaseModel):
     video_path: str
     count: int = 4
@@ -367,12 +379,18 @@ async def get_movie_list():
     """Gibt Liste der upscaled Videos zurück"""
     videos = find_upscaled_videos(config)
     result = []
+    plex_root = config.get_plex_movies_root()
     for video_path, title, year in videos:
+        movie_name = f"{title} ({year})" if year else title
+        expected_target = plex_root / movie_name / f"{movie_name}.mp4"
+        exported = expected_target.exists()
         result.append({
             "path": str(video_path),
             "title": title,
             "year": year,
-            "display": f"{title} ({year})" if year else f"{title} - {video_path.name}"
+            "display": f"{title} ({year})" if year else f"{title} - {video_path.name}",
+            "exported": exported,
+            "expected_target": str(expected_target),
         })
     return {"videos": result}
 
@@ -667,6 +685,157 @@ async def export_video(request: ExportRequest):
         return {"success": True, "message": f"Video erfolgreich exportiert: {exported_path}"}
     else:
         raise HTTPException(status_code=400, detail=error or "Export fehlgeschlagen")
+
+
+@app.post("/api/movie/export-all")
+async def export_all_videos(request: ExportAllRequest):
+    """Exportiert alle upscaled (HighRes) Videos nach PlexMovies (läuft im Hintergrund)."""
+    global active_export_all
+
+    if not movie_mode_service:
+        raise HTTPException(status_code=500, detail="Movie-Mode-Service nicht initialisiert")
+
+    if active_export_all.get("running"):
+        raise HTTPException(status_code=409, detail="Export-All läuft bereits")
+
+    videos = find_upscaled_videos(config)
+    total = len(videos)
+    if total == 0:
+        return {"success": True, "message": "Keine Videos zum Exportieren gefunden.", "total": 0}
+
+    plex_root = config.get_plex_movies_root()
+
+    # Init state
+    active_export_all = {
+        "running": True,
+        "total": total,
+        "done": 0,
+        "skipped": 0,
+        "failed": 0,
+        "current": None,
+    }
+
+    def run_export_all():
+        global active_export_all
+        try:
+            broadcast_message_sync({
+                "type": "status",
+                "status": "movie_export_all_started",
+                "operation": "movie_export_all",
+                "data": {"total": total},
+            })
+            broadcast_message_sync({"type": "progress", "value": 0, "operation": "movie_export_all"})
+
+            for idx, (video_path, title, year) in enumerate(videos, start=1):
+                movie_name = f"{title} ({year})" if year else title
+                expected_target = plex_root / movie_name / f"{movie_name}.mp4"
+                active_export_all["current"] = str(video_path)
+
+                # Skip existing if requested
+                if request.skip_existing and expected_target.exists():
+                    active_export_all["skipped"] += 1
+                    active_export_all["done"] += 1
+                    percent = int(round(active_export_all["done"] * 100 / max(active_export_all["total"], 1)))
+                    broadcast_message_sync({
+                        "type": "status",
+                        "status": "movie_export_item_skipped",
+                        "operation": "movie_export_all",
+                        "data": {
+                            "video_path": str(video_path),
+                            "title": title,
+                            "year": year,
+                            "expected_target": str(expected_target),
+                            "index": idx,
+                            "total": total,
+                        },
+                    })
+                    broadcast_message_sync({"type": "progress", "value": percent, "operation": "movie_export_all"})
+                    continue
+
+                broadcast_message_sync({
+                    "type": "status",
+                    "status": "movie_export_item_started",
+                    "operation": "movie_export_all",
+                    "data": {
+                        "video_path": str(video_path),
+                        "title": title,
+                        "year": year,
+                        "expected_target": str(expected_target),
+                        "index": idx,
+                        "total": total,
+                    },
+                })
+
+                success, exported_path, error = movie_mode_service.export_to_plex(
+                    Path(video_path),
+                    title,
+                    year,
+                    overwrite=True,
+                )
+
+                active_export_all["done"] += 1
+                percent = int(round(active_export_all["done"] * 100 / max(active_export_all["total"], 1)))
+
+                if success:
+                    broadcast_message_sync({
+                        "type": "status",
+                        "status": "movie_export_item_done",
+                        "operation": "movie_export_all",
+                        "data": {
+                            "video_path": str(video_path),
+                            "title": title,
+                            "year": year,
+                            "exported_path": str(exported_path) if exported_path else None,
+                            "expected_target": str(expected_target),
+                            "index": idx,
+                            "total": total,
+                        },
+                    })
+                else:
+                    active_export_all["failed"] += 1
+                    broadcast_message_sync({
+                        "type": "status",
+                        "status": "movie_export_item_failed",
+                        "operation": "movie_export_all",
+                        "data": {
+                            "video_path": str(video_path),
+                            "title": title,
+                            "year": year,
+                            "error": error or "Export fehlgeschlagen",
+                            "expected_target": str(expected_target),
+                            "index": idx,
+                            "total": total,
+                        },
+                    })
+
+                broadcast_message_sync({"type": "progress", "value": percent, "operation": "movie_export_all"})
+
+            broadcast_message_sync({
+                "type": "status",
+                "status": "movie_export_all_finished",
+                "operation": "movie_export_all",
+                "data": {
+                    "total": total,
+                    "skipped": active_export_all.get("skipped", 0),
+                    "failed": active_export_all.get("failed", 0),
+                },
+            })
+        except Exception as e:
+            logger.exception("Fehler bei Export-All")
+            broadcast_message_sync({
+                "type": "status",
+                "status": "movie_export_all_failed",
+                "operation": "movie_export_all",
+                "data": {"error": str(e)},
+            })
+        finally:
+            active_export_all["running"] = False
+            active_export_all["current"] = None
+
+    thread = threading.Thread(target=run_export_all, daemon=True)
+    thread.start()
+
+    return {"success": True, "message": f"Export-All gestartet ({total} Videos).", "total": total}
 
 
 @app.post("/api/cover/extract")
