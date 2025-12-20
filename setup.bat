@@ -5,6 +5,12 @@ REM Automatic Setup Script for DV2Plex (Windows)
 set "SCRIPT_DIR=%~dp0"
 pushd "%SCRIPT_DIR%" >nul
 
+REM Prefer bundled ffmpeg (shippped with repo) so users don't need Chocolatey/Global PATH.
+set "BUNDLED_FFMPEG_BIN=%SCRIPT_DIR%dv2plex\bin\ffmpeg\bin"
+if exist "%BUNDLED_FFMPEG_BIN%\ffmpeg.exe" (
+    set "PATH=%BUNDLED_FFMPEG_BIN%;%PATH%"
+)
+
 echo ==========================================
 echo DV2Plex - Automatisches Setup (Windows)
 echo ==========================================

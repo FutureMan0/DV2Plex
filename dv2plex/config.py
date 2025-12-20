@@ -136,7 +136,8 @@ class Config:
             "ui": {
                 "window_width": 1280,
                 "window_height": 720,
-                "preview_fps": 10
+                "preview_fps": 10,
+                "show_cover_tab": True
             },
             "logging": {
                 "level": "INFO",
@@ -298,13 +299,26 @@ class Config:
         """Gibt den Pfad zu ffmpeg zurück"""
         path = self.get("paths.ffmpeg_path", "")
         if path and path.strip():
-            return Path(path)
-        # Leer = Suche ffmpeg im System-PATH
+            candidate = Path(path).expanduser()
+            # Wenn der konfigurierte Pfad existiert, nutze ihn.
+            if candidate.exists():
+                return candidate
+            # Windows: Werte wie "\usr\bin\ffmpeg" (oder "/usr/bin/ffmpeg") sind hier meist ungültig.
+            # Dann lieber auto-detect (PATH/bundled) statt einen nicht existierenden Pfad zurückzugeben.
+
+        # 1) System-PATH
         import shutil
         ffmpeg_system = shutil.which("ffmpeg")
         if ffmpeg_system:
             return Path(ffmpeg_system)
-        return Path("ffmpeg")  # Verwende System-PATH
+
+        # 2) Bundled Windows-ffmpeg (Repo liefert dv2plex/bin/ffmpeg/bin/ffmpeg.exe mit)
+        bundled = self.base_dir / "dv2plex" / "bin" / "ffmpeg" / "bin" / "ffmpeg.exe"
+        if bundled.exists():
+            return bundled
+
+        # 3) Fallback
+        return Path("ffmpeg")  # Verwende System-PATH (kann später fehlschlagen, aber sauberer Default)
     
     def get_realesrgan_path(self) -> Path:
         """Gibt den Pfad zu inference_realesrgan_video.py zurück"""

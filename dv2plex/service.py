@@ -116,6 +116,45 @@ def find_available_videos(config: Config) -> List[Tuple[Path, str, str]]:
     return find_upscaled_videos(config)
 
 
+def find_exported_plex_videos(config: Config) -> List[Tuple[Path, str, str]]:
+    """
+    Findet exportierte Videos in der Plex-Movie-Library (plex_movies_root).
+
+    Erwartete Struktur (typisch):
+      PlexMovies/<Titel (Jahr)>/<Titel (Jahr)>.mp4
+
+    Returns:
+        Liste von Tupeln: (video_path, title, year)
+    """
+    videos: List[Tuple[Path, str, str]] = []
+    plex_root = config.get_plex_movies_root()
+    if not plex_root.exists():
+        return videos
+
+    exts = {".mp4", ".mkv", ".avi", ".mov"}
+
+    for movie_dir in sorted(plex_root.iterdir()):
+        if not movie_dir.is_dir():
+            continue
+
+        # Bevorzugt: Datei mit gleichem Namen wie der Ordner (Plex-Konvention)
+        preferred = movie_dir / f"{movie_dir.name}.mp4"
+        chosen: Optional[Path] = preferred if preferred.exists() else None
+
+        # Fallback: irgendeine Videodatei im Ordner (neueste zuerst)
+        if chosen is None:
+            candidates = [p for p in movie_dir.iterdir() if p.is_file() and p.suffix.lower() in exts]
+            if not candidates:
+                continue
+            candidates.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+            chosen = candidates[0]
+
+        title, year = parse_movie_folder_name(movie_dir.name)
+        videos.append((chosen, title, year))
+
+    return videos
+
+
 class PostprocessingService:
     """Service für Postprocessing-Operationen"""
     

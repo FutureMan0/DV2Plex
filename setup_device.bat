@@ -19,3 +19,4 @@ echo Notiere den Pfad bzw. das Geraet im Geraetemanager, falls eine manuelle
 echo Konfiguration noetig ist. Die automatische Erkennung funktioniert meist ohne Anpassung.
 
 
+

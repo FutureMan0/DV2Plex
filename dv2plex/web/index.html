@@ -13,10 +13,10 @@
         </div>
         
         <div class="tabs">
-            <div class="tab active" onclick="switchTab('capture')"><span>📹 Digitalisieren</span></div>
+            <div class="tab active" id="tab-capture" onclick="switchTab('capture')"><span>📹 Digitalisieren</span></div>
             <div class="tab" onclick="switchTab('postprocess')"><span>🎬 Upscaling</span></div>
             <div class="tab" onclick="switchTab('movie')"><span>🎞️ Movie Mode</span></div>
-            <div class="tab" onclick="switchTab('cover')"><span>🖼️ Cover</span></div>
+            <div class="tab" id="tab-cover" onclick="switchTab('cover')"><span>🖼️ Cover</span></div>
             <div class="tab" onclick="switchTab('queue')"><span>🔄 Merge-Queue</span></div>
             <div class="tab" onclick="switchTab('player')"><span>▶ Video Player</span></div>
             <div class="tab" onclick="switchTab('logs')"><span>📋 Logs</span></div>
@@ -103,6 +103,9 @@
                     <span>Ausgewählten verarbeiten</span>
                 </button>
                 <button onclick="processAll()"><span>Alle verarbeiten</span></button>
+                <button class="btn-danger" onclick="deleteSelectedPostprocessProject()" id="postprocess-delete-btn" disabled>
+                    <span>Projekt löschen (LowRes+HighRes)</span>
+                </button>
             </div>
             <div class="progress-bar" id="postprocess-progress" style="display: none;">
                 <div class="progress-fill" id="postprocess-progress-fill" style="width: 0%">0%</div>
@@ -135,6 +138,9 @@
                 <button class="btn-primary" onclick="exportAllVideos()" id="export-all-btn">
                     <span>Export All</span>
                 </button>
+                <button class="btn-danger" onclick="deleteSelectedMovieProjects()" id="movie-delete-btn" disabled>
+                    <span>Projekt löschen (LowRes+HighRes)</span>
+                </button>
             </div>
             <div class="progress-bar" id="movie-export-progress" style="display: none;">
                 <div class="progress-fill" id="movie-export-progress-fill" style="width: 0%">0%</div>
@@ -145,6 +151,10 @@
         
         <!-- Cover Tab -->
         <div id="cover" class="tab-content">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 12px;">
+                <h3 style="color: var(--plex-gold); margin: 0;">🧪 Cover</h3>
+                <span class="badge" style="background: rgba(220, 53, 69, 0.9); color: #fff;">EXPERIMENTAL</span>
+            </div>
             <div class="list-container" id="cover-video-list"></div>
             <div class="form-group button-group" style="margin-top: 14px;">
                 <button class="btn-primary" onclick="extractFrames()" id="extract-frames-btn" disabled>
@@ -293,6 +303,12 @@
                         <option value="plex">Plex (Standard)</option>
                         <option value="xbox360">Xbox 360 (Gelb/Blau/Rot/Grün)</option>
                     </select>
+                </div>
+                <div class="form-group">
+                    <label style="display: flex; align-items: center; cursor: pointer; text-transform: none; font-size: 14px;">
+                        <input type="checkbox" id="settings-show-cover">
+                        <span>Cover-Tab anzeigen (Experimental)</span>
+                    </label>
                 </div>
             </div>
             

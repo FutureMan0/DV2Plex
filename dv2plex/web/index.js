@@ -478,6 +478,19 @@ function switchTab(tabName) {
     }
 }
 
+function applyCoverTabVisibility(show) {
+    const tab = document.getElementById('tab-cover');
+    const content = document.getElementById('cover');
+    if (tab) tab.style.display = show ? '' : 'none';
+    if (content) content.style.display = show ? '' : 'none';
+
+    // Wenn Cover gerade aktiv ist und wir es ausblenden, auf Capture zurückschalten.
+    if (!show && content && content.classList.contains('active')) {
+        const captureTab = document.getElementById('tab-capture');
+        if (captureTab) captureTab.click();
+    }
+}
+
 // Capture functions
 async function startCapture() {
     const title = document.getElementById('capture-title').value;
@@ -572,6 +585,9 @@ async function loadPostprocessList() {
         const data = await response.json();
         const list = document.getElementById('postprocess-list');
         list.innerHTML = '';
+        selectedPostprocessMovie = null;
+        const delBtn = document.getElementById('postprocess-delete-btn');
+        if (delBtn) delBtn.disabled = true;
         
         if (data.movies.length === 0) {
             list.innerHTML = '<div class="list-item">Keine offenen Projekte 🎉</div>';
@@ -586,11 +602,40 @@ async function loadPostprocessList() {
                 document.querySelectorAll('#postprocess-list .list-item').forEach(i => i.classList.remove('selected'));
                 item.classList.add('selected');
                 selectedPostprocessMovie = movie.path;
+                const delBtn = document.getElementById('postprocess-delete-btn');
+                if (delBtn) delBtn.disabled = !selectedPostprocessMovie;
             };
             list.appendChild(item);
         });
     } catch (error) {
         console.error('Fehler beim Laden der Liste:', error);
+    }
+}
+
+async function deleteSelectedPostprocessProject() {
+    if (!selectedPostprocessMovie) {
+        alert('Bitte ein Projekt auswählen');
+        return;
+    }
+    if (!confirm('Wirklich löschen? Es werden LowRes und HighRes dieses Projekts entfernt.')) {
+        return;
+    }
+    try {
+        const response = await fetch('/api/project/delete', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({paths: [selectedPostprocessMovie]})
+        });
+        const data = await response.json();
+        if (!response.ok) {
+            alert(data.detail || 'Fehler beim Löschen');
+            return;
+        }
+        addLog('Projekt gelöscht', 'postprocessing');
+        await loadPostprocessList();
+        await loadMovieList();
+    } catch (error) {
+        alert('Fehler: ' + error.message);
     }
 }
 
@@ -695,11 +740,41 @@ function updateMovieButtons() {
     const mergeBtn = document.getElementById('merge-btn');
     const exportBtn = document.getElementById('export-btn');
     const exportAllBtn = document.getElementById('export-all-btn');
+    const deleteBtn = document.getElementById('movie-delete-btn');
     mergeBtn.disabled = selectedMovieVideos.length < 2;
     exportBtn.disabled = selectedMovieVideos.length !== 1;
     if (mergeBtn) mergeBtn.disabled = (selectedMovieVideos.length < 2) || movieMergeRunning;
     if (exportBtn) exportBtn.disabled = (selectedMovieVideos.length !== 1) || movieExportSingleRunning || movieExportAllRunning;
     if (exportAllBtn) exportAllBtn.disabled = movieExportAllRunning || movieExportSingleRunning || movieMergeRunning;
+    if (deleteBtn) deleteBtn.disabled = (selectedMovieVideos.length < 1) || movieMergeRunning || movieExportSingleRunning || movieExportAllRunning;
+}
+
+async function deleteSelectedMovieProjects() {
+    if (!selectedMovieVideos || selectedMovieVideos.length < 1) {
+        alert('Bitte mindestens ein Video auswählen');
+        return;
+    }
+    if (!confirm(`Wirklich löschen? Es werden LowRes und HighRes der ausgewählten Projekt(e) entfernt (${selectedMovieVideos.length} Auswahl).`)) {
+        return;
+    }
+    try {
+        const response = await fetch('/api/project/delete', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({paths: selectedMovieVideos})
+        });
+        const data = await response.json();
+        if (!response.ok) {
+            alert(data.detail || 'Fehler beim Löschen');
+            return;
+        }
+        selectedMovieVideos = [];
+        updateMovieButtons();
+        await loadMovieList();
+        addLog('Projekt(e) gelöscht', 'movie');
+    } catch (error) {
+        alert('Fehler: ' + error.message);
+    }
 }
 
 async function exportAllVideos() {
@@ -1056,6 +1131,13 @@ async function loadSettings() {
         document.getElementById('settings-auto-postprocess').checked = data.auto_postprocess || false;
         document.getElementById('settings-auto-upscale').checked = data.auto_upscale || false;
         document.getElementById('settings-auto-export').checked = data.auto_export || false;
+        const showCover = (data.show_cover_tab === undefined || data.show_cover_tab === null) ? true : !!data.show_cover_tab;
+        const coverCb = document.getElementById('settings-show-cover');
+        if (coverCb) {
+            coverCb.checked = showCover;
+            coverCb.onchange = () => applyCoverTabVisibility(coverCb.checked);
+        }
+        applyCoverTabVisibility(showCover);
 
         const themeSelect = document.getElementById('settings-theme');
         if (themeSelect) {
@@ -1083,10 +1165,12 @@ async function saveSettings() {
         auto_postprocess: document.getElementById('settings-auto-postprocess').checked,
         auto_upscale: document.getElementById('settings-auto-upscale').checked,
         auto_export: document.getElementById('settings-auto-export').checked,
-        ui_theme: normalizeThemeName(document.getElementById('settings-theme')?.value || getStoredTheme() || 'plex')
+        ui_theme: normalizeThemeName(document.getElementById('settings-theme')?.value || getStoredTheme() || 'plex'),
+        show_cover_tab: document.getElementById('settings-show-cover')?.checked ?? true
     };
 
     applyTheme(settings.ui_theme);
+    applyCoverTabVisibility(!!settings.show_cover_tab);
     
     try {
         const response = await fetch('/api/settings', {

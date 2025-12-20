@@ -5,6 +5,12 @@ REM DV2Plex Start Script for Windows with dependency check
 set "SCRIPT_DIR=%~dp0"
 pushd "%SCRIPT_DIR%" >nul
 
+REM Prefer bundled ffmpeg (shippped with repo) so users don't need Chocolatey/Global PATH.
+set "BUNDLED_FFMPEG_BIN=%SCRIPT_DIR%dv2plex\bin\ffmpeg\bin"
+if exist "%BUNDLED_FFMPEG_BIN%\ffmpeg.exe" (
+    set "PATH=%BUNDLED_FFMPEG_BIN%;%PATH%"
+)
+
 call :check_dep ffmpeg
 call :check_dep dvgrab
 echo.
@@ -50,5 +56,6 @@ if %ERRORLEVEL%==0 (
     echo Chocolatey nicht gefunden. Bitte %PKG% manuell installieren.
 )
 exit /b 0
+
 
 

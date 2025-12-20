@@ -9,6 +9,8 @@ import asyncio
 import threading
 import mimetypes
 import shutil
+import os
+import stat
 from pathlib import Path
 from typing import Optional, List, Dict, Any
 from datetime import datetime
@@ -33,6 +35,7 @@ from dv2plex.service import (
     find_pending_movies,
     find_upscaled_videos,
     find_available_videos,
+    find_exported_plex_videos,
     parse_movie_folder_name
 )
 from dv2plex.update_manager import UpdateManager
@@ -267,6 +270,10 @@ class ExportAllRequest(BaseModel):
     skip_existing: bool = True
 
 
+class DeleteProjectsRequest(BaseModel):
+    paths: List[str]
+
+
 class CoverExtractRequest(BaseModel):
     video_path: str
     count: int = 4
@@ -452,7 +459,8 @@ async def get_movie_list():
 @app.get("/api/cover/videos")
 async def get_cover_videos():
     """Gibt Liste der verfügbaren Videos für Cover-Generierung zurück"""
-    videos = find_available_videos(config)
+    # Cover-Generator soll nur Videos anzeigen, die bereits in PlexMovies exportiert wurden.
+    videos = find_exported_plex_videos(config)
     result = []
     for video_path, title, year in videos:
         result.append({
@@ -579,6 +587,21 @@ def _ensure_in_dv_import_root(file_path: Path) -> Path:
     except ValueError:
         raise HTTPException(status_code=400, detail="Pfad liegt nicht im DV_Import-Ordner")
     return resolved
+
+
+def _rmtree_force(path: Path) -> None:
+    """
+    Löscht ein Verzeichnis rekursiv und entfernt ggf. Readonly-Attribute (Windows).
+    """
+
+    def _onerror(func, p, exc_info):
+        try:
+            os.chmod(p, stat.S_IWRITE)
+            func(p)
+        except Exception:
+            raise
+
+    shutil.rmtree(path, onerror=_onerror)
 
 
 def _list_videos_in_folder(folder: Path) -> List[Dict[str, str]]:
@@ -991,6 +1014,71 @@ async def export_all_videos(request: ExportAllRequest):
     return {"success": True, "message": f"Export-All gestartet ({total} Videos).", "total": total}
 
 
+@app.post("/api/project/delete")
+async def delete_projects(request: DeleteProjectsRequest):
+    """
+    Löscht für ein oder mehrere DV_Import-Projekte die Ordner LowRes und HighRes.
+
+    Akzeptiert als Input sowohl:
+    - den Projektordner (DV_Import/<Projekt>)
+    - einen Pfad zu einer Datei innerhalb LowRes/HighRes
+    """
+    if not request.paths:
+        raise HTTPException(status_code=400, detail="paths darf nicht leer sein")
+
+    dv_root = config.get_dv_import_root().resolve()
+
+    def _delete_one(raw: str) -> Dict[str, Any]:
+        p = Path(raw)
+
+        # Erlaube sowohl Ordner als auch Datei; validiere immer gegen DV_Import
+        resolved = _ensure_in_dv_import_root(p)
+
+        # Projektordner ableiten
+        project_dir = resolved
+        if resolved.is_file():
+            parent = resolved.parent
+            if parent.name.lower() in ("lowres", "highres"):
+                project_dir = parent.parent
+            else:
+                project_dir = parent
+        else:
+            # Wenn user direkt LowRes/HighRes gewählt hat -> Parent ist Projekt
+            if resolved.name.lower() in ("lowres", "highres"):
+                project_dir = resolved.parent
+            else:
+                project_dir = resolved
+
+        # Safety: Projekt muss innerhalb DV_Import liegen
+        _ensure_in_dv_import_root(project_dir)
+
+        deleted = []
+        for sub in ("LowRes", "HighRes"):
+            d = project_dir / sub
+            if d.exists() and d.is_dir():
+                _rmtree_force(d)
+                deleted.append(str(d))
+
+        # Optional: Projektordner entfernen, falls jetzt leer
+        try:
+            if project_dir.exists() and project_dir.is_dir() and not any(project_dir.iterdir()):
+                project_dir.rmdir()
+        except Exception:
+            pass
+
+        return {"input": raw, "project_dir": str(project_dir), "deleted": deleted}
+
+    try:
+        results = await asyncio.to_thread(lambda: [_delete_one(p) for p in request.paths])
+        add_log_entry(f"Projekt(e) gelöscht: {len(results)}", "movie")
+        return {"success": True, "results": results}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Fehler beim Löschen von Projekten")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.post("/api/cover/extract")
 async def extract_frames(request: CoverExtractRequest):
     """Extrahiert Frames aus einem Video"""
@@ -1069,6 +1157,7 @@ async def get_settings():
         "auto_upscale": config.get("capture.auto_upscale", True),
         "auto_export": config.get("capture.auto_export", False),
         "ui_theme": config.get("ui.theme", "plex"),
+        "show_cover_tab": config.get("ui.show_cover_tab", True),
         "update_enabled": config.get("update.enabled", True),
         "update_interval_minutes": config.get("update.interval_minutes", 60),
     }
@@ -1091,6 +1180,8 @@ async def update_settings(settings: Dict[str, Any]):
         config.set("capture.auto_export", settings["auto_export"])
     if "ui_theme" in settings:
         config.set("ui.theme", settings["ui_theme"])
+    if "show_cover_tab" in settings:
+        config.set("ui.show_cover_tab", bool(settings["show_cover_tab"]))
     if "update_enabled" in settings:
         config.set("update.enabled", settings["update_enabled"])
     if "update_interval_minutes" in settings:

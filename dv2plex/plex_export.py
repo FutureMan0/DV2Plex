@@ -197,8 +197,9 @@ class PlexExporter:
             self.log(f"Cover nicht gefunden: {cover_path}")
             return None
         
-        # Erstelle Filmname im Plex-Format: "Titel (Jahr)"
-        movie_name = f"{movie_title} ({year})"
+        # Erstelle Filmname im Plex-Format: "Titel (Jahr)" oder nur "Titel"
+        # (wichtig, damit Filme ohne Jahr nicht als "Titel ()" landen)
+        movie_name = f"{movie_title} ({year})" if year else movie_title
         
         # Erstelle Zielordner und -datei
         target_dir = self.plex_movies_root / movie_name

@@ -26,6 +26,30 @@ class FrameExtractionEngine:
         self.logger = logging.getLogger(__name__)
         self.temp_dir = Path(tempfile.gettempdir()) / "dv2plex_cover_frames"
         self.temp_dir.mkdir(parents=True, exist_ok=True)
+        self._ffprobe_path: Optional[Path] = None
+
+    def _get_ffprobe_path(self) -> Path:
+        """
+        Liefert einen ffprobe-Pfad (neben ffmpeg oder aus PATH).
+        Unter Windows ist ffprobe typischerweise ffprobe.exe.
+        """
+        if self._ffprobe_path is not None:
+            return self._ffprobe_path
+
+        ffmpeg_path = Path(self.ffmpeg_path)
+        # Kandidat im gleichen Ordner wie ffmpeg
+        if ffmpeg_path.suffix.lower() == ".exe":
+            candidate = ffmpeg_path.with_name("ffprobe.exe")
+        else:
+            candidate = ffmpeg_path.with_name("ffprobe")
+
+        if candidate.exists():
+            self._ffprobe_path = candidate
+            return candidate
+
+        # Fallback: ffprobe aus PATH
+        self._ffprobe_path = Path("ffprobe")
+        return self._ffprobe_path
     
     def get_video_duration(self, video_path: Path) -> Optional[float]:
         """
@@ -38,33 +62,60 @@ class FrameExtractionEngine:
             Dauer in Sekunden oder None bei Fehler
         """
         try:
+            # Preferiere ffprobe (robuster als ffmpeg-Output zu parsen)
+            ffprobe = self._get_ffprobe_path()
             cmd = [
-                str(self.ffmpeg_path),
-                "-i", str(video_path),
-                "-hide_banner",
-                "-f", "null",
-                "-"
+                str(ffprobe),
+                "-v", "error",
+                "-show_entries", "format=duration",
+                "-of", "default=nk=1:nw=1",
+                str(video_path),
             ]
-            
+
             result = subprocess.run(
                 cmd,
                 stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True
+                stderr=subprocess.PIPE,
+                text=True,
+                check=False,
             )
-            
-            # Parse duration from stderr output
-            for line in result.stdout.split('\n'):
-                if 'Duration:' in line:
-                    duration_str = line.split('Duration:')[1].split(',')[0].strip()
-                    parts = duration_str.split(':')
+
+            out = (result.stdout or "").strip()
+            if result.returncode == 0 and out:
+                try:
+                    return float(out)
+                except Exception:
+                    pass
+
+            # Fallback: ffmpeg-Parsing (falls ffprobe nicht verfügbar ist)
+            cmd2 = [
+                str(self.ffmpeg_path),
+                "-i",
+                str(video_path),
+                "-hide_banner",
+                "-f",
+                "null",
+                "-",
+            ]
+
+            result2 = subprocess.run(
+                cmd2,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                check=False,
+            )
+
+            for line in (result2.stdout or "").split("\n"):
+                if "Duration:" in line:
+                    duration_str = line.split("Duration:")[1].split(",")[0].strip()
+                    parts = duration_str.split(":")
                     if len(parts) == 3:
                         hours = float(parts[0])
                         minutes = float(parts[1])
                         seconds = float(parts[2])
-                        total_seconds = hours * 3600 + minutes * 60 + seconds
-                        return total_seconds
-            
+                        return hours * 3600 + minutes * 60 + seconds
+
             return None
         except Exception as e:
             self.log(f"Fehler beim Ermitteln der Video-Dauer: {e}")
@@ -122,11 +173,19 @@ class FrameExtractionEngine:
                 # Extrahiere Frame bei spezifischem Zeitpunkt
                 cmd = [
                     str(self.ffmpeg_path),
-                    "-i", str(video_path),
-                    "-ss", str(time_point),
-                    "-vframes", "1",
-                    "-q:v", "2",  # Hohe Qualität
+                    "-hide_banner",
                     "-y",  # Überschreibe vorhandene Datei
+                    # Wichtig (Windows): -ss VOR -i nutzt Keyframe-Seek und ist deutlich stabiler.
+                    # Mit -ss nach -i haben wir reproduzierbar ffmpeg-Crashes (0xC0000005) gesehen.
+                    "-ss", str(time_point),
+                    "-i", str(video_path),
+                    "-map", "0:v:0",
+                    "-an",
+                    "-sn",
+                    "-frames:v", "1",
+                    "-q:v", "2",  # Hohe Qualität
+                    # ffmpeg warnt sonst bei einem einzelnen Bild ohne Sequenzpattern.
+                    "-update", "1",
                     str(output_file)
                 ]
                 
