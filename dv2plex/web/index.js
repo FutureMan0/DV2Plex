@@ -1070,6 +1070,9 @@ async function loadCoverVideoList() {
         const list = document.getElementById('cover-video-list');
         list.innerHTML = '';
         
+        // Behalte die Auswahl, setze sie nicht zurück
+        const previouslySelected = [...selectedCoverVideos];
+        
         data.videos.forEach(video => {
             const item = document.createElement('div');
             item.className = 'list-item';
@@ -1082,21 +1085,47 @@ async function loadCoverVideoList() {
                 <span class="name" title="${video.display}">${video.display}</span>
                 ${posterBadge}
             `;
+            
+            // Prüfe ob dieses Video bereits ausgewählt war
+            const isSelected = previouslySelected.includes(video.path);
+            if (isSelected) {
+                item.classList.add('selected');
+            }
+            
             item.onclick = () => {
                 if (item.classList.contains('selected')) {
                     item.classList.remove('selected');
                     selectedCoverVideos = selectedCoverVideos.filter(v => v !== video.path);
                 } else {
                     item.classList.add('selected');
-                    selectedCoverVideos.push(video.path);
+                    if (!selectedCoverVideos.includes(video.path)) {
+                        selectedCoverVideos.push(video.path);
+                    }
                 }
                 updateCoverButtons();
             };
             list.appendChild(item);
         });
+        
+        // Aktualisiere selectedCoverVideos: entferne Pfade die nicht mehr existieren
+        selectedCoverVideos = selectedCoverVideos.filter(path => 
+            data.videos.some(v => v.path === path)
+        );
+        
         updateCoverButtons();
     } catch (error) {
         console.error('Fehler beim Laden der Liste:', error);
+    }
+}
+
+function updateCoverButtons() {
+    const selectedBtn = document.getElementById('generate-poster-selected-btn');
+    const allBtn = document.getElementById('generate-poster-all-btn');
+    if (selectedBtn) {
+        selectedBtn.disabled = selectedCoverVideos.length === 0;
+    }
+    if (allBtn) {
+        allBtn.disabled = false; // Immer aktiv
     }
 }
 
