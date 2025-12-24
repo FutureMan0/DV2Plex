@@ -113,6 +113,9 @@ function handleWebSocketMessage(data) {
         case 'cover_generation_finished':
             handleCoverGenerationFinished(data);
             break;
+        case 'poster_generation_finished':
+            handlePosterGenerationFinished(data);
+            break;
         case 'merge_progress':
             updateMergeQueue(data.job);
             break;
@@ -139,7 +142,7 @@ function updateProgress(value, operation) {
         progress.style.display = 'block';
         fill.style.width = value + '%';
         fill.textContent = value + '%';
-    } else if (operation === 'cover_generation') {
+    } else if (operation === 'cover_generation' || operation === 'poster_generation' || operation === 'poster_generation_batch') {
         const progress = document.getElementById('cover-progress');
         const fill = document.getElementById('cover-progress-fill');
         progress.style.display = 'block';
@@ -448,6 +451,18 @@ function handlePostprocessingFinished(data) {
     loadPostprocessList();
 }
 
+function handlePosterGenerationFinished(data) {
+    if (data.success) {
+        document.getElementById('cover-status').textContent = '✓ Poster erfolgreich generiert!';
+        document.getElementById('cover-status').className = 'status success';
+        document.getElementById('cover-progress-fill').style.width = '100%';
+        loadCoverVideoList(); // Aktualisiere Liste
+    } else {
+        document.getElementById('cover-status').textContent = '❌ Fehler: ' + (data.message || 'Unbekannter Fehler');
+        document.getElementById('cover-status').className = 'status error';
+    }
+}
+
 function handleCoverGenerationFinished(data) {
     document.getElementById('cover-progress').style.display = 'none';
     const status = document.getElementById('cover-status');
@@ -473,6 +488,11 @@ function switchTab(tabName) {
         loadCoverVideoList();
     } else if (tabName === 'player') {
         loadPlayerProjects();
+        // Zeige Cover wenn kein Video abgespielt wird
+        const video = document.getElementById('player-video');
+        if (video && video.style.display === 'none' && !currentPlayerProject) {
+            // Wird nach loadPlayerProjects automatisch gemacht
+        }
     } else if (tabName === 'settings') {
         loadSettings();
     }
@@ -897,11 +917,14 @@ async function loadPlayerProjects() {
     }
 }
 
+let currentPlayerProject = null;
+
 function renderPlayerProjects(projects) {
     const list = document.getElementById('player-project-list');
     list.innerHTML = '';
     if (!projects.length) {
         list.innerHTML = '<div style="padding: 14px; color: var(--plex-text-secondary);">Keine Projekte gefunden. Prüfe den DV_Import-Ordner.</div>';
+        showPlayerCover(null); // Zeige kein Cover wenn keine Projekte
         return;
     }
 
@@ -913,6 +936,10 @@ function renderPlayerProjects(projects) {
         title.style.fontWeight = '700';
         title.textContent = project.title;
         card.appendChild(title);
+        
+        // Speichere Poster-Info für später
+        card.dataset.posterPath = project.poster_path || '';
+        card.dataset.hasPoster = project.has_poster || false;
 
         const lowresSection = document.createElement('div');
         lowresSection.className = 'player-section';
@@ -922,7 +949,10 @@ function renderPlayerProjects(projects) {
                 const chip = document.createElement('div');
                 chip.className = 'player-chip';
                 chip.textContent = file.name;
-                chip.onclick = () => playVideo(file.path, `${project.title} · LowRes · ${file.name}`);
+                chip.onclick = () => {
+                    playVideo(file.path, `${project.title} · LowRes · ${file.name}`);
+                    currentPlayerProject = project;
+                };
                 lowresSection.appendChild(chip);
             });
         } else {
@@ -942,7 +972,10 @@ function renderPlayerProjects(projects) {
                 const chip = document.createElement('div');
                 chip.className = 'player-chip';
                 chip.textContent = file.name;
-                chip.onclick = () => playVideo(file.path, `${project.title} · HighRes · ${file.name}`);
+                chip.onclick = () => {
+                    playVideo(file.path, `${project.title} · HighRes · ${file.name}`);
+                    currentPlayerProject = project;
+                };
                 highresSection.appendChild(chip);
             });
         } else {
@@ -955,22 +988,81 @@ function renderPlayerProjects(projects) {
         card.appendChild(highresSection);
 
         list.appendChild(card);
+        
+        // Zeige Cover wenn Projekt ausgewählt wird (Klick auf Card)
+        card.onclick = (e) => {
+            // Nur wenn nicht auf einen Chip geklickt wurde
+            if (!e.target.classList.contains('player-chip')) {
+                currentPlayerProject = project;
+                showPlayerCover(project);
+            }
+        };
     });
+    
+    // Zeige Cover vom ersten Projekt wenn vorhanden
+    if (projects.length > 0 && projects[0].has_poster) {
+        showPlayerCover(projects[0]);
+        currentPlayerProject = projects[0];
+    }
+}
+
+function showPlayerCover(project) {
+    const video = document.getElementById('player-video');
+    const poster = document.getElementById('player-poster');
+    const placeholder = document.getElementById('player-placeholder');
+    const nowPlaying = document.getElementById('player-now-playing');
+    
+    // Verstecke Video
+    if (video) {
+        video.style.display = 'none';
+        video.src = '';
+        video.pause();
+    }
+    
+    if (project && project.has_poster && project.poster_path) {
+        // Zeige Poster
+        if (placeholder) placeholder.style.display = 'none';
+        if (poster) {
+            poster.src = `/api/player/poster?path=${encodeURIComponent(project.poster_path)}`;
+            poster.style.display = 'block';
+        }
+        if (nowPlaying) nowPlaying.textContent = project.title;
+    } else {
+        // Zeige Placeholder
+        if (placeholder) placeholder.style.display = 'block';
+        if (poster) poster.style.display = 'none';
+        if (nowPlaying) nowPlaying.textContent = 'Keine Auswahl';
+    }
 }
 
 function playVideo(path, label) {
     const video = document.getElementById('player-video');
+    const poster = document.getElementById('player-poster');
     const nowPlaying = document.getElementById('player-now-playing');
     const placeholder = document.getElementById('player-placeholder');
     if (!path || !video) return;
+    
+    // Verstecke Placeholder und Poster
     if (placeholder) placeholder.style.display = 'none';
+    if (poster) poster.style.display = 'none';
+    
+    // Zeige Video
     video.style.display = 'block';
     video.src = `/api/player/stream?path=${encodeURIComponent(path)}`;
     video.play().catch(() => {});
     nowPlaying.textContent = `Spielt: ${label}`;
+    
+    // Wenn Video endet, zeige wieder Cover
+    video.onended = () => {
+        if (currentPlayerProject) {
+            showPlayerCover(currentPlayerProject);
+        }
+    };
 }
 
 // Cover functions
+let selectedCoverVideos = [];
+
 async function loadCoverVideoList() {
     try {
         const response = await fetch('/api/cover/videos');
@@ -981,20 +1073,28 @@ async function loadCoverVideoList() {
         data.videos.forEach(video => {
             const item = document.createElement('div');
             item.className = 'list-item';
-            item.textContent = video.display;
+            const hasPoster = video.has_poster || false;
+            const posterBadge = hasPoster 
+                ? '<span class="badge" style="background: rgba(40, 167, 69, 0.9); color: #000;">✓ Poster</span>'
+                : '<span class="badge" style="background: rgba(153, 153, 153, 0.9); color: #000;">Kein Poster</span>';
+            item.innerHTML = `
+                <span class="icon">🎬</span>
+                <span class="name" title="${video.display}">${video.display}</span>
+                ${posterBadge}
+            `;
             item.onclick = () => {
-                document.querySelectorAll('#cover-video-list .list-item').forEach(i => i.classList.remove('selected'));
-                item.classList.add('selected');
-                selectedCoverVideo = video.path;
-                selectedCoverTitle = video.title || video.display || video.path.split('/').pop();
-                selectedCoverYear = video.year || '';
-                document.getElementById('extract-frames-btn').disabled = false;
-                const meta = document.getElementById('cover-meta');
-                meta.style.display = 'block';
-                meta.textContent = `Ausgewählt: ${selectedCoverTitle}${selectedCoverYear ? ' (' + selectedCoverYear + ')' : ''}`;
+                if (item.classList.contains('selected')) {
+                    item.classList.remove('selected');
+                    selectedCoverVideos = selectedCoverVideos.filter(v => v !== video.path);
+                } else {
+                    item.classList.add('selected');
+                    selectedCoverVideos.push(video.path);
+                }
+                updateCoverButtons();
             };
             list.appendChild(item);
         });
+        updateCoverButtons();
     } catch (error) {
         console.error('Fehler beim Laden der Liste:', error);
     }

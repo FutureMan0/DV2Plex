@@ -21,6 +21,7 @@ from .upscale import UpscaleEngine
 from .plex_export import PlexExporter
 from .frame_extraction import FrameExtractionEngine
 from .cover_generation import CoverGenerationEngine
+from .poster_generation import PosterGenerationEngine
 
 
 logger = logging.getLogger(__name__)
@@ -667,6 +668,21 @@ class MovieModeService:
             )
             
             if result:
+                # Prüfe ob Poster im Video-Ordner existiert und kopiere es mit
+                video_dir = video_path.parent
+                poster_source = video_dir / "poster.jpg"
+                if poster_source.exists():
+                    movie_name = f"{title} ({year})" if year else title
+                    target_dir = self.config.get_plex_movies_root() / movie_name
+                    target_poster = target_dir / "poster.jpg"
+                    try:
+                        target_dir.mkdir(parents=True, exist_ok=True)
+                        import shutil
+                        shutil.copy2(poster_source, target_poster)
+                        self._log(f"Poster mit exportiert: {target_poster}")
+                    except Exception as e:
+                        self._log(f"Konnte Poster nicht kopieren: {e}")
+                
                 return True, Path(result), None
             else:
                 return False, None, "Export fehlgeschlagen"
@@ -682,6 +698,11 @@ class CoverService:
     def __init__(self, config: Config, log_callback: Optional[Callable[[str], None]] = None):
         self.config = config
         self.log_callback = log_callback or (lambda msg: logger.info(msg))
+        self._running = False
+        self._stop_event = Event()
+        self._queue: Queue = Queue()
+        self._worker_thread: Optional[Thread] = None
+        self._worker_stop = Event()
     
     def _log(self, message: str):
         """Log-Nachricht ausgeben"""
@@ -820,4 +841,163 @@ class CoverService:
         except Exception as e:
             logger.exception("Fehler bei Cover-Generierung")
             return False, None, f"Fehler bei Cover-Generierung: {e}"
+    
+    def generate_poster(
+        self,
+        video_path: Path,
+        title: str,
+        year: Optional[str] = None,
+        progress_callback: Optional[Callable[[int], None]] = None,
+        status_callback: Optional[Callable[[str], None]] = None
+    ) -> Tuple[bool, Optional[Path], Optional[str]]:
+        """
+        Generiert ein Poster direkt aus einem Video (neue Poster-Generierung)
+        
+        Returns:
+            (success, poster_path, error_message)
+        """
+        if not video_path.exists():
+            return False, None, f"Video nicht gefunden: {video_path}"
+        
+        try:
+            if progress_callback:
+                progress_callback(10)
+            
+            if status_callback:
+                status_callback("Extrahiere besten Frame...")
+            
+            # Template-Pfad bestimmen
+            template_path = Path(__file__).parent / "resources" / "poster_template.html"
+            if not template_path.exists():
+                # Fallback: versuche im Projekt-Root
+                template_path = Path(__file__).parent.parent / "dv2plex" / "resources" / "poster_template.html"
+            
+            # Poster-Engine erstellen
+            poster_engine = PosterGenerationEngine(
+                template_path=template_path if template_path.exists() else None,
+                log_callback=self._log
+            )
+            
+            if progress_callback:
+                progress_callback(30)
+            
+            if status_callback:
+                status_callback("Generiere Poster...")
+            
+            # Poster generieren
+            poster_path = poster_engine.generate_poster(
+                video_path,
+                title,
+                year,
+                output_path=None,  # Wird automatisch im Video-Ordner erstellt
+                size=(3000, 4500)
+            )
+            
+            if not poster_path or not poster_path.exists():
+                return False, None, "Poster-Generierung fehlgeschlagen!"
+            
+            if progress_callback:
+                progress_callback(80)
+            
+            if status_callback:
+                status_callback("Speichere Poster...")
+            
+            # Speichere Poster im Plex Movies Ordner
+            from .plex_export import PlexExporter
+            plex_exporter = PlexExporter(
+                self.config.get_plex_movies_root(),
+                log_callback=self._log
+            )
+            
+            saved_path = plex_exporter.save_cover(
+                poster_path,
+                title,
+                year or "",
+                overwrite=True
+            )
+            
+            if saved_path:
+                if progress_callback:
+                    progress_callback(100)
+                return True, Path(saved_path), f"Poster erfolgreich generiert und gespeichert:\n{saved_path}"
+            else:
+                return False, None, "Poster generiert, aber Speicherung fehlgeschlagen!"
+        
+        except Exception as e:
+            logger.exception("Fehler bei Poster-Generierung")
+            return False, None, f"Fehler bei Poster-Generierung: {e}"
+    
+    def enqueue_poster(
+        self,
+        video_path: Path,
+        title: str,
+        year: Optional[str] = None,
+        progress_callback: Optional[Callable[[int], None]] = None,
+        status_callback: Optional[Callable[[str], None]] = None,
+        finished_callback: Optional[Callable[[bool, str, Optional[Path]], None]] = None,
+    ):
+        """
+        Fügt einen Poster-Generierungs-Job zur Queue hinzu
+        """
+        self._queue.put({
+            "video_path": video_path,
+            "title": title,
+            "year": year,
+            "progress_callback": progress_callback,
+            "status_callback": status_callback,
+            "finished_callback": finished_callback,
+        })
+        self._start_worker()
+    
+    def _start_worker(self):
+        """Startet den Worker-Thread für die Queue"""
+        if self._worker_thread and self._worker_thread.is_alive():
+            return
+        self._worker_stop.clear()
+        self._worker_thread = Thread(target=self._worker_loop, daemon=True)
+        self._worker_thread.start()
+    
+    def _worker_loop(self):
+        """Worker-Loop für automatische Verarbeitung der Queue"""
+        while not self._worker_stop.is_set():
+            try:
+                job = self._queue.get(timeout=1)
+            except Empty:
+                continue
+
+            self._running = True
+            video_path = job["video_path"]
+            title = job["title"]
+            year = job.get("year")
+            progress_callback = job.get("progress_callback")
+            status_callback = job.get("status_callback")
+            finished_callback = job.get("finished_callback")
+
+            try:
+                success, poster_path, error = self.generate_poster(
+                    video_path,
+                    title,
+                    year,
+                    progress_callback=progress_callback,
+                    status_callback=status_callback
+                )
+                if finished_callback:
+                    try:
+                        finished_callback(success, error or "Poster erfolgreich generiert", poster_path)
+                    except Exception:
+                        logger.exception("Fehler im finished_callback")
+            except Exception as e:
+                logger.exception("Fehler im Poster-Worker")
+                if finished_callback:
+                    try:
+                        finished_callback(False, f"Fehler: {e}", None)
+                    except Exception:
+                        pass
+            finally:
+                self._running = False
+                self._queue.task_done()
+    
+    def is_running(self) -> bool:
+        """Prüft ob Poster-Generierung läuft"""
+        return self._running
 

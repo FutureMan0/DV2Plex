@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Poster Template – Familie Archiv</title>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;700&family=Inter:wght@900&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            /* === FARBEN (hier anpassen!) === */
+            --paper: #f4f2eb;
+            --ink: #191919;
+            --muted: #696969;
+            --accent1: #c65c30;      /* Rost/Orange */
+            --accent2: #308ca0;      /* Petrol */
+            --accent3: #282828;      /* Fast Schwarz */
+            --block-dark: #141414;
+            --block-light: #b8b2a8;
+            
+            /* === LAYOUT === */
+            --poster-width: 3000px;  /* Große Größe für Rendering */
+            --poster-ratio: 1.5;     /* 2:3 Verhältnis */
+            --margin: 9%;
+            
+            /* === BASELINE-KORREKTUR === */
+            --meta-offset: -87px;    /* Meta nach unten verschieben */
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Space Grotesk', 'Arial', sans-serif;
+            background: var(--paper);  /* Gleiche Farbe wie Poster */
+            margin: 0;
+            padding: 0;
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        /* === POSTER CONTAINER === */
+        .poster {
+            width: var(--poster-width);
+            height: calc(var(--poster-width) * var(--poster-ratio));
+            background: var(--paper);
+            position: relative;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+            overflow: hidden;
+        }
+
+        /* === FARBBALKEN OBEN === */
+        .top-bars {
+            position: absolute;
+            top: var(--margin);
+            left: var(--margin);
+            display: flex;
+            gap: 2%;
+            align-items: flex-end;
+        }
+
+        .bar {
+            height: 28px;
+        }
+        .bar-1 { width: 56px; background: var(--accent3); }
+        .bar-2 { width: 88px; background: var(--accent1); }
+        .bar-3 { width: 54px; background: var(--accent2); }
+
+        /* === AKZENTPUNKT OBEN RECHTS === */
+        .dot {
+            position: absolute;
+            top: var(--margin);
+            right: var(--margin);
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background: var(--accent2);
+        }
+
+        /* === TITEL-BEREICH === */
+        .title-section {
+            position: absolute;
+            top: 24%;
+            left: var(--margin);
+            right: var(--margin);
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-end;
+        }
+
+        .title {
+            font-family: 'Inter', 'Space Grotesk', sans-serif;
+            font-size: 195px;
+            font-weight: 900;
+            color: var(--ink);
+            line-height: 1.05;
+            letter-spacing: -0.03em;
+            -webkit-text-stroke: 1px var(--ink);  /* Minimal dicker */
+        }
+
+        /* === FAMILIE ARCHIV LABEL === */
+        .family-label {
+            font-size: 51px;
+            color: var(--accent1);
+            letter-spacing: 0.05em;
+            white-space: nowrap;
+            padding-bottom: 0.3em;
+        }
+
+        /* === ZWEIFARBIGER BLOCK === */
+        .block {
+            position: absolute;
+            top: 38%;
+            left: var(--margin);
+            right: var(--margin);
+            height: 48%;
+            overflow: hidden;
+        }
+
+        .block-dark {
+            height: 52%;
+            background: var(--block-dark);
+        }
+
+        .block-light {
+            height: 48%;
+            background: var(--block-light);
+        }
+
+        /* === AKZENTLINIEN AM SPLIT === */
+        .split-lines {
+            position: absolute;
+            top: 52%;
+            left: 0;
+            right: 0;
+            z-index: 1;  /* Hinter dem Bild */
+        }
+
+        .split-line-1 {
+            height: 12px;
+            background: var(--accent1);
+            margin-bottom: 6px;
+        }
+
+        .split-line-2 {
+            height: 8px;
+            background: var(--accent2);
+        }
+
+        /* === BILD-CONTAINER === */
+        .image-container {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+            z-index: 5;  /* Über dem Balken */
+        }
+
+        .subject-image {
+            max-width: 90%;
+            max-height: 95%;
+            object-fit: contain;
+            /* Schatten unter dem Motiv */
+            filter: drop-shadow(0 8px 12px rgba(0,0,0,0.3)) contrast(1.1) saturate(0.85);
+        }
+
+        /* === BOTTOM-BEREICH (Jahr + Meta) === */
+        .bottom-section {
+            position: absolute;
+            bottom: var(--margin);
+            left: var(--margin);
+            right: var(--margin);
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-end;
+        }
+
+        .year {
+            font-size: 105px;
+            font-weight: 700;
+            color: var(--ink);
+            line-height: 1;
+        }
+
+        .meta-plate {
+            text-align: right;
+            align-self: flex-end;
+            margin-bottom: var(--meta-offset, 0);
+        }
+
+        .meta-line {
+            font-size: 48px;
+            line-height: 1.4;
+            color: #787878;
+            letter-spacing: 0.02em;
+        }
+
+        .meta-line:last-child {
+            line-height: 1;
+        }
+
+        .meta-line.accent {
+            color: var(--accent2);
+        }
+        
+        /* Nicht mehr benötigt */
+        .meta-spacer {
+            display: none;
+        }
+
+        /* === VIGNETTE === */
+        .vignette {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            pointer-events: none;
+            background: radial-gradient(
+                ellipse at center,
+                transparent 50%,
+                rgba(0,0,0,0.12) 100%
+            );
+        }
+
+        /* === FILM GRAIN === */
+        .grain {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            pointer-events: none;
+            opacity: 0.04;
+            background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
+        }
+
+        /* Media Queries entfernt - alle Werte sind für 3000px Rendering optimiert */
+    </style>
+</head>
+<body>
+    <div class="poster">
+        
+        <!-- Farbbalken oben links -->
+        <div class="top-bars">
+            <div class="bar bar-1"></div>
+            <div class="bar bar-2"></div>
+            <div class="bar bar-3"></div>
+        </div>
+
+        <!-- Akzentpunkt oben rechts -->
+        <div class="dot"></div>
+
+        <!-- Titel + Familie Archiv (abschließend) -->
+        <div class="title-section">
+            <div class="title">__TITLE__</div>
+            <div class="family-label">FAMILIE ARCHIV</div>
+        </div>
+
+        <!-- Zweifarbiger Block mit Bild -->
+        <div class="block">
+            <div class="block-dark"></div>
+            <div class="block-light"></div>
+            
+            <!-- Akzentlinien -->
+            <div class="split-lines">
+                <div class="split-line-1"></div>
+                <div class="split-line-2"></div>
+            </div>
+            
+            <!-- Bild hier einfügen -->
+            <div class="image-container">
+                <!-- Füge hier dein Bild ein: -->
+                <!-- <img src="dein-bild.png" alt="Motiv" class="subject-image"> -->
+            </div>
+        </div>
+
+        <!-- Jahr + Meta (auf gleicher Grundlinie) -->
+        <div class="bottom-section">
+            <div class="year">__YEAR__</div>
+            <div class="meta-plate">
+                <div class="meta-line">__META1__</div>
+                <div class="meta-line">__META2__</div>
+                <div class="meta-line accent">__META3__</div>
+                <div class="meta-spacer"></div>
+            </div>
+        </div>
+
+        <!-- Effekte -->
+        <div class="vignette"></div>
+        <div class="grain"></div>
+    </div>
+</body>
+</html>

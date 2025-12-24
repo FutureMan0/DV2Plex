@@ -15,8 +15,8 @@
         <div class="tabs">
             <div class="tab active" id="tab-capture" onclick="switchTab('capture')"><span>📹 Digitalisieren</span></div>
             <div class="tab" onclick="switchTab('postprocess')"><span>🎬 Upscaling</span></div>
-            <div class="tab" onclick="switchTab('movie')"><span>🎞️ Movie Mode</span></div>
-            <div class="tab" id="tab-cover" onclick="switchTab('cover')"><span>🖼️ Cover</span></div>
+            <div class="tab" id="tab-cover" onclick="switchTab('cover')"><span>🖼️ Cover Gen</span></div>
+            <div class="tab" onclick="switchTab('movie')"><span>🎞️ Plex Export</span></div>
             <div class="tab" onclick="switchTab('queue')"><span>🔄 Merge-Queue</span></div>
             <div class="tab" onclick="switchTab('player')"><span>▶ Video Player</span></div>
             <div class="tab" onclick="switchTab('logs')"><span>📋 Logs</span></div>
@@ -152,26 +152,21 @@
         <!-- Cover Tab -->
         <div id="cover" class="tab-content">
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 12px;">
-                <h3 style="color: var(--plex-gold); margin: 0;">🧪 Cover</h3>
-                <span class="badge" style="background: rgba(220, 53, 69, 0.9); color: #fff;">EXPERIMENTAL</span>
+                <h3 style="color: var(--plex-gold); margin: 0;">🖼️ Cover Gen</h3>
             </div>
             <div class="list-container" id="cover-video-list"></div>
             <div class="form-group button-group" style="margin-top: 14px;">
-                <button class="btn-primary" onclick="extractFrames()" id="extract-frames-btn" disabled>
-                    <span>Frames extrahieren</span>
+                <button class="btn-primary" onclick="generatePosterSelected()" id="generate-poster-selected-btn" disabled>
+                    <span>Ausgewählte Poster generieren</span>
                 </button>
-            </div>
-            <div class="status" id="cover-meta" style="display:none;"></div>
-            <div class="frame-grid" id="frame-grid"></div>
-            <div class="form-group button-group">
-                <button class="btn-primary" onclick="generateCover()" id="generate-cover-btn" disabled>
-                    <span>🎬 Cover generieren</span>
+                <button class="btn-primary" onclick="generatePosterAll()" id="generate-poster-all-btn">
+                    <span>Alle Poster generieren</span>
                 </button>
             </div>
             <div class="progress-bar" id="cover-progress" style="display: none;">
                 <div class="progress-fill" id="cover-progress-fill" style="width: 0%">0%</div>
             </div>
-            <div class="status" id="cover-status">Wähle ein Video und extrahiere Frames.</div>
+            <div class="status" id="cover-status">Wähle Videos zum Generieren von Postern.</div>
             <div class="log-container" id="cover-log"></div>
         </div>
         
@@ -212,6 +207,7 @@
                             <div class="preview-placeholder-text">Keine Auswahl</div>
                             <div class="preview-placeholder-hint">Wähle ein Video zum Abspielen</div>
                         </div>
+                        <img id="player-poster" style="width: 100%; height: 100%; object-fit: contain; display: none;" alt="Poster">
                         <video id="player-video" controls style="width: 100%; height: 100%; display: none;"></video>
                     </div>
                     <div id="player-now-playing" style="margin-top: 8px; font-size: 12px; color: var(--plex-text-secondary);">Keine Auswahl</div>

@@ -223,6 +223,15 @@ if [ -d "venv" ] && [ -f "venv/bin/activate" ]; then
         exit 1
     fi
     
+    # Install Playwright browser
+    echo "Installing Playwright browser..."
+    "$VENV_PYTHON" -m playwright install chromium
+    if [ $? -eq 0 ]; then
+        echo "✓ Playwright browser installed successfully"
+    else
+        echo "⚠ Playwright browser installation failed. Poster generation may not work."
+    fi
+    
     # Deactivate venv (only if it was activated via source)
     if [ -n "$VIRTUAL_ENV" ]; then
         deactivate

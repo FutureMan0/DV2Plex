@@ -89,17 +89,25 @@ python -m pip install -r requirements.txt
 if errorlevel 1 goto :fail
 
 echo.
-echo 7. Erstelle Verzeichnisse...
+echo 7. Installiere Playwright Browser...
+python -m playwright install chromium
+if errorlevel 1 (
+    echo Warnung: Playwright Browser konnte nicht installiert werden.
+    echo Poster-Generierung funktioniert möglicherweise nicht.
+)
+
+echo.
+echo 8. Erstelle Verzeichnisse...
 for %%d in ("dv2plex\DV_Import" "dv2plex\logs" "dv2plex\config" "dv2plex\PlexMovies") do (
     if not exist %%~d mkdir %%~d
 )
 
 echo.
-echo 8. FireWire-Hinweis...
+echo 9. FireWire-Hinweis...
 echo Stelle sicher, dass IEEE 1394/FireWire-Treiber unter Windows installiert sind.
 
 echo.
-echo 9. FireWire-Test (falls dvgrab verfuegbar)...
+echo 10. FireWire-Test (falls dvgrab verfuegbar)...
 where dvgrab >nul 2>nul
 if not errorlevel 1 (
     dvgrab --list
@@ -108,7 +116,7 @@ if not errorlevel 1 (
 )
 
 echo.
-echo 10. Erzeuge Standardkonfiguration (falls noetig)...
+echo 11. Erzeuge Standardkonfiguration (falls noetig)...
 if not exist "dv2plex\config\settings.json" (
     python -c "from dv2plex.config import Config; Config().save_config(); print('Default configuration created.')"
 ) else (

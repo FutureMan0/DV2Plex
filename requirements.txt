@@ -14,7 +14,10 @@ torchvision>=0.8.1
 basicsr>=1.4.2
 facexlib>=0.2.5
 gfpgan>=1.3.5
+# opencv-python für Real-ESRGAN (GUI-fähig)
+# opencv-python-headless für Poster-Generierung (Server-optimiert, keine GUI)
 opencv-python>=4.5.0
+opencv-python-headless
 numpy>=1.19.0
 Pillow>=8.3.0
 # ffmpeg-python (optional, für Video-Verarbeitung)
@@ -25,6 +28,12 @@ diffusers>=0.21.0
 transformers>=4.30.0
 accelerate>=0.20.0
 safetensors>=0.3.0
+
+# Poster-Generierung (HTML-Template + AI-Cutout)
+scikit-learn
+rembg
+onnxruntime
+playwright
 
 # Build-Tools
 PyInstaller>=5.13.0

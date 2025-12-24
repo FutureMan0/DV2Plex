@@ -2,7 +2,7 @@
   "version": "1.0",
   "paths": {
     "plex_movies_root": "E:\\PlexMovies",
-    "dv_import_root": "C:\\home\\luis\\Schreibtisch\\DV2Plex\\dv2plex\\DV_Import",
+    "dv_import_root": "E:\\PlexMovies",
     "ffmpeg_path": "C:\\Users\\luisb\\PycharmProjects\\ACR\\dv2plex\\bin\\ffmpeg\\bin\\ffmpeg.EXE",
     "realesrgan_path": ""
   },
@@ -93,7 +93,7 @@
     "window_width": 1280,
     "window_height": 720,
     "preview_fps": 30,
-    "show_cover_tab": false,
+    "show_cover_tab": true,
     "theme": "plex"
   },
   "logging": {

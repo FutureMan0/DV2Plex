@@ -412,29 +412,48 @@ async def get_movie_list():
     for video_path, title, year in videos:
         movie_name = f"{title} ({year})" if year else title
         expected_target = plex_root / movie_name / f"{movie_name}.mp4"
+        expected_poster = plex_root / movie_name / "poster.jpg"
         exported = expected_target.exists()
+        has_poster = expected_poster.exists()
+        
         # Größe der Quell-Datei (HighRes)
         size_bytes = None
         try:
             size_bytes = int(video_path.stat().st_size)
         except Exception:
             size_bytes = None
+        
+        # Poster-Größe schätzen (typisch ~2-5 MB für 3000x4500 JPEG)
+        poster_size_bytes = 3 * 1024 * 1024  # 3 MB Schätzwert
+        if has_poster:
+            try:
+                poster_size_bytes = int(expected_poster.stat().st_size)
+            except Exception:
+                pass
 
         if not exported and size_bytes is not None:
-            required_bytes += size_bytes
+            # Füge Poster-Größe hinzu, wenn noch kein Poster existiert
+            if not has_poster:
+                required_bytes += size_bytes + poster_size_bytes
+            else:
+                required_bytes += size_bytes
             required_count += 1
 
         fits_now = True
         if not exported and free_bytes is not None and size_bytes is not None:
-            fits_now = size_bytes <= free_bytes
+            total_size = size_bytes + (poster_size_bytes if not has_poster else 0)
+            fits_now = total_size <= free_bytes
         result.append({
             "path": str(video_path),
             "title": title,
             "year": year,
             "display": f"{title} ({year})" if year else f"{title} - {video_path.name}",
             "exported": exported,
+            "has_poster": has_poster,
             "expected_target": str(expected_target),
+            "expected_poster": str(expected_poster),
             "size_bytes": size_bytes,
+            "poster_size_bytes": poster_size_bytes if not has_poster else 0,
             "fits_now": fits_now,
         })
 
@@ -459,15 +478,24 @@ async def get_movie_list():
 @app.get("/api/cover/videos")
 async def get_cover_videos():
     """Gibt Liste der verfügbaren Videos für Cover-Generierung zurück"""
-    # Cover-Generator soll nur Videos anzeigen, die bereits in PlexMovies exportiert wurden.
-    videos = find_exported_plex_videos(config)
+    # Cover-Generator soll alle upgescalten Projekte anzeigen
+    videos = find_upscaled_videos(config)
     result = []
+    plex_root = config.get_plex_movies_root()
+    
     for video_path, title, year in videos:
+        # Prüfe ob bereits ein Poster existiert
+        movie_name = f"{title} ({year})" if year else title
+        expected_poster = plex_root / movie_name / "poster.jpg"
+        has_poster = expected_poster.exists()
+        
         result.append({
             "path": str(video_path),
             "title": title,
             "year": year,
-            "display": f"{title} ({year})" if year else f"{title} - {video_path.name}"
+            "display": f"{title} ({year})" if year else f"{title} - {video_path.name}",
+            "has_poster": has_poster,
+            "poster_path": str(expected_poster) if has_poster else None
         })
     return {"videos": result}
 
@@ -624,6 +652,7 @@ def _list_videos_in_folder(folder: Path) -> List[Dict[str, str]]:
 async def list_player_projects():
     """Listet alle Projekte (LowRes/HighRes) im DV_Import-Ordner auf."""
     root = config.get_dv_import_root()
+    plex_root = config.get_plex_movies_root()
     projects = []
     if not root.exists():
         return {"projects": projects}
@@ -635,10 +664,19 @@ async def list_player_projects():
         highres = _list_videos_in_folder(project_dir / "HighRes")
         if not lowres and not highres:
             continue
+        
+        # Prüfe ob Poster existiert (basierend auf Projekt-Titel)
+        title, year = parse_movie_folder_name(project_dir.name)
+        movie_name = f"{title} ({year})" if year else title
+        poster_path = plex_root / movie_name / "poster.jpg"
+        has_poster = poster_path.exists()
+        
         projects.append({
             "title": project_dir.name,
             "lowres": lowres,
             "highres": highres,
+            "poster_path": str(poster_path) if has_poster else None,
+            "has_poster": has_poster,
         })
 
     return {"projects": projects}
@@ -654,6 +692,28 @@ async def stream_video(path: str):
         raise HTTPException(status_code=404, detail="Datei nicht gefunden")
     mime_type, _ = mimetypes.guess_type(file_path.name)
     return FileResponse(file_path, media_type=mime_type or "video/mp4", filename=file_path.name)
+
+
+@app.get("/api/player/poster")
+async def get_poster(path: str):
+    """Gibt ein Poster-Bild zurück"""
+    if not path:
+        raise HTTPException(status_code=400, detail="Pfad fehlt")
+    
+    poster_path = Path(path)
+    plex_root = config.get_plex_movies_root()
+    
+    # Sicherheitsprüfung: Poster muss im Plex Movies Root sein
+    try:
+        poster_path.resolve().relative_to(plex_root.resolve())
+    except ValueError:
+        raise HTTPException(status_code=403, detail="Ungültiger Poster-Pfad")
+    
+    if not poster_path.exists() or not poster_path.is_file():
+        raise HTTPException(status_code=404, detail="Poster nicht gefunden")
+    
+    mime_type, _ = mimetypes.guess_type(poster_path.name)
+    return FileResponse(poster_path, media_type=mime_type or "image/jpeg", filename=poster_path.name)
 
 
 @app.post("/api/postprocess/process")
@@ -1111,7 +1171,7 @@ async def extract_frames(request: CoverExtractRequest):
 
 @app.post("/api/cover/generate")
 async def generate_cover(request: CoverGenerateRequest):
-    """Generiert ein Cover aus einem Frame"""
+    """Generiert ein Cover aus einem Frame (alte Methode)"""
     if not cover_service:
         raise HTTPException(status_code=500, detail="Cover-Service nicht initialisiert")
     
@@ -1144,6 +1204,110 @@ async def generate_cover(request: CoverGenerateRequest):
     thread.start()
     
     return {"success": True, "message": "Cover-Generierung gestartet"}
+
+
+class PosterGenerateRequest(BaseModel):
+    video_path: str
+    title: str
+    year: Optional[str] = None
+
+
+@app.post("/api/poster/generate")
+async def generate_poster(request: PosterGenerateRequest):
+    """Generiert ein Poster direkt aus einem Video (neue Poster-Generierung)"""
+    if not cover_service:
+        raise HTTPException(status_code=500, detail="Cover-Service nicht initialisiert")
+    
+    video_path = Path(request.video_path)
+    if not video_path.exists():
+        raise HTTPException(status_code=404, detail=f"Video nicht gefunden: {video_path}")
+    
+    # Füge Job zur Queue hinzu
+    def progress_cb(value: int):
+        broadcast_message_sync({"type": "progress", "value": value, "operation": "poster_generation"})
+    
+    def status_cb(status: str):
+        broadcast_message_sync({"type": "status", "status": status, "operation": "poster_generation"})
+    
+    def finished_cb(success: bool, message: str, poster_path: Optional[Path]):
+        broadcast_message_sync({
+            "type": "poster_generation_finished",
+            "success": success,
+            "message": message,
+            "poster_path": str(poster_path) if poster_path else None
+        })
+    
+    cover_service.enqueue_poster(
+        video_path,
+        request.title,
+        request.year,
+        progress_callback=progress_cb,
+        status_callback=status_cb,
+        finished_callback=finished_cb
+    )
+    
+    return {"success": True, "message": "Poster-Generierung zur Queue hinzugefügt"}
+
+
+class PosterGenerateBatchRequest(BaseModel):
+    video_paths: List[str]
+
+
+@app.post("/api/poster/generate-batch")
+async def generate_poster_batch(request: PosterGenerateBatchRequest):
+    """Generiert Poster für mehrere Videos (Batch-Verarbeitung)"""
+    if not cover_service:
+        raise HTTPException(status_code=500, detail="Cover-Service nicht initialisiert")
+    
+    # Extrahiere Titel und Jahr aus jedem Video-Pfad
+    videos = find_upscaled_videos(config)
+    video_map = {str(video_path): (title, year) for video_path, title, year in videos}
+    
+    added_count = 0
+    for video_path_str in request.video_paths:
+        video_path = Path(video_path_str)
+        if not video_path.exists():
+            continue
+        
+        # Hole Titel und Jahr aus der Map
+        title, year = video_map.get(video_path_str, (video_path.stem, None))
+        
+        def progress_cb(value: int):
+            broadcast_message_sync({
+                "type": "progress",
+                "value": value,
+                "operation": "poster_generation_batch",
+                "video_path": str(video_path)
+            })
+        
+        def status_cb(status: str):
+            broadcast_message_sync({
+                "type": "status",
+                "status": status,
+                "operation": "poster_generation_batch",
+                "video_path": str(video_path)
+            })
+        
+        def finished_cb(success: bool, message: str, poster_path: Optional[Path]):
+            broadcast_message_sync({
+                "type": "poster_generation_finished",
+                "success": success,
+                "message": message,
+                "poster_path": str(poster_path) if poster_path else None,
+                "video_path": str(video_path)
+            })
+        
+        cover_service.enqueue_poster(
+            video_path,
+            title,
+            year,
+            progress_callback=progress_cb,
+            status_callback=status_cb,
+            finished_callback=finished_cb
+        )
+        added_count += 1
+    
+    return {"success": True, "message": f"{added_count} Poster-Generierungs-Jobs zur Queue hinzugefügt", "count": added_count}
 
 
 @app.get("/api/settings")
