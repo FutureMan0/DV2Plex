@@ -461,14 +461,28 @@ function handlePostprocessingFinished(data) {
 }
 
 function handlePosterGenerationFinished(data) {
+    const statusEl = document.getElementById('cover-status');
+    const progressEl = document.getElementById('cover-progress');
+    const progressFillEl = document.getElementById('cover-progress-fill');
+    
     if (data.success) {
-        document.getElementById('cover-status').textContent = '✓ Poster erfolgreich generiert!';
-        document.getElementById('cover-status').className = 'status success';
-        document.getElementById('cover-progress-fill').style.width = '100%';
-        loadCoverVideoList(); // Aktualisiere Liste
+        statusEl.textContent = '✓ Poster erfolgreich generiert!';
+        statusEl.className = 'status success';
+        if (progressFillEl) progressFillEl.style.width = '100%';
+        addLog(`Poster erfolgreich generiert: ${data.message || ''}`, 'poster_generation');
+        
+        // Aktualisiere Liste nach kurzer Verzögerung (damit Dateisystem aktualisiert ist)
+        setTimeout(() => {
+            loadCoverVideoList();
+            // Aktualisiere auch Video Player, falls aktiv
+            if (currentPlayerProject) {
+                loadPlayerProjects();
+            }
+        }, 500);
     } else {
-        document.getElementById('cover-status').textContent = '❌ Fehler: ' + (data.message || 'Unbekannter Fehler');
-        document.getElementById('cover-status').className = 'status error';
+        statusEl.textContent = '❌ Fehler: ' + (data.message || 'Unbekannter Fehler');
+        statusEl.className = 'status error';
+        addLog(`Poster-Generierung fehlgeschlagen: ${data.message || 'Unbekannter Fehler'}`, 'poster_generation');
     }
 }
 

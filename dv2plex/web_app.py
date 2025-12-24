@@ -481,12 +481,11 @@ async def get_cover_videos():
     # Cover-Generator soll alle upgescalten Projekte anzeigen
     videos = find_upscaled_videos(config)
     result = []
-    plex_root = config.get_plex_movies_root()
     
     for video_path, title, year in videos:
-        # Prüfe ob bereits ein Poster existiert
-        movie_name = f"{title} ({year})" if year else title
-        expected_poster = plex_root / movie_name / "poster.jpg"
+        # Prüfe ob bereits ein Poster im Video-Ordner existiert
+        video_dir = Path(video_path).parent
+        expected_poster = video_dir / "poster.jpg"
         has_poster = expected_poster.exists()
         
         result.append({
@@ -652,7 +651,6 @@ def _list_videos_in_folder(folder: Path) -> List[Dict[str, str]]:
 async def list_player_projects():
     """Listet alle Projekte (LowRes/HighRes) im DV_Import-Ordner auf."""
     root = config.get_dv_import_root()
-    plex_root = config.get_plex_movies_root()
     projects = []
     if not root.exists():
         return {"projects": projects}
@@ -665,11 +663,24 @@ async def list_player_projects():
         if not lowres and not highres:
             continue
         
-        # Prüfe ob Poster existiert (basierend auf Projekt-Titel)
-        title, year = parse_movie_folder_name(project_dir.name)
-        movie_name = f"{title} ({year})" if year else title
-        poster_path = plex_root / movie_name / "poster.jpg"
-        has_poster = poster_path.exists()
+        # Prüfe ob Poster im Projekt-Ordner existiert (HighRes hat Priorität)
+        poster_path = None
+        has_poster = False
+        
+        # Zuerst in HighRes suchen
+        if highres:
+            highres_video = Path(highres[0]["path"])
+            highres_poster = highres_video.parent / "poster.jpg"
+            if highres_poster.exists():
+                poster_path = highres_poster
+                has_poster = True
+        # Falls nicht gefunden, in LowRes suchen
+        if not has_poster and lowres:
+            lowres_video = Path(lowres[0]["path"])
+            lowres_poster = lowres_video.parent / "poster.jpg"
+            if lowres_poster.exists():
+                poster_path = lowres_poster
+                has_poster = True
         
         projects.append({
             "title": project_dir.name,
@@ -702,11 +713,25 @@ async def get_poster(path: str):
     
     poster_path = Path(path)
     plex_root = config.get_plex_movies_root()
+    dv_import_root = config.get_dv_import_root()
     
-    # Sicherheitsprüfung: Poster muss im Plex Movies Root sein
+    # Sicherheitsprüfung: Poster muss im Plex Movies Root ODER im DV_Import Root sein
+    is_in_plex = False
+    is_in_dv_import = False
+    
     try:
         poster_path.resolve().relative_to(plex_root.resolve())
+        is_in_plex = True
     except ValueError:
+        pass
+    
+    try:
+        poster_path.resolve().relative_to(dv_import_root.resolve())
+        is_in_dv_import = True
+    except ValueError:
+        pass
+    
+    if not is_in_plex and not is_in_dv_import:
         raise HTTPException(status_code=403, detail="Ungültiger Poster-Pfad")
     
     if not poster_path.exists() or not poster_path.is_file():
