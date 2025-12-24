@@ -73,6 +73,16 @@ class PlexExporter:
             # Kopiere Datei (unter Linux bevorzugt über Subprozess)
             self._copy_file(source_path, target_file)
             
+            # Kopiere Poster, falls vorhanden
+            source_poster = source_path.parent / "poster.jpg"
+            if source_poster.exists():
+                target_poster = target_dir / "poster.jpg"
+                try:
+                    self._copy_file(source_poster, target_poster)
+                    self.log(f"Poster kopiert: {target_poster}")
+                except Exception as e:
+                    self.log(f"Warnung: Konnte Poster nicht kopieren: {e}")
+            
             self.log(f"Export erfolgreich: {target_file}")
             return target_file
             
@@ -150,6 +160,16 @@ class PlexExporter:
             
             # Kopiere Datei (unter Linux bevorzugt über Subprozess)
             self._copy_file(source_path, target_file)
+            
+            # Kopiere Poster, falls vorhanden
+            source_poster = source_path.parent / "poster.jpg"
+            if source_poster.exists():
+                target_poster = target_dir / "poster.jpg"
+                try:
+                    self._copy_file(source_poster, target_poster)
+                    self.log(f"Poster kopiert: {target_poster}")
+                except Exception as e:
+                    self.log(f"Warnung: Konnte Poster nicht kopieren: {e}")
             
             self.log(f"Export erfolgreich: {target_file}")
             return target_file

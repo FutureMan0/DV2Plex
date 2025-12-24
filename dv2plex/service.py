@@ -668,21 +668,7 @@ class MovieModeService:
             )
             
             if result:
-                # Prüfe ob Poster im Video-Ordner existiert und kopiere es mit
-                video_dir = video_path.parent
-                poster_source = video_dir / "poster.jpg"
-                if poster_source.exists():
-                    movie_name = f"{title} ({year})" if year else title
-                    target_dir = self.config.get_plex_movies_root() / movie_name
-                    target_poster = target_dir / "poster.jpg"
-                    try:
-                        target_dir.mkdir(parents=True, exist_ok=True)
-                        import shutil
-                        shutil.copy2(poster_source, target_poster)
-                        self._log(f"Poster mit exportiert: {target_poster}")
-                    except Exception as e:
-                        self._log(f"Konnte Poster nicht kopieren: {e}")
-                
+                # Poster wird automatisch von export_single_video kopiert
                 return True, Path(result), None
             else:
                 return False, None, "Export fehlgeschlagen"
