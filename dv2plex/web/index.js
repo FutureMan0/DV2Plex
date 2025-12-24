@@ -486,6 +486,8 @@ function switchTab(tabName) {
         loadMovieList();
     } else if (tabName === 'cover') {
         loadCoverVideoList();
+        // Stelle sicher, dass Buttons korrekt aktualisiert werden
+        setTimeout(() => updateCoverButtons(), 100);
     } else if (tabName === 'player') {
         loadPlayerProjects();
         // Zeige Cover wenn kein Video abgespielt wird
@@ -1090,18 +1092,30 @@ async function loadCoverVideoList() {
             const isSelected = previouslySelected.includes(video.path);
             if (isSelected) {
                 item.classList.add('selected');
+                // Stelle sicher, dass es in selectedCoverVideos ist
+                if (!selectedCoverVideos.includes(video.path)) {
+                    selectedCoverVideos.push(video.path);
+                }
             }
             
-            item.onclick = () => {
-                if (item.classList.contains('selected')) {
+            item.onclick = (e) => {
+                e.stopPropagation(); // Verhindere Event-Bubbling
+                
+                const isCurrentlySelected = item.classList.contains('selected');
+                
+                if (isCurrentlySelected) {
+                    // Entferne Auswahl
                     item.classList.remove('selected');
                     selectedCoverVideos = selectedCoverVideos.filter(v => v !== video.path);
                 } else {
+                    // Füge Auswahl hinzu
                     item.classList.add('selected');
                     if (!selectedCoverVideos.includes(video.path)) {
                         selectedCoverVideos.push(video.path);
                     }
                 }
+                
+                // Aktualisiere Button sofort
                 updateCoverButtons();
             };
             list.appendChild(item);
@@ -1112,7 +1126,11 @@ async function loadCoverVideoList() {
             data.videos.some(v => v.path === path)
         );
         
-        updateCoverButtons();
+        // Stelle sicher, dass Buttons korrekt aktualisiert werden
+        // Verwende setTimeout, damit DOM vollständig gerendert ist
+        setTimeout(() => {
+            updateCoverButtons();
+        }, 50);
     } catch (error) {
         console.error('Fehler beim Laden der Liste:', error);
     }
@@ -1121,11 +1139,25 @@ async function loadCoverVideoList() {
 function updateCoverButtons() {
     const selectedBtn = document.getElementById('generate-poster-selected-btn');
     const allBtn = document.getElementById('generate-poster-all-btn');
-    if (selectedBtn) {
-        selectedBtn.disabled = selectedCoverVideos.length === 0;
+    
+    if (!selectedBtn) {
+        console.error('Button generate-poster-selected-btn nicht gefunden!');
+        return;
     }
+    
+    const hasSelection = selectedCoverVideos && selectedCoverVideos.length > 0;
+    selectedBtn.disabled = !hasSelection;
+    
+    // Entferne disabled-Attribut aus HTML falls vorhanden
+    if (hasSelection) {
+        selectedBtn.removeAttribute('disabled');
+    } else {
+        selectedBtn.setAttribute('disabled', 'disabled');
+    }
+    
     if (allBtn) {
         allBtn.disabled = false; // Immer aktiv
+        allBtn.removeAttribute('disabled');
     }
 }
 
