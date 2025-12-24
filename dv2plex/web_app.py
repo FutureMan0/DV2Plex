@@ -1259,6 +1259,9 @@ async def generate_poster_batch(request: PosterGenerateBatchRequest):
     if not cover_service:
         raise HTTPException(status_code=500, detail="Cover-Service nicht initialisiert")
     
+    logger.info(f"Poster-Batch-Generierung gestartet: {len(request.video_paths)} Videos")
+    add_log_entry(f"Poster-Batch-Generierung gestartet: {len(request.video_paths)} Videos", "poster_generation")
+    
     # Extrahiere Titel und Jahr aus jedem Video-Pfad
     videos = find_upscaled_videos(config)
     video_map = {str(video_path): (title, year) for video_path, title, year in videos}
@@ -1297,15 +1300,24 @@ async def generate_poster_batch(request: PosterGenerateBatchRequest):
                 "video_path": str(video_path)
             })
         
-        cover_service.enqueue_poster(
-            video_path,
-            title,
-            year,
-            progress_callback=progress_cb,
-            status_callback=status_cb,
-            finished_callback=finished_cb
-        )
-        added_count += 1
+        try:
+            cover_service.enqueue_poster(
+                video_path,
+                title,
+                year,
+                progress_callback=progress_cb,
+                status_callback=status_cb,
+                finished_callback=finished_cb
+            )
+            added_count += 1
+            logger.info(f"Poster-Job zur Queue hinzugefügt: {title} ({year})")
+            add_log_entry(f"Poster-Job zur Queue hinzugefügt: {title} ({year})", "poster_generation")
+        except Exception as e:
+            logger.error(f"Fehler beim Hinzufügen des Poster-Jobs für {video_path_str}: {e}")
+            add_log_entry(f"Fehler beim Hinzufügen des Poster-Jobs: {e}", "poster_generation")
+    
+    logger.info(f"Poster-Batch-Generierung: {added_count} Jobs zur Queue hinzugefügt")
+    add_log_entry(f"Poster-Batch-Generierung: {added_count} Jobs zur Queue hinzugefügt", "poster_generation")
     
     return {"success": True, "message": f"{added_count} Poster-Generierungs-Jobs zur Queue hinzugefügt", "count": added_count}
 

@@ -884,12 +884,16 @@ class CoverService:
             if status_callback:
                 status_callback("Generiere Poster...")
             
+            # Bestimme Ausgabe-Pfad: Poster wird im Video-Ordner gespeichert
+            video_dir = video_path.parent
+            output_path = video_dir / "poster.jpg"
+            
             # Poster generieren
             poster_path = poster_engine.generate_poster(
                 video_path,
                 title,
                 year,
-                output_path=None,  # Wird automatisch im Video-Ordner erstellt
+                output_path=output_path,
                 size=(3000, 4500)
             )
             
@@ -897,31 +901,13 @@ class CoverService:
                 return False, None, "Poster-Generierung fehlgeschlagen!"
             
             if progress_callback:
-                progress_callback(80)
+                progress_callback(100)
             
             if status_callback:
-                status_callback("Speichere Poster...")
+                status_callback("Poster erfolgreich generiert!")
             
-            # Speichere Poster im Plex Movies Ordner
-            from .plex_export import PlexExporter
-            plex_exporter = PlexExporter(
-                self.config.get_plex_movies_root(),
-                log_callback=self._log
-            )
-            
-            saved_path = plex_exporter.save_cover(
-                poster_path,
-                title,
-                year or "",
-                overwrite=True
-            )
-            
-            if saved_path:
-                if progress_callback:
-                    progress_callback(100)
-                return True, Path(saved_path), f"Poster erfolgreich generiert und gespeichert:\n{saved_path}"
-            else:
-                return False, None, "Poster generiert, aber Speicherung fehlgeschlagen!"
+            self._log(f"Poster erfolgreich generiert: {poster_path}")
+            return True, poster_path, f"Poster erfolgreich generiert:\n{poster_path}"
         
         except Exception as e:
             logger.exception("Fehler bei Poster-Generierung")
@@ -974,6 +960,9 @@ class CoverService:
             finished_callback = job.get("finished_callback")
 
             try:
+                self._log(f"Starte Poster-Generierung für: {title} ({year}) - {video_path}")
+                logger.info(f"Starte Poster-Generierung für: {title} ({year}) - {video_path}")
+                
                 success, poster_path, error = self.generate_poster(
                     video_path,
                     title,
@@ -981,13 +970,23 @@ class CoverService:
                     progress_callback=progress_callback,
                     status_callback=status_callback
                 )
+                
+                if success:
+                    self._log(f"Poster erfolgreich generiert: {poster_path}")
+                    logger.info(f"Poster erfolgreich generiert: {poster_path}")
+                else:
+                    self._log(f"Poster-Generierung fehlgeschlagen: {error}")
+                    logger.error(f"Poster-Generierung fehlgeschlagen: {error}")
+                
                 if finished_callback:
                     try:
                         finished_callback(success, error or "Poster erfolgreich generiert", poster_path)
                     except Exception:
                         logger.exception("Fehler im finished_callback")
             except Exception as e:
-                logger.exception("Fehler im Poster-Worker")
+                error_msg = f"Fehler im Poster-Worker: {e}"
+                self._log(error_msg)
+                logger.exception(error_msg)
                 if finished_callback:
                     try:
                         finished_callback(False, f"Fehler: {e}", None)

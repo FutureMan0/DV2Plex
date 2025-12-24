@@ -434,13 +434,22 @@ async function loadStatus() {
 }
 
 function addLog(message, operation) {
-    const logId = operation === 'postprocessing' ? 'postprocess-log' :
-                  operation === 'cover_generation' ? 'cover-log' : 'movie-log';
+    let logId = 'movie-log'; // Default
+    if (operation === 'postprocessing') {
+        logId = 'postprocess-log';
+    } else if (operation === 'cover_generation' || operation === 'poster_generation' || operation === 'poster_generation_batch') {
+        logId = 'cover-log';
+    }
+    
     const log = document.getElementById(logId);
     if (log) {
-        log.innerHTML += message + '\\n';
+        const timestamp = new Date().toLocaleTimeString();
+        log.innerHTML += `[${timestamp}] ${message}\n`;
         log.scrollTop = log.scrollHeight;
     }
+    
+    // Auch in die System-Logs schreiben
+    console.log(`[${operation}] ${message}`);
 }
 
 function handlePostprocessingFinished(data) {
@@ -1248,6 +1257,110 @@ async function generateCover() {
         }
     } catch (error) {
         alert('Fehler: ' + error.message);
+    }
+}
+
+async function generatePosterSelected() {
+    if (!selectedCoverVideos || selectedCoverVideos.length === 0) {
+        alert('Bitte mindestens ein Video auswählen');
+        return;
+    }
+    
+    if (!confirm(`${selectedCoverVideos.length} Poster werden generiert. Fortfahren?`)) {
+        return;
+    }
+    
+    const statusEl = document.getElementById('cover-status');
+    const progressEl = document.getElementById('cover-progress');
+    const progressFillEl = document.getElementById('cover-progress-fill');
+    
+    try {
+        statusEl.textContent = 'Sende Anfrage...';
+        statusEl.className = 'status';
+        progressEl.style.display = 'block';
+        progressFillEl.style.width = '0%';
+        
+        const response = await fetch('/api/poster/generate-batch', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({video_paths: selectedCoverVideos})
+        });
+        
+        const data = await response.json();
+        if (response.ok) {
+            statusEl.textContent = `${data.count} Poster-Generierungs-Jobs zur Queue hinzugefügt`;
+            statusEl.className = 'status success';
+            progressFillEl.style.width = '10%';
+            addLog(`${data.count} Poster-Generierungs-Jobs gestartet`, 'poster_generation');
+        } else {
+            statusEl.textContent = 'Fehler: ' + (data.detail || 'Unbekannter Fehler');
+            statusEl.className = 'status error';
+            alert(data.detail || 'Fehler bei Poster-Generierung');
+        }
+    } catch (error) {
+        statusEl.textContent = 'Fehler: ' + error.message;
+        statusEl.className = 'status error';
+        alert('Fehler: ' + error.message);
+        console.error('Fehler bei generatePosterSelected:', error);
+    }
+}
+
+async function generatePosterAll() {
+    try {
+        const response = await fetch('/api/cover/videos');
+        const data = await response.json();
+        
+        if (data.videos.length === 0) {
+            alert('Keine Videos gefunden');
+            return;
+        }
+        
+        // Filtere Videos ohne Poster
+        const videosWithoutPoster = data.videos
+            .filter(v => !v.has_poster)
+            .map(v => v.path);
+        
+        if (videosWithoutPoster.length === 0) {
+            alert('Alle Videos haben bereits Poster');
+            return;
+        }
+        
+        if (!confirm(`${videosWithoutPoster.length} Poster werden generiert. Fortfahren?`)) {
+            return;
+        }
+        
+        const statusEl = document.getElementById('cover-status');
+        const progressEl = document.getElementById('cover-progress');
+        const progressFillEl = document.getElementById('cover-progress-fill');
+        
+        statusEl.textContent = 'Sende Anfrage...';
+        statusEl.className = 'status';
+        progressEl.style.display = 'block';
+        progressFillEl.style.width = '0%';
+        
+        const batchResponse = await fetch('/api/poster/generate-batch', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({video_paths: videosWithoutPoster})
+        });
+        
+        const batchData = await batchResponse.json();
+        if (batchResponse.ok) {
+            statusEl.textContent = `${batchData.count} Poster-Generierungs-Jobs zur Queue hinzugefügt`;
+            statusEl.className = 'status success';
+            progressFillEl.style.width = '10%';
+            addLog(`${batchData.count} Poster-Generierungs-Jobs gestartet`, 'poster_generation');
+        } else {
+            statusEl.textContent = 'Fehler: ' + (batchData.detail || 'Unbekannter Fehler');
+            statusEl.className = 'status error';
+            alert(batchData.detail || 'Fehler bei Poster-Generierung');
+        }
+    } catch (error) {
+        const statusEl = document.getElementById('cover-status');
+        statusEl.textContent = 'Fehler: ' + error.message;
+        statusEl.className = 'status error';
+        alert('Fehler: ' + error.message);
+        console.error('Fehler bei generatePosterAll:', error);
     }
 }
 
