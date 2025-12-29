@@ -197,7 +197,12 @@
 
         <!-- Video Player Tab -->
         <div id="player" class="tab-content">
-            <h3 style="color: var(--plex-gold);">▶ Video Player</h3>
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                <h3 style="color: var(--plex-gold); margin: 0;">▶ Video Player</h3>
+                <button onclick="showRenameModal()" id="player-rename-btn" style="display: none;">
+                    <span>✏️ Projekt umbenennen</span>
+                </button>
+            </div>
             <div style="display: grid; grid-template-columns: 1.2fr 1fr; gap: 15px; align-items: start;">
                 <div class="list-container" id="player-project-list" style="max-height: 540px;"></div>
                 <div>
@@ -353,6 +358,33 @@
             <div class="modal-footer">
                 <button onclick="closeBrowser()"><span>Abbrechen</span></button>
                 <button class="btn-primary" onclick="selectCurrentPath()"><span>✓ Auswählen</span></button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Rename Project Modal -->
+    <div class="modal" id="rename-modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>✏️ Projekt umbenennen</h2>
+                <button class="close-btn" onclick="closeRenameModal()">×</button>
+            </div>
+            <div style="padding: 20px;">
+                <div class="form-group">
+                    <label>Neuer Titel</label>
+                    <input type="text" id="rename-title" placeholder="Film-Titel eingeben...">
+                </div>
+                <div class="form-group">
+                    <label>Jahr (optional)</label>
+                    <input type="text" id="rename-year" placeholder="2024">
+                </div>
+                <div style="font-size: 12px; color: var(--plex-text-secondary); margin-top: 10px;">
+                    Hinweis: Der Ordner und alle zugehörigen Dateien werden umbenannt.
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button onclick="closeRenameModal()"><span>Abbrechen</span></button>
+                <button class="btn-primary" onclick="renamePlayerProject()"><span>✓ Umbenennen</span></button>
             </div>
         </div>
     </div>

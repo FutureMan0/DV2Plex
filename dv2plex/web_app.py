@@ -289,6 +289,12 @@ class ChownRequest(BaseModel):
     path: str
 
 
+class PlayerRenameRequest(BaseModel):
+    project_path: str
+    new_title: str
+    new_year: Optional[str] = None
+
+
 # Preview callback for capture
 def preview_callback(image):
     """Callback für Preview-Frames während Capture"""
@@ -739,6 +745,101 @@ async def get_poster(path: str):
     
     mime_type, _ = mimetypes.guess_type(poster_path.name)
     return FileResponse(poster_path, media_type=mime_type or "image/jpeg", filename=poster_path.name)
+
+
+@app.post("/api/player/rename")
+async def rename_player_project(request: PlayerRenameRequest):
+    """Benennt ein Projekt im Video Player um (Ordner und Dateien)"""
+    if not request.project_path or not request.new_title:
+        raise HTTPException(status_code=400, detail="Projekt-Pfad und neuer Titel müssen angegeben werden")
+    
+    project_dir = Path(request.project_path)
+    
+    # Sicherheitsprüfung: Projekt muss im DV_Import-Ordner sein
+    project_dir = _ensure_in_dv_import_root(project_dir)
+    
+    if not project_dir.exists() or not project_dir.is_dir():
+        raise HTTPException(status_code=404, detail="Projekt-Ordner nicht gefunden")
+    
+    # Erstelle neuen Ordnernamen
+    if request.new_year:
+        new_folder_name = f"{request.new_title} ({request.new_year})"
+    else:
+        new_folder_name = request.new_title
+    
+    # Prüfe ob Zielordner bereits existiert
+    new_project_dir = project_dir.parent / new_folder_name
+    if new_project_dir.exists() and new_project_dir != project_dir:
+        raise HTTPException(status_code=400, detail=f"Zielordner existiert bereits: {new_folder_name}")
+    
+    try:
+        # 1. Benenne Projektordner um
+        old_folder_name = project_dir.name
+        project_dir.rename(new_project_dir)
+        logger.info(f"Projektordner umbenannt: {old_folder_name} → {new_folder_name}")
+        add_log_entry(f"Projektordner umbenannt: {old_folder_name} → {new_folder_name}", "player")
+        
+        # 2. Benenne HighRes-Dateien um (z.B. {alt}_4k.mp4 → {neu}_4k.mp4)
+        highres_dir = new_project_dir / "HighRes"
+        if highres_dir.exists() and highres_dir.is_dir():
+            for video_file in highres_dir.glob("*_4k.mp4"):
+                # Extrahiere Suffix (z.B. "_4k.mp4")
+                suffix = "_4k.mp4"
+                if video_file.name.endswith(suffix):
+                    new_video_name = f"{new_folder_name}{suffix}"
+                    new_video_path = highres_dir / new_video_name
+                    if new_video_path != video_file:
+                        video_file.rename(new_video_path)
+                        logger.info(f"HighRes-Video umbenannt: {video_file.name} → {new_video_name}")
+                        add_log_entry(f"HighRes-Video umbenannt: {video_file.name} → {new_video_name}", "player")
+            
+            # Benenne auch andere Video-Dateien um, die den alten Ordnernamen enthalten
+            for video_file in highres_dir.glob("*"):
+                if video_file.is_file() and old_folder_name in video_file.name:
+                    new_name = video_file.name.replace(old_folder_name, new_folder_name)
+                    if new_name != video_file.name:
+                        new_path = highres_dir / new_name
+                        if not new_path.exists():
+                            video_file.rename(new_path)
+                            logger.info(f"HighRes-Datei umbenannt: {video_file.name} → {new_name}")
+                            add_log_entry(f"HighRes-Datei umbenannt: {video_file.name} → {new_name}", "player")
+        
+        # 3. Benenne LowRes-Dateien um, die den alten Ordnernamen enthalten
+        lowres_dir = new_project_dir / "LowRes"
+        if lowres_dir.exists() and lowres_dir.is_dir():
+            for video_file in lowres_dir.glob("*"):
+                if video_file.is_file() and old_folder_name in video_file.name:
+                    new_name = video_file.name.replace(old_folder_name, new_folder_name)
+                    if new_name != video_file.name:
+                        new_path = lowres_dir / new_name
+                        if not new_path.exists():
+                            video_file.rename(new_path)
+                            logger.info(f"LowRes-Datei umbenannt: {video_file.name} → {new_name}")
+                            add_log_entry(f"LowRes-Datei umbenannt: {video_file.name} → {new_name}", "player")
+        
+        # 4. Benenne Poster-Dateien um, falls sie den alten Ordnernamen enthalten
+        for poster_dir in [highres_dir, lowres_dir]:
+            if poster_dir.exists() and poster_dir.is_dir():
+                poster_file = poster_dir / "poster.jpg"
+                if poster_file.exists() and old_folder_name in poster_file.name:
+                    new_poster_name = poster_file.name.replace(old_folder_name, new_folder_name)
+                    if new_poster_name != poster_file.name:
+                        new_poster_path = poster_dir / new_poster_name
+                        if not new_poster_path.exists():
+                            poster_file.rename(new_poster_path)
+                            logger.info(f"Poster umbenannt: {poster_file.name} → {new_poster_name}")
+                            add_log_entry(f"Poster umbenannt: {poster_file.name} → {new_poster_name}", "player")
+        
+        return {
+            "success": True,
+            "message": f"Projekt erfolgreich umbenannt: {old_folder_name} → {new_folder_name}",
+            "old_name": old_folder_name,
+            "new_name": new_folder_name,
+            "new_path": str(new_project_dir)
+        }
+    except Exception as e:
+        logger.exception(f"Fehler beim Umbenennen des Projekts: {e}")
+        raise HTTPException(status_code=500, detail=f"Fehler beim Umbenennen: {str(e)}")
 
 
 @app.post("/api/postprocess/process")

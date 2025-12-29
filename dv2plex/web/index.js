@@ -1014,12 +1014,16 @@ function renderPlayerProjects(projects) {
 
         list.appendChild(card);
         
+        // Speichere Projekt-Pfad für Umbenennung
+        card.dataset.projectPath = project.title; // Der Titel ist der Ordnername
+        
         // Zeige Cover wenn Projekt ausgewählt wird (Klick auf Card)
         card.onclick = (e) => {
             // Nur wenn nicht auf einen Chip geklickt wurde
             if (!e.target.classList.contains('player-chip')) {
                 currentPlayerProject = project;
                 showPlayerCover(project);
+                updateRenameButton();
             }
         };
     });
@@ -1029,6 +1033,9 @@ function renderPlayerProjects(projects) {
         showPlayerCover(projects[0]);
         currentPlayerProject = projects[0];
     }
+    
+    // Aktualisiere Rename-Button
+    updateRenameButton();
 }
 
 function showPlayerCover(project) {
@@ -1083,6 +1090,121 @@ function playVideo(path, label) {
             showPlayerCover(currentPlayerProject);
         }
     };
+    
+    // Aktualisiere Rename-Button
+    updateRenameButton();
+}
+
+function updateRenameButton() {
+    const renameBtn = document.getElementById('player-rename-btn');
+    if (renameBtn) {
+        renameBtn.style.display = currentPlayerProject ? 'block' : 'none';
+    }
+}
+
+function showRenameModal() {
+    if (!currentPlayerProject) {
+        alert('Bitte wähle zuerst ein Projekt aus');
+        return;
+    }
+    
+    // Parse Titel und Jahr aus dem Projektnamen
+    const projectTitle = currentPlayerProject.title;
+    const match = projectTitle.match(/^(.+?)\s*\((\d{4})\)$/);
+    
+    const titleInput = document.getElementById('rename-title');
+    const yearInput = document.getElementById('rename-year');
+    
+    if (match) {
+        titleInput.value = match[1].trim();
+        yearInput.value = match[2];
+    } else {
+        titleInput.value = projectTitle;
+        yearInput.value = '';
+    }
+    
+    document.getElementById('rename-modal').classList.add('active');
+}
+
+function closeRenameModal() {
+    document.getElementById('rename-modal').classList.remove('active');
+}
+
+async function renamePlayerProject() {
+    if (!currentPlayerProject) {
+        alert('Kein Projekt ausgewählt');
+        return;
+    }
+    
+    const titleInput = document.getElementById('rename-title');
+    const yearInput = document.getElementById('rename-year');
+    
+    const newTitle = titleInput.value.trim();
+    const newYear = yearInput.value.trim();
+    
+    if (!newTitle) {
+        alert('Bitte einen Titel eingeben');
+        return;
+    }
+    
+    // Erstelle Projekt-Pfad (der Titel ist der Ordnername)
+    // Der Backend erwartet den vollständigen Pfad zum Projektordner
+    const dvRoot = await getDvImportRoot();
+    const projectPath = `${dvRoot}/${currentPlayerProject.title}`;
+    
+    try {
+        const response = await fetch('/api/player/rename', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                project_path: projectPath,
+                new_title: newTitle,
+                new_year: newYear || null
+            })
+        });
+        
+        const data = await response.json();
+        
+        if (response.ok) {
+            alert(data.message || 'Projekt erfolgreich umbenannt');
+            closeRenameModal();
+            
+            // Setze currentPlayerProject zurück, damit es neu geladen wird
+            currentPlayerProject = null;
+            
+            // Lade Projekte neu
+            await loadPlayerProjects();
+            
+            // Versuche das umbenannte Projekt wieder auszuwählen
+            if (data.new_name) {
+                setTimeout(async () => {
+                    const projects = await fetch('/api/player/projects').then(r => r.json());
+                    const renamedProject = projects.projects.find(p => p.title === data.new_name);
+                    if (renamedProject) {
+                        currentPlayerProject = renamedProject;
+                        showPlayerCover(renamedProject);
+                        updateRenameButton();
+                    }
+                }, 500);
+            }
+        } else {
+            alert(data.detail || 'Fehler beim Umbenennen');
+        }
+    } catch (error) {
+        alert('Fehler: ' + error.message);
+        console.error('Fehler beim Umbenennen:', error);
+    }
+}
+
+async function getDvImportRoot() {
+    try {
+        const response = await fetch('/api/settings');
+        const data = await response.json();
+        return data.dv_import_root || '';
+    } catch (error) {
+        console.error('Fehler beim Laden der Einstellungen:', error);
+        return '';
+    }
 }
 
 // Cover functions
