@@ -10,8 +10,6 @@ import subprocess
 import threading
 import time
 import shutil
-import urllib.request
-import urllib.error
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional, Callable, IO
@@ -48,6 +46,7 @@ class CaptureEngine:
         dvgrab_path: str = "dvgrab",
         log_callback: Optional[Callable[[str], None]] = None,
         state_callback: Optional[Callable[[str], None]] = None,
+        notify_callback: Optional[Callable[[str], None]] = None,
     ):
         self.ffmpeg_path = ffmpeg_path
         self.device_path = device_path
@@ -65,6 +64,8 @@ class CaptureEngine:
         self.raw_output_path: Optional[Path] = None  # DV-Rohdatei
         self.logger = logging.getLogger(__name__)
         self.state_callback = state_callback
+        # Push notification (ntfy); sends only when a topic is set
+        self.notify_callback = notify_callback
         self.last_split_time: Optional[float] = None  # Letzte erkannte Split-Datei
         self.auto_stop_inactivity_triggered: bool = False
         self.inactivity_monitor_thread: Optional[threading.Thread] = None
@@ -1799,7 +1800,7 @@ class CaptureEngine:
         threading.Thread(target=_run_rewind, daemon=True, name="RewindAfterMerge").start()
 
     def _notify_completion(self, message: str, delay_seconds: float = 0, *, _from_timer: bool = False):
-        """Sendet Abschlussmeldung ins Log und an ntfy (dv2plex-complete)
+        """Logs a completion message and passes it to notify_callback (ntfy, if a topic is set).
 
         Bei gesetzter Verzögerung wird zuerst eine Planung geloggt, die eigentliche
         Benachrichtigung aber erst nach Ablauf des Puffers verschickt.
@@ -1818,16 +1819,8 @@ class CaptureEngine:
             return
 
         self.log(message)
-        try:
-            req = urllib.request.Request(
-                "https://ntfy.sh/dv2plex-complete",
-                data=message.encode("utf-8"),
-                method="POST",
-            )
-            urllib.request.urlopen(req, timeout=5)
-            self.log("ntfy-Benachrichtigung an dv2plex-complete gesendet.")
-        except Exception as e:
-            self.log(f"ntfy-Benachrichtigung fehlgeschlagen: {e}")
+        if self.notify_callback:
+            self.notify_callback(message)
 
     def _start_capture_duration_logger(self):
         """Loggt die bisherige Aufnahmedauer in regelmäßigen Abständen."""

@@ -179,6 +179,10 @@ class Config:
                 "skip_during_capture": True,
                 "skip_during_merge": True
             },
+            "notifications": {
+                "ntfy_topic": "",  # Empty = no push notifications
+                "ntfy_server": "https://ntfy.sh"
+            },
             "cover": {
                 "default_model": "stable-diffusion-v1-5/stable-diffusion-v1-5",
                 "default_prompt": "cinematic movie poster, dramatic lighting, vintage film look, high detail, professional photography",

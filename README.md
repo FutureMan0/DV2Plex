@@ -167,6 +167,8 @@ shows a complete file.
 | `capture.auto_merge`, `auto_upscale`, `auto_export` | Run the next step automatically |
 | `capture.timestamp_overlay` | Burn the recording date into the film |
 | `update.enabled` | Automatic updates through git; off by default, see [Limits](#limits) |
+| `notifications.ntfy_topic` | ntfy topic for push messages; empty (the default) sends none |
+| `notifications.ntfy_server` | ntfy server, `https://ntfy.sh` by default |
 
 ### Upscaling profiles
 
@@ -190,9 +192,10 @@ Worth knowing before you run it:
 - **No login.** Anyone who can reach the web interface can start captures, change settings,
   browse folders, run `sudo chown -R` on a path and trigger an update. The headless server
   listens on all interfaces by default. Run it only on a network you trust.
-- **Notifications go to a public topic.** When a capture or merge finishes, a message with the
-  title and year is posted to the public [ntfy.sh](https://ntfy.sh) topic `dv2plex-complete`,
-  which anyone can subscribe to.
+- **Push notifications are off by default.** Set `notifications.ntfy_topic` to get an
+  [ntfy](https://ntfy.sh) message when a capture, merge or upscale finishes. The message
+  contains the title and year. On the public server anyone who knows the topic can read it, so
+  pick a name that is hard to guess, or point `notifications.ntfy_server` at your own server.
 - **It can update itself.** Off by default. With `update.enabled` set to `true`, it checks the
   Git remote it was cloned from every 60 minutes (`update.interval_minutes`) and, if there is
   something new, runs `sudo git pull` and `sudo systemctl restart dv2plex`. It skips the update

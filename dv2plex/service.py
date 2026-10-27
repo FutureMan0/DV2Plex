@@ -11,8 +11,6 @@ from pathlib import Path
 from typing import Optional, List, Tuple, Callable
 from threading import Thread, Event
 from queue import Queue, Empty
-import urllib.request
-import urllib.error
 
 from .config import Config
 from .capture import CaptureEngine
@@ -22,6 +20,7 @@ from .plex_export import PlexExporter
 from .frame_extraction import FrameExtractionEngine
 from .cover_generation import CoverGenerationEngine
 from .poster_generation import PosterGenerationEngine
+from .notifications import send_ntfy
 
 
 logger = logging.getLogger(__name__)
@@ -331,16 +330,7 @@ class PostprocessingService:
 
     def _notify_ntfy(self, message: str):
         """Sendet eine ntfy-Benachrichtigung für Upscaling-Events."""
-        try:
-            req = urllib.request.Request(
-                "https://ntfy.sh/dv2plex-upscale",
-                data=message.encode("utf-8"),
-                method="POST",
-            )
-            urllib.request.urlopen(req, timeout=5)
-            self._log("ntfy-Benachrichtigung (upscale) gesendet.")
-        except Exception as e:
-            self._log(f"ntfy-Benachrichtigung fehlgeschlagen: {e}")
+        send_ntfy(self.config, message, self._log)
 
     def _find_existing_merge(self, lowres_dir: Path) -> Optional[Path]:
         """Sucht nach vorhandenen movie_merged-Dateien im LowRes-Ordner."""
@@ -384,6 +374,10 @@ class CaptureService:
     def _log(self, message: str):
         """Log-Nachricht ausgeben"""
         self.log_callback(message)
+
+    def _notify(self, message: str):
+        """Push notification for capture and merge events, if a ntfy topic is set."""
+        send_ntfy(self.config, message, self._log)
     
     def get_device(self) -> Optional[str]:
         """Ermittelt das verfügbare FireWire-Gerät"""
@@ -488,6 +482,7 @@ class CaptureService:
                 device_path=self.config.get_firewire_device(),
                 log_callback=self._log,
                 state_callback=self._on_capture_state,
+                notify_callback=self._notify,
             )
             # Setze Merge-Progress-Callback
             if self.merge_progress_callback:
