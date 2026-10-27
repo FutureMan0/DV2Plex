@@ -34,7 +34,7 @@ class CoverGenerationEngine:
     
     def __init__(
         self,
-        model_id: str = "runwayml/stable-diffusion-v1-5",
+        model_id: str = "stable-diffusion-v1-5/stable-diffusion-v1-5",
         log_callback: Optional[Callable] = None,
         device: Optional[str] = None
     ):

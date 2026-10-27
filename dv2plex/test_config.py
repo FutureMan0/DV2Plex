@@ -116,3 +116,25 @@ def test_existing_installation_keeps_its_update_setting(config_dir, enabled):
 
     assert Config().get("update.enabled") is enabled
     assert Config().get("update.enabled") is enabled  # and after the move to settings.local.json
+
+
+def test_default_cover_model_is_the_mirrored_one(config_dir):
+    assert Config().get("cover.default_model") == "stable-diffusion-v1-5/stable-diffusion-v1-5"
+
+
+def test_withdrawn_cover_model_is_replaced(config_dir):
+    (config_dir / "settings.local.json").write_text(
+        json.dumps({"cover": {"default_model": "runwayml/stable-diffusion-v1-5"}}), encoding="utf-8"
+    )
+
+    assert Config().get("cover.default_model") == "stable-diffusion-v1-5/stable-diffusion-v1-5"
+    saved = json.loads((config_dir / "settings.local.json").read_text(encoding="utf-8"))
+    assert saved["cover"]["default_model"] == "stable-diffusion-v1-5/stable-diffusion-v1-5"
+
+
+def test_other_cover_model_is_kept(config_dir):
+    (config_dir / "settings.local.json").write_text(
+        json.dumps({"cover": {"default_model": "someone/custom-model"}}), encoding="utf-8"
+    )
+
+    assert Config().get("cover.default_model") == "someone/custom-model"

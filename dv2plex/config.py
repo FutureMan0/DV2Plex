@@ -21,6 +21,13 @@ LEGACY_SETTINGS_FILE_NAME = "settings.json"
 SHIPPED_LEGACY_SETTINGS_BLOB = "78c5b960c68a08ca6fc81e8a599b166158076cc1"
 
 
+# Cover models that are no longer available under their old id, and their replacement.
+# Runway withdrew runwayml/stable-diffusion-v1-5 in 2024; the same weights are mirrored here.
+RETIRED_COVER_MODELS = {
+    "runwayml/stable-diffusion-v1-5": "stable-diffusion-v1-5/stable-diffusion-v1-5",
+}
+
+
 def git_blob_id(data: bytes) -> str:
     """Git blob id of a file content, as `git hash-object` prints it."""
     return hashlib.sha1(b"blob %d\0" % len(data) + data).hexdigest()
@@ -173,7 +180,7 @@ class Config:
                 "skip_during_merge": True
             },
             "cover": {
-                "default_model": "runwayml/stable-diffusion-v1-5",
+                "default_model": "stable-diffusion-v1-5/stable-diffusion-v1-5",
                 "default_prompt": "cinematic movie poster, dramatic lighting, vintage film look, high detail, professional photography",
                 "strength": 0.6,
                 "guidance_scale": 8.0,
@@ -196,6 +203,7 @@ class Config:
                 merged = self._merge_dicts(self.default_config, config)
                 # Migriere Windows-Pfade zu Linux-Pfaden
                 merged = self._migrate_windows_paths(merged)
+                merged = self._migrate_retired_cover_model(merged)
             except Exception as e:
                 print(f"Fehler beim Laden der Konfiguration: {e}")
                 return self.default_config.copy()
@@ -293,6 +301,14 @@ class Config:
         
         return config
     
+    def _migrate_retired_cover_model(self, config: Dict[str, Any]) -> Dict[str, Any]:
+        """Replaces a cover model id that can no longer be downloaded."""
+        cover = config.get("cover")
+        if isinstance(cover, dict) and cover.get("default_model") in RETIRED_COVER_MODELS:
+            cover["default_model"] = RETIRED_COVER_MODELS[cover["default_model"]]
+            self._save_best_effort(config)
+        return config
+
     def _merge_dicts(self, default: Dict, user: Dict) -> Dict:
         """Merge zwei verschachtelte Dictionaries"""
         result = default.copy()

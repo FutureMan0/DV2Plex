@@ -753,7 +753,7 @@ class CoverService:
                 status_callback("Lade Stable Diffusion Model...")
             
             # Get config values
-            model_id = self.config.get("cover.default_model", "runwayml/stable-diffusion-v1-5")
+            model_id = self.config.get("cover.default_model", "stable-diffusion-v1-5/stable-diffusion-v1-5")
             prompt = self.config.get("cover.default_prompt", "cinematic movie poster, dramatic lighting, vintage film look, high detail, professional photography")
             strength = self.config.get("cover.strength", 0.6)
             guidance_scale = self.config.get("cover.guidance_scale", 8.0)
