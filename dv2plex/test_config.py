@@ -7,7 +7,8 @@ import pytest
 import dv2plex.config as config_module
 from dv2plex.config import Config, SHIPPED_LEGACY_SETTINGS_BLOB, git_blob_id
 
-TRACKED_SETTINGS = Path(__file__).parent / "config" / "settings.json"
+# The settings.json that versions up to 2.0 tracked in git, byte for byte
+SHIPPED_SETTINGS = Path(__file__).parent / "testdata" / "shipped_settings.json"
 
 
 @pytest.fixture
@@ -31,8 +32,9 @@ def test_git_blob_id_matches_git(tmp_path):
     assert git_blob_id(sample.read_bytes()) == expected
 
 
-def test_shipped_blob_is_the_tracked_settings_file():
-    assert git_blob_id(TRACKED_SETTINGS.read_bytes()) == SHIPPED_LEGACY_SETTINGS_BLOB
+def test_shipped_blob_is_the_formerly_tracked_settings_file():
+    # Normalized like Config does it: a Windows checkout may have CRLF line endings
+    assert git_blob_id(SHIPPED_SETTINGS.read_bytes().replace(b"\r\n", b"\n")) == SHIPPED_LEGACY_SETTINGS_BLOB
 
 
 def test_fresh_install_writes_defaults_to_local_file(config_dir):
@@ -68,7 +70,7 @@ def test_local_file_wins_over_legacy(config_dir):
 
 @pytest.mark.parametrize("line_ending", [b"\n", b"\r\n"])
 def test_unchanged_tracked_file_is_not_taken_over(config_dir, line_ending):
-    content = TRACKED_SETTINGS.read_bytes().replace(b"\n", line_ending)
+    content = SHIPPED_SETTINGS.read_bytes().replace(b"\r\n", b"\n").replace(b"\n", line_ending)
     (config_dir / "settings.json").write_bytes(content)
 
     config = Config()
@@ -104,7 +106,7 @@ def test_auto_update_is_off_by_default(config_dir):
 
 def test_fresh_clone_does_not_inherit_auto_update_from_tracked_file(config_dir):
     # The tracked settings.json says "enabled": true; a fresh clone must not pick that up.
-    (config_dir / "settings.json").write_bytes(TRACKED_SETTINGS.read_bytes())
+    (config_dir / "settings.json").write_bytes(SHIPPED_SETTINGS.read_bytes().replace(b"\r\n", b"\n"))
 
     assert Config().get("update.enabled") is False
 

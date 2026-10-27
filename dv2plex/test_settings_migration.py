@@ -18,7 +18,8 @@ from dv2plex.config import Config
 from dv2plex.update_manager import UpdateManager
 
 SETTINGS = "dv2plex/config/settings.json"
-TRACKED_SETTINGS = Path(__file__).parent / "config" / "settings.json"
+# The settings.json that versions up to 2.0 tracked in git, byte for byte
+TRACKED_SETTINGS = Path(__file__).parent / "testdata" / "shipped_settings.json"
 
 
 def _git(cwd: Path, *args: str) -> subprocess.CompletedProcess:
@@ -34,7 +35,7 @@ def _git_ok(cwd: Path, *args: str) -> None:
 def repos(tmp_path):
     upstream = tmp_path / "upstream"
     (upstream / "dv2plex" / "config").mkdir(parents=True)
-    (upstream / SETTINGS).write_bytes(TRACKED_SETTINGS.read_bytes())
+    (upstream / SETTINGS).write_bytes(TRACKED_SETTINGS.read_bytes().replace(b"\r\n", b"\n"))
     _git_ok(upstream, "init", "-q", "-b", "master")
     _git_ok(upstream, "config", "user.email", "test@example.invalid")
     _git_ok(upstream, "config", "user.name", "test")

@@ -4,6 +4,16 @@ All notable changes to DV2Plex. The format follows [Keep a Changelog](https://ke
 and versions follow [Semantic Versioning](https://semver.org/): a major version breaks
 something you set up, a minor one adds features, a patch fixes.
 
+## [Unreleased]
+
+Release this only after the running installations have updated to 2.0: their updater resets
+the old settings file before pulling (see [docs/MIGRATION.md](docs/MIGRATION.md#later-settingsjson-leaves-the-repository)).
+
+### Removed
+
+- `dv2plex/config/settings.json` is no longer tracked by git. Settings are in
+  `settings.local.json` since 2.0, which took the old file over once.
+
 ## [2.0.0] - unreleased
 
 Breaking for servers reached over the network: see [docs/MIGRATION.md](docs/MIGRATION.md).
