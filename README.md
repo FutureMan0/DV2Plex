@@ -3,19 +3,33 @@
   <img src=".github/readme/banner-light.svg" alt="DV2Plex: MiniDV tapes to a Plex library" width="100%">
 </picture>
 
-**MiniDV tapes to a Plex library.** DV2Plex captures tapes over FireWire, merges the parts,
-upscales them with Real-ESRGAN, can generate a cover with Stable Diffusion, and exports the
-result as `Title (Year)` into your Plex movie library. It runs as a desktop window or headless
-on a server.
+**MiniDV tapes to a Plex library.** DV2Plex captures tapes over FireWire, merges the scenes,
+upscales them with Real-ESRGAN or ffmpeg, makes a poster, and exports the result as
+`Title (Year)` into your Plex movie library. It runs as a desktop app or headless on a server.
 
-It is for anyone with a box of MiniDV tapes, a camera or deck that still plays them, a Linux
-machine with a FireWire port, and a Plex server that should end up holding the films.
+It is for anyone with a box of MiniDV tapes, a camera or deck that still plays them, and a
+Plex server that should end up holding the films. Capture needs Linux with a FireWire port;
+everything after the capture also runs on Windows and macOS.
 
-[How it works](#how-it-works) · [Quick start](#quick-start) · [Installation](#installation) · [Usage](#usage) · [Limits](#limits) · [Development](#development)
+[Quick start](#quick-start) · [How it works](#how-it-works) · [Installation](#installation) · [Usage](#usage) · [Limits](#limits) · [Development](#development)
+
+<img src="docs/screenshots/capture.png" alt="The Capture tab during a recording: live picture of the tape, title and year, camera controls" width="100%">
 
 ## Quick start
 
-Linux with a FireWire port and a MiniDV camera or deck:
+**Try it without a camera:** install the desktop app from the
+[releases](https://github.com/FutureMan0/DV2Plex/releases) and start it with `--demo` (on
+Windows the start menu has *DV2Plex (demo without a camera)*), or from a checkout:
+
+```bash
+pip install -r requirements-dev.txt
+python -m dv2plex --demo
+```
+
+A simulated camera plays a test tape; capture, merge, upscaling, poster and export all run
+for real, in a separate demo folder.
+
+**Capture real tapes** on Linux with a FireWire port and a MiniDV camera or deck:
 
 ```bash
 git clone https://github.com/FutureMan0/DV2Plex.git
@@ -34,33 +48,56 @@ cd DV2Plex
 1. **Capture** with dvgrab. Rewinds the tape, records it over FireWire and splits it into clips
    at every scene change, with a live preview while it records.
    → `DV_Import/<project>/LowRes/splits/`
-2. **Merge** with ffmpeg. Joins the clips into one film and can burn in the recording date at
-   the start of each scene.
-   → `LowRes/movie_merged.*`
-3. **Upscale** with Real-ESRGAN or ffmpeg, using one of five profiles from fast to highest
-   quality. The 4× profiles end at 3840 × 2160.
+2. **Merge** with ffmpeg. Joins the clips in recording order into one film and burns in the
+   recording date at the start of each scene.
+   → `LowRes/movie_merged.mp4`
+3. **Upscale** with Real-ESRGAN or ffmpeg, using one of six profiles from fast to highest
+   quality. DV is deinterlaced first; the film keeps the tape's shape (a 4:3 tape becomes
+   2880 × 2160 in the 4K profiles).
    → `HighRes/<project>_4k.mp4`
-4. **Cover** *(optional)* with Stable Diffusion. Picks frames from the film and turns one into
-   a cover image.
+4. **Poster** *(optional)* from a frame of the film, with its title and year; or a cover made
+   with Stable Diffusion.
    → `poster.jpg` next to the film
 5. **Export** into the Plex movie library, film and poster, named the way Plex expects.
    → `<Title (Year)>/<Title (Year)>.mp4`
 
-Each step can run on its own or follow the previous one automatically (`capture.auto_merge`,
-`auto_upscale`, `auto_export` in the settings). Merges wait in a queue, which the
-**Merge-Queue** tab shows.
+Merging starts by itself after each capture; the **Merge queue** tab shows it. With
+*Continue automatically after the merge* switched on, upscaling and export follow too.
 
 ## Installation
 
-### Requirements
+### Desktop app (Windows, macOS, Linux)
 
-- **Linux.** Capture uses [dvgrab](https://linux.die.net/man/1/dvgrab), which only exists on Linux.
+Download from the [releases](https://github.com/FutureMan0/DV2Plex/releases); no Python needed.
+It contains ffmpeg and everything except Real-ESRGAN and Stable Diffusion, which need a
+Python installation (below). The builds are not signed:
+
+- **Windows:** `DV2Plex-<version>-windows-x64-setup.exe`. Windows SmartScreen warns about an
+  unknown publisher: *More info*, then *Run anyway*. Installs for your user, no administrator
+  rights. The window needs the Edge WebView2 runtime, which Windows 11 has.
+- **macOS:** `DV2Plex-<version>-macos-arm64.zip` (Apple silicon) or `…-x86_64.zip` (Intel).
+  Unzip, move `DV2Plex.app` to *Applications*, and open it the first time with a right-click
+  and *Open*.
+- **Linux:** `DV2Plex-<version>-linux-x86_64.tar.gz`. Unpack and run `./install.sh`; DV2Plex
+  appears in your application menu. For capture install `dvgrab` (`sudo apt install dvgrab`).
+
+On first start an assistant asks for the language, your Plex library and import folder, and
+looks for the camera. The app tells you when a new release is out (it asks GitHub once a day;
+switch that off in the settings). It keeps its settings in your user folder: `%APPDATA%\DV2Plex`,
+`~/Library/Application Support/DV2Plex` or `~/.config/dv2plex`.
+
+### Python installation (all features, servers)
+
+Requirements:
+
+- **Linux** for capture: [dvgrab](https://github.com/ddennedy/dvgrab) only exists there.
+  Windows and macOS can do everything else.
 - **A FireWire (IEEE 1394) port** and a MiniDV camera or deck with a DV out.
-- **Python 3.10+** and **ffmpeg**.
+- **Python 3.10+** and **ffmpeg** (with libfreetype for the date overlay).
 - **Disk space:** DV runs at about 13 GB per hour of tape, before upscaling.
-- **A GPU** is optional, but Real-ESRGAN and Stable Diffusion are slow without one.
+- **A GPU** for Real-ESRGAN: NVIDIA (CUDA) or Apple silicon. On the CPU it takes days per tape.
 
-### With the setup script
+With the setup script on Linux:
 
 ```bash
 ./setup.sh
@@ -68,10 +105,10 @@ Each step can run on its own or follow the previous one automatically (`capture.
 
 It installs what is missing through `apt`, `dnf` or `pacman`: Python 3.10+, pip, dvgrab,
 ffmpeg and the FireWire libraries (`libraw1394`, `libavc1394`). Then it creates `./venv`,
-installs `requirements.txt` into it and downloads Chromium for Playwright, which renders the
-posters. Run it with `source setup.sh` to keep the virtual environment active afterwards.
+installs `requirements.txt` into it, downloads Chromium for Playwright (posters) and installs
+the systemd service. Run it with `source setup.sh` to keep the virtual environment active.
 
-### By hand
+By hand (Linux; on Windows and macOS skip dvgrab and the FireWire libraries):
 
 ```bash
 sudo apt install dvgrab ffmpeg libraw1394-dev libavc1394-dev  # Debian, Ubuntu
@@ -90,29 +127,17 @@ The Real-ESRGAN weights are downloaded on first use into `dv2plex/bin/realesrgan
 ```
 
 Automatic detection usually works; if not, put the device into `device.firewire_device` in the
-settings.
+settings. Settings → *Run the first-start assistant* checks the camera too.
 
-### Updating an installation
+### Updating
 
-Older versions kept their settings in `dv2plex/config/settings.json`, a file that is also part
-of the repository. On its first start, the current version copies that file to
-`dv2plex/config/settings.local.json` if you had changed it, and does not touch it after that.
-The built-in updater resets the old file to the repository version before each `git pull`, so a
-later release can remove it from the repository without breaking the pull.
+**Desktop app:** install the new release over the old one; your settings stay.
 
-Older versions also listened on all interfaces in server mode and had no token. The current
-version listens on `127.0.0.1`. To keep reaching an installed server from other machines, add
-`--host 0.0.0.0` to its service and open the page once with the token, as described under
-[Access and the API token](#access-and-the-api-token).
-
-If you pull by hand and git stops because of local changes to `dv2plex/config/settings.json`,
-keep your settings first:
-
-```bash
-cp -n dv2plex/config/settings.json dv2plex/config/settings.local.json
-git checkout -- dv2plex/config/settings.json
-git pull
-```
+**Git installation:** `git pull`, or the updater in Settings → *Updates* (automatic updates
+are off by default). **Coming from 1.x:** read [docs/MIGRATION.md](docs/MIGRATION.md). In
+short: the settings move to `settings.local.json` by themselves, and the server listens on
+`127.0.0.1` from now on, so a server you reach from other machines needs `server.host` and
+the API token.
 
 ## Usage
 
@@ -124,26 +149,60 @@ git pull
 ./run.sh --server --host 0.0.0.0        # headless web server, reachable from the network
 ./run.sh --url "http://host:5000/?token=<token>"   # desktop window for a server elsewhere
 ./run.sh --share                        # desktop window, server also reachable on the LAN
+./run.sh --demo                         # demo workspace with a simulated camera
 ./run.sh --show-token                   # print the API token
 ```
 
-`python -m dv2plex` takes the same options. `./run.sh --no-gui` starts the server through `sudo`,
-so dvgrab and the camera control keep their rights for the whole session.
+`python -m dv2plex` (or `dv2plex` after `pip install .`) takes the same options.
+`python -m dv2plex --demo-run` runs capture, merge, upscaling, poster and export once without a
+window and prints a report. `./run.sh --no-gui` starts the server through `sudo`, so dvgrab
+and the camera control keep their rights for the whole session.
+
+### Capture a tape
+
+1. Connect the camera over FireWire and switch it to playback (VCR) mode.
+2. Open the **Capture** tab and enter the title and the year. They become the project name
+   and, later, the Plex folder: `Title (Year)`.
+3. Start the recording. DV2Plex rewinds the tape and records until you stop it or the tape
+   ends; the preview shows what arrives.
+4. The camera rewinds afterwards and the clips are merged in the background. Upscaling,
+   posters and the export run from their tabs, or by themselves if you switch that on.
+
+### The interface
+
+English by default, German in Settings → *Appearance* (or taken from the browser). Light and
+dark follow the system. Its tabs:
+
+| Tab | What it is for |
+| :-- | :-- |
+| Capture | Live preview, record, rewind, play, pause |
+| Upscaling | Upscale captured tapes with a profile |
+| Covers | Make posters for upscaled films |
+| Plex export | Export films (one, or all new ones), join several films into one |
+| Merge queue | Merges that are waiting or running |
+| Video player | Watch, rename and delete projects |
+| Logs | Live log of every step |
+| Settings | Folders, automation, appearance, this installation, updates |
+
+| | |
+| :-- | :-- |
+| <img src="docs/screenshots/upscaling.png" alt="Upscaling tab: profile, list of tapes to upscale"> | <img src="docs/screenshots/export.png" alt="Plex export tab: free space, films and whether they are in Plex"> |
+| <img src="docs/screenshots/player-dark.png" alt="Video player in dark mode: projects with their files, the poster"> | <img src="docs/screenshots/first-start.png" alt="First-start assistant, step 1 of 4"> |
 
 ### Access and the API token
 
-The server listens on `127.0.0.1` unless you pass `--host` or `--share`. Each installation has
-an API token, created on the first start and stored as `server.api_token` in
-`dv2plex/config/settings.local.json`; the environment variable `DV2PLEX_TOKEN` takes precedence.
+The server listens on `127.0.0.1` unless you pass `--host`, `--share` or set `server.host`.
+Each installation has an API token, created on the first start and stored as
+`server.api_token` in the settings; the environment variable `DV2PLEX_TOKEN` takes precedence.
 `python -m dv2plex --show-token` prints it, and the server log says where it comes from.
 
 - **On `127.0.0.1`**, four routes need the token because they run `sudo` or list folders:
   `/api/browse`, `/api/chown`, `/api/fix-config-permissions` and `/api/update/run`. The desktop
-  window opens the page with the token. In a browser, the page asks for it the first time one of
-  these is used.
-- **On any other host** (`--host 0.0.0.0`, `--share`), every `/api` request and the WebSocket
-  need it. Open `http://<server>:5000/?token=<token>` once; the page keeps the token in the
-  browser's local storage and sends it with each request. Without it, the page asks for it.
+  window opens the page with the token. Other web pages cannot reach the server: it answers
+  only to this machine's names and refuses changes that do not come from its own page.
+  Behind a reverse proxy, add its name to `server.allowed_hosts`.
+- **On any other host** every `/api` request and the WebSocket need it. Open
+  `http://<server>:5000/?token=<token>` once; the page keeps the token in the browser.
 - **Scripts** send it as a header:
 
   ```bash
@@ -152,46 +211,15 @@ an API token, created on the first start and stored as `server.api_token` in
 
   `Authorization: Bearer <token>` works too.
 
-The server speaks plain HTTP, so on a network the token travels unencrypted. Bind to the network
-only on one you trust, or reach the server through an SSH tunnel
-(`ssh -L 5000:localhost:5000 user@server`) and leave it on `127.0.0.1`.
-
-The systemd service that `setup.sh` installs runs `./run.sh --no-gui`, so it listens on
-`127.0.0.1` too. To reach it from other machines, add `--host 0.0.0.0` to `ExecStart` in
-`/etc/systemd/system/dv2plex.service`, then run `sudo systemctl daemon-reload` and
-`sudo systemctl restart dv2plex`.
-
-### Capture a tape
-
-1. Connect the camera over FireWire and switch it to playback (VCR) mode.
-2. Start DV2Plex and open the **Digitalisieren** (capture) tab.
-3. Enter the title and the year. They become the project name and, later, the Plex folder.
-4. Optionally start the preview to check the connection.
-5. Start the recording. DV2Plex rewinds the tape and records until you stop it or the tape ends.
-
-The merge starts by itself when the recording ends (`capture.auto_merge`). Upscaling, covers and
-the export run from their own tabs, or automatically if you switch them on.
-
-### The interface
-
-The web interface is in German. Its tabs, in order:
-
-| Tab | What it is for |
-| :-- | :-- |
-| Digitalisieren | Capture: preview, record, rewind, play, pause |
-| Upscaling | Upscale merged films with a profile |
-| Cover Gen | Extract frames and generate a cover |
-| Plex Export | Export single films or all of them |
-| Merge-Queue | Merges that are waiting or running |
-| Video Player | Watch, rename and delete projects |
-| Logs | Live log of every step |
-| Einstellungen | Paths, profiles, automation, updates |
+The server speaks plain HTTP, so on a network the token travels unencrypted. Bind to the
+network only on one you trust, or use an SSH tunnel (`ssh -L 5000:localhost:5000 user@server`)
+and leave it on `127.0.0.1`. More in [SECURITY.md](SECURITY.md).
 
 ### Configuration
 
-Settings live in `dv2plex/config/settings.local.json`, which is created on the first start and
-ignored by git, and can be changed in the **Einstellungen** tab.
-Missing keys fall back to the defaults in [`dv2plex/config.py`](dv2plex/config.py), and
+Settings live in `dv2plex/config/settings.local.json` (desktop app: in your user folder),
+created on the first start and ignored by git; most of them are on the Settings tab. Missing
+keys fall back to the defaults in [`dv2plex/config.py`](dv2plex/config.py), and
 [`config/examples/example_configuration.json`](config/examples/example_configuration.json)
 shows a complete file.
 
@@ -200,120 +228,103 @@ shows a complete file.
 | `paths.dv_import_root` | Where captures, merges and upscaled films are kept |
 | `paths.plex_movies_root` | Your Plex movie library, the export target |
 | `paths.ffmpeg_path` | ffmpeg binary; empty uses the one on `PATH` |
-| `paths.realesrgan_path` | Real-ESRGAN video script; found automatically |
+| `paths.dvgrab_path` | dvgrab command; empty uses `dvgrab` from `PATH` |
 | `upscaling.default_profile` | Profile used when none is chosen |
-| `capture.auto_merge`, `auto_upscale`, `auto_export` | Run the next step automatically |
-| `capture.timestamp_overlay` | Burn the recording date into the film |
-| `update.enabled` | Automatic updates through git; off by default, see [Limits](#limits) |
+| `capture.auto_postprocess` | After the merge, continue automatically with … |
+| `capture.auto_upscale`, `auto_export` | … upscaling with the default profile, then the export |
+| `capture.timestamp_overlay`, `timestamp_duration` | Burn the recording date into each scene, for so many seconds |
+| `capture.use_sudo` | `auto` (sudo for dvgrab on Linux unless root), `true` or `false` |
+| `server.host`, `server.allowed_hosts` | Bind host in server mode; extra host names on `127.0.0.1` |
 | `server.api_token` | API token, created on the first start; `DV2PLEX_TOKEN` overrides it |
+| `ui.language` | `en`, `de` or empty (the browser's language) |
+| `cover.poster_engine` | `auto`, `full` (rembg, Playwright) or `simple` (frame, title, year) |
+| `update.enabled` | Automatic git updates; off by default, see [Limits](#limits) |
+| `update.check_releases` | Desktop app: look for new releases on GitHub once a day |
 | `notifications.ntfy_topic` | ntfy topic for push messages; empty (the default) sends none |
 | `notifications.ntfy_server` | ntfy server, `https://ntfy.sh` by default |
+| `logging.log_directory` | Log files (`dv2plex.log`, rotated) |
 
 ### Upscaling profiles
 
 | Profile | Backend | Use |
 | :-- | :-- | :-- |
-| `realesrgan_4x_hq` | Real-ESRGAN, 4× | Highest quality, slowest |
-| `realesrgan_4x_balanced` | Real-ESRGAN, 4× | Between quality and speed |
-| `realesrgan_4x_fast` | Real-ESRGAN, 4× | Faster, slightly lower quality |
-| `realesrgan_2x` | Real-ESRGAN, 2× | Default; fast |
-| `ffmpeg_fast` | ffmpeg only | Very fast, plain scaling |
+| `realesrgan_4x_hq` | Real-ESRGAN, 4K | Highest quality, slowest |
+| `realesrgan_4x_balanced` | Real-ESRGAN, 4K | Between quality and speed |
+| `realesrgan_4x_fast` | Real-ESRGAN, 4K | Faster, slightly lower quality |
+| `realesrgan_2x` | Real-ESRGAN, 2× | Default; good quality, much faster than 4K |
+| `ffmpeg_hd` | ffmpeg only, HD | No AI, runs on any computer |
+| `ffmpeg_fast` | ffmpeg only, 4K | No AI, plain scaling |
 
-The 4× profiles end at 3840 × 2160; `realesrgan_2x` keeps Real-ESRGAN's 2× output. The
-parameters of each one are in [docs/Upscaling_Profile_Referenz.md](docs/Upscaling_Profile_Referenz.md).
+Sizes, options and hardware in [docs/UPSCALING.md](docs/UPSCALING.md).
 
 ## Limits
 
 Worth knowing before you run it:
 
-- **Capture is Linux-only.** It depends on dvgrab. `setup.bat` and `run.bat` exist for Windows,
-  but without dvgrab there is no capture there.
+- **Capture is Linux-only.** It depends on dvgrab. On Windows and macOS DV2Plex processes tapes
+  captured elsewhere: put the clips into `DV_Import/<Title (Year)>/LowRes/splits/` and they
+  appear on the Upscaling tab.
+- **The desktop app has no Real-ESRGAN.** PyTorch is several gigabytes and GPU specific; use the
+  ffmpeg profiles there, or the Python installation.
 - **One shared token, no user accounts.** Whoever has the API token can do everything the
-  interface can, including `sudo chown -R` on a path and an update. On `127.0.0.1`, all other
-  routes are open to every program and user on that machine. Over plain HTTP the token is not
-  encrypted; see [Access and the API token](#access-and-the-api-token).
+  interface can, including `sudo chown -R` on a path and an update. On `127.0.0.1` the other
+  routes are open to every program on that machine (not to web pages). Over plain HTTP the
+  token is not encrypted.
 - **Push notifications are off by default.** Set `notifications.ntfy_topic` to get an
   [ntfy](https://ntfy.sh) message when a capture, merge or upscale finishes. The message
-  contains the title and year. On the public server anyone who knows the topic can read it, so
-  pick a name that is hard to guess, or point `notifications.ntfy_server` at your own server.
-- **It can update itself.** Off by default. With `update.enabled` set to `true`, it checks the
-  Git remote it was cloned from every 60 minutes (`update.interval_minutes`) and, if there is
-  something new, runs `sudo git pull` and `sudo systemctl restart dv2plex`. It skips the update
-  while a capture or merge is running. Installations updated from an older version keep the
-  value from their settings, which is normally `true`.
-- **It needs `sudo` for dvgrab** unless it runs as root, and asks without a prompt (`sudo -n`).
-  Either allow dvgrab without a password or start it with `./run.sh --no-gui`.
-- **The interface is German,** apart from the prompt that asks for the API token.
-- **No automated tests for capture, merge or upscaling.** They need a camera and real
-  footage. The tests in `dv2plex/test_*.py` cover the settings and their move, the updater,
-  the API token and bind host, and the ntfy switch; see [CONTRIBUTING.md](CONTRIBUTING.md#tests)
-  for how to run them.
+  contains the title and year. On the public server anyone who knows the topic can read it,
+  so pick a name that is hard to guess, or point `notifications.ntfy_server` at your own.
+- **Git installations can update themselves.** Off by default. With `update.enabled`, it checks
+  the branch it was cloned from every 60 minutes (`update.interval_minutes`) and runs
+  `sudo -n git pull --ff-only` and `sudo -n systemctl restart dv2plex`, skipping the update while
+  a capture or merge runs. Installations updated from 1.x keep the value from their settings,
+  which is normally on.
+- **dvgrab needs `sudo`** unless it runs as root or a udev rule allows the user; DV2Plex asks
+  without a prompt (`sudo -n`). Either allow dvgrab without a password or start it with
+  `./run.sh --no-gui`.
+- **Tested without real hardware.** The tests and the demo run the real code against a
+  simulated dvgrab that writes real DV; the FireWire side itself (camera control, signal loss,
+  tape end on real decks) needs reports from people with cameras.
 
 ## Troubleshooting
 
-**ffmpeg not found.** Install it system-wide, or put a static build into `dv2plex/bin/ffmpeg/bin/`.
+**ffmpeg not found.** Install it system-wide, or put a build into `dv2plex/bin/ffmpeg/bin/`.
+The desktop app brings its own.
+
+**No date in the film.** Your ffmpeg has no `drawtext` filter (built without libfreetype;
+Homebrew's current ffmpeg is one). Settings → *This installation* shows it. Install a full build.
 
 **The camera is not found.** Run `./setup_device.sh`. If dvgrab lists nothing, check the
 FireWire card with `lsmod | grep firewire` and the cable; the camera must be in playback mode.
 
-**Upscaling is too slow.** Use a faster profile such as `realesrgan_2x` or `ffmpeg_fast`, or a
-machine with a GPU.
+**Upscaling is too slow.** Use `realesrgan_2x`, `ffmpeg_hd` or `ffmpeg_fast`, or a machine with a GPU.
+
+**The page asks for a token.** You opened a server that listens on the network. Get the token
+on the server with `python -m dv2plex --show-token`.
+
+Logs: the Logs tab, and the log file whose path is under Settings → *This installation*.
 
 ## Development
 
-### Project layout
-
-```
-DV2Plex/
-├── dv2plex/                 Python package
-│   ├── cli.py               command line: desktop, --server, --url
-│   ├── web_app.py           FastAPI server and API
-│   ├── access.py            API token and which requests need it
-│   ├── desktop_app.py       pywebview window
-│   ├── service.py           ties the steps together
-│   ├── capture.py           dvgrab capture, preview, merge queue
-│   ├── merge.py             joining clips, date overlay
-│   ├── upscale.py           Real-ESRGAN and ffmpeg upscaling
-│   ├── frame_extraction.py  frames for the cover
-│   ├── cover_generation.py  Stable Diffusion cover
-│   ├── poster_generation.py poster rendering (Playwright)
-│   ├── plex_export.py       export into the Plex library
-│   ├── update_manager.py    self-update via git
-│   ├── notifications.py     ntfy push messages
-│   ├── web/                 the web interface (HTML, CSS, JS)
-│   └── bin/realesrgan/      Real-ESRGAN, vendored (BSD 3-Clause)
-├── config/examples/         example configuration
-├── docs/                    build guide, upscaling profiles
-├── scripts/                 PyInstaller build
-├── setup.sh, run.sh         Linux setup and start
-└── setup.bat, run.bat       Windows setup and start
-```
-
-### Set up
-
 ```bash
-python3 -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
-python -m dv2plex
+python -m venv .venv && . .venv/bin/activate
+pip install -r requirements-dev.txt
+python -m dv2plex --demo         # the interface with the simulated camera
+python -m pytest                 # tests, including end-to-end runs; needs ffmpeg
 ```
 
-### Build a standalone app
+- [CONTRIBUTING.md](CONTRIBUTING.md): checks, conventions, releases
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): modules and the way of a tape through them
+- [docs/BUILD.md](docs/BUILD.md): building the desktop app
+- [CHANGELOG.md](CHANGELOG.md)
 
-```bash
-./scripts/build.sh
-```
-
-Details are in [docs/BUILD_ANLEITUNG.md](docs/BUILD_ANLEITUNG.md).
-
-### Contributing
-
-Issues and pull requests are welcome; see [CONTRIBUTING.md](CONTRIBUTING.md).
+CI runs the tests on Linux, Windows and macOS, the linters, and the interface in a browser.
+Tagged versions build the desktop app on all three systems and draft a release.
 
 ## License
 
 MIT, see [LICENSE](LICENSE); notices for third-party code are in
 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). DV2Plex builds on [Real-ESRGAN](https://github.com/xinntao/Real-ESRGAN),
-[ffmpeg](https://ffmpeg.org/), [dvgrab](https://linux.die.net/man/1/dvgrab),
+[ffmpeg](https://ffmpeg.org/), [dvgrab](https://github.com/ddennedy/dvgrab),
 [FastAPI](https://fastapi.tiangolo.com/), [pywebview](https://pywebview.flowrl.com/),
 [PyTorch](https://pytorch.org/) and [Diffusers](https://github.com/huggingface/diffusers).

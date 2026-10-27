@@ -1,27 +1,45 @@
 {
   "version": "1.0",
   "paths": {
-    "plex_movies_root": "~/Plex/Movies",
-    "dv_import_root": "DV_Import",
-    "ffmpeg_path": "ffmpeg",
-    "realesrgan_path": "bin/realesrgan/inference_realesrgan_video.py"
+    "plex_movies_root": "/srv/plex/Movies",
+    "dv_import_root": "/srv/dv2plex/DV_Import",
+    "ffmpeg_path": "",
+    "realesrgan_path": "",
+    "dvgrab_path": ""
   },
   "device": {
-    "firewire_device": "",
-    "auto_detect_device": true
+    "firewire_device": ""
   },
   "upscaling": {
-    "default_profile": "realesrgan_4x_hq",
+    "default_profile": "realesrgan_2x",
     "profiles": {
       "realesrgan_4x_hq": {
         "backend": "realesrgan",
         "scale_factor": 4,
         "model": "RealESRGAN_x4plus",
         "face_enhance": false,
-        "encoder": "libx264rgb",
+        "deinterlace": true,
+        "tile_size": 400,
+        "tile_pad": 10,
+        "encoder": "libx264",
         "encoder_options": {
           "crf": 17,
-          "preset": "veryslow",
+          "preset": "veryfast",
+          "tune": "film"
+        }
+      },
+      "realesrgan_4x_balanced": {
+        "backend": "realesrgan",
+        "scale_factor": 4,
+        "model": "RealESRGAN_x4plus",
+        "face_enhance": false,
+        "deinterlace": true,
+        "tile_size": 400,
+        "tile_pad": 10,
+        "encoder": "libx264",
+        "encoder_options": {
+          "crf": 18,
+          "preset": "veryfast",
           "tune": "film"
         }
       },
@@ -30,10 +48,50 @@
         "scale_factor": 4,
         "model": "RealESRGAN_x4plus",
         "face_enhance": false,
+        "deinterlace": true,
+        "tile_size": 400,
+        "tile_pad": 10,
         "encoder": "libx264",
         "encoder_options": {
           "crf": 20,
-          "preset": "medium",
+          "preset": "veryfast",
+          "tune": "film"
+        }
+      },
+      "realesrgan_2x": {
+        "backend": "realesrgan",
+        "scale_factor": 2,
+        "model": "RealESRGAN_x4plus",
+        "face_enhance": false,
+        "deinterlace": true,
+        "tile_size": 400,
+        "tile_pad": 10,
+        "encoder": "libx264",
+        "encoder_options": {
+          "crf": 18,
+          "preset": "slow",
+          "tune": "film"
+        }
+      },
+      "ffmpeg_hd": {
+        "backend": "ffmpeg",
+        "scale_factor": 2,
+        "deinterlace": true,
+        "encoder": "libx264",
+        "encoder_options": {
+          "crf": 18,
+          "preset": "veryfast",
+          "tune": "film"
+        }
+      },
+      "ffmpeg_fast": {
+        "backend": "ffmpeg",
+        "scale_factor": 4,
+        "deinterlace": true,
+        "encoder": "libx264",
+        "encoder_options": {
+          "crf": 20,
+          "preset": "veryfast",
           "tune": "film"
         }
       }
@@ -43,18 +101,51 @@
     "auto_merge": true,
     "auto_upscale": true,
     "auto_export": false,
+    "auto_postprocess": false,
     "auto_rewind_play": true,
     "timestamp_overlay": true,
-    "timestamp_duration": 4
+    "timestamp_duration": 4,
+    "use_sudo": "auto",
+    "rewind_seconds": 300
   },
   "ui": {
     "window_width": 1280,
-    "window_height": 720,
-    "preview_fps": 5
+    "window_height": 860,
+    "preview_fps": 10,
+    "show_cover_tab": true,
+    "language": "",
+    "setup_done": true
   },
   "logging": {
     "level": "INFO",
-    "log_directory": "logs",
+    "log_directory": "/srv/dv2plex/logs",
     "max_log_files": 10
+  },
+  "update": {
+    "enabled": false,
+    "interval_minutes": 60,
+    "branch": "master",
+    "service_name": "dv2plex",
+    "skip_during_capture": true,
+    "skip_during_merge": true,
+    "check_releases": false
+  },
+  "server": {
+    "api_token": "",
+    "host": "",
+    "allowed_hosts": []
+  },
+  "notifications": {
+    "ntfy_topic": "",
+    "ntfy_server": "https://ntfy.sh"
+  },
+  "cover": {
+    "default_model": "stable-diffusion-v1-5/stable-diffusion-v1-5",
+    "default_prompt": "cinematic movie poster, dramatic lighting, vintage film look, high detail, professional photography",
+    "strength": 0.6,
+    "guidance_scale": 8.0,
+    "output_size": "1000x1500",
+    "num_inference_steps": 50,
+    "poster_engine": "auto"
   }
 }

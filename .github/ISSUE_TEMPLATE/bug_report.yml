@@ -1,0 +1,65 @@
+name: Bug report
+description: Something does not work as it should.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. Security problems please privately: see SECURITY.md.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What did you do, what did you expect, what happened instead?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Capture tab, title "Urlaub", year 2003
+        2. Start recording
+        3. …
+  - type: input
+    id: version
+    attributes:
+      label: DV2Plex version
+      description: Settings → This installation
+      placeholder: "2.0.0"
+    validations:
+      required: true
+  - type: dropdown
+    id: install
+    attributes:
+      label: How do you run DV2Plex?
+      options:
+        - Desktop app (installer or zip)
+        - From a git checkout, desktop window (./run.sh)
+        - From a git checkout, server (systemd service or --server)
+        - Demo mode
+    validations:
+      required: true
+  - type: input
+    id: system
+    attributes:
+      label: Operating system
+      placeholder: "Ubuntu 24.04 / Windows 11 / macOS 15"
+    validations:
+      required: true
+  - type: input
+    id: hardware
+    attributes:
+      label: Camera or deck, FireWire card
+      placeholder: "Sony DCR-TRV900 over a TI-chip PCIe card"
+  - type: input
+    id: ffmpeg
+    attributes:
+      label: ffmpeg version
+      description: First line of `ffmpeg -version`, or Settings → This installation
+  - type: textarea
+    id: log
+    attributes:
+      label: Log
+      description: From the Logs tab or the log file. Tokens are masked; check it for titles or paths you would rather not share.
+      render: text

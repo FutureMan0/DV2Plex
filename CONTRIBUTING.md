@@ -1,305 +1,77 @@
 # Contributing to DV2Plex
 
-Thank you for your interest in contributing to DV2Plex! 🎉
+Thanks for helping. Bug reports from real tapes and cameras are as valuable as code: most
+of us cannot test every camera, deck or capture card.
 
-This document describes how you can contribute to the project.
+Please follow the [Code of Conduct](CODE_OF_CONDUCT.md). Security problems go to
+[SECURITY.md](SECURITY.md), not into public issues.
 
-## 📋 Table of Contents
+## Reporting a problem
 
-- [Code of Conduct](#code-of-conduct)
-- [How can I contribute?](#how-can-i-contribute)
-- [Setting up Development Environment](#setting-up-development-environment)
-- [Development Process](#development-process)
-- [Coding Standards](#coding-standards)
-- [Commit Messages](#commit-messages)
-- [Pull Requests](#pull-requests)
+Use the issue forms. The most useful things to include:
 
-## Code of Conduct
+- how you run DV2Plex (desktop app, `./run.sh`, the systemd service) and the version
+  (Settings → *This installation*)
+- your system, the camera or deck, and `ffmpeg -version`
+- the log: the Logs tab, or the log file (path in Settings → *This installation*). Tokens
+  are masked in it; check it for titles or paths you would rather not share.
 
-This project follows a Code of Conduct. By participating, you are expected to uphold this.
+## Setting up
 
-### Our Standards
-
-- Use respectful and inclusive language
-- Respect different viewpoints and experiences
-- Give and accept constructive feedback
-- Focus on what is best for the community
-
-## How can I contribute?
-
-### 🐛 Bug Reports
-
-If you find a bug:
-
-1. Check if the issue already exists
-2. Create a new issue with:
-   - Clear, descriptive title
-   - Detailed description of the problem
-   - Steps to reproduce
-   - Expected vs. actual behavior
-   - System information (OS, Python version, etc.)
-   - Screenshots (if relevant)
-
-### 💡 Feature Requests
-
-For new features:
-
-1. Check if the feature has already been suggested
-2. Create an issue with:
-   - Clear description of the feature
-   - Justification for why it's useful
-   - Possible implementation approaches (optional)
-
-### 📝 Documentation
-
-Documentation improvements are always welcome:
-
-- Fix typos
-- Clearer explanations
-- Additional examples
-- Translations
-
-### 🔧 Code Contributions
-
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Test your changes
-5. Submit a pull request
-
-## Setting up Development Environment
-
-### Prerequisites
-
-- Python 3.8+
-- Git
-- (Optional) Virtual Environment
-
-### Setup
+You need Python 3.10 or newer, git and ffmpeg. No camera is needed for development.
 
 ```bash
-# Clone repository
 git clone https://github.com/FutureMan0/DV2Plex.git
 cd DV2Plex
-
-# Create virtual environment
-python -m venv venv
-source venv/bin/activate  # Linux/Mac
-# or
-venv\Scripts\activate  # Windows
-
-# Install dependencies
-pip install -r requirements.txt
-
-# Start development
-python -m dv2plex
+python -m venv .venv
+. .venv/bin/activate                  # Windows: .venv\Scripts\activate
+pip install -r requirements-dev.txt   # enough for the interface, the tests and the demo
+python -m dv2plex --demo              # the interface with a simulated camera
 ```
 
-## Development Process
+`requirements.txt` adds Real-ESRGAN (PyTorch), Stable Diffusion and the full poster
+generator; you only need them when you work on those parts.
 
-### Branch Strategy
+## Checks
 
-- `main`: Stable, production-ready version
-- `develop`: Development branch (if present)
-- `feature/*`: New features
-- `fix/*`: Bug fixes
-- `docs/*`: Documentation changes
-
-### Workflow
-
-1. **Create Issue** (optional, but recommended)
-2. **Create Branch**:
-   ```bash
-   git checkout -b feature/my-feature
-   # or
-   git checkout -b fix/bug-description
-   ```
-
-3. **Make Changes**:
-   - Write code
-   - Add tests (if possible)
-   - Update documentation
-
-4. **Create Commits**:
-   ```bash
-   git add .
-   git commit -m "feat: Description of change"
-   ```
-
-5. **Push and Pull Request**:
-   ```bash
-   git push origin feature/my-feature
-   ```
-
-## Coding Standards
-
-### Python
-
-- Follow **PEP 8**
-- **Type Hints** for new functions
-- **Docstrings** in Google-style:
-
-```python
-def example_function(param1: str, param2: int) -> bool:
-    """
-    Short description of the function.
-    
-    Args:
-        param1: Description of first parameter
-        param2: Description of second parameter
-    
-    Returns:
-        Description of return value
-    
-    Raises:
-        ValueError: When something goes wrong
-    """
-    pass
-```
-
-### Code Formatting
-
-- **Maximum line length**: 100 characters (if possible)
-- **Imports**: Sorted and grouped (stdlib, third-party, local)
-- **Naming**:
-  - Functions: `snake_case`
-  - Classes: `PascalCase`
-  - Constants: `UPPER_SNAKE_CASE`
-
-### Example
-
-```python
-"""Module documentation."""
-
-import os
-from pathlib import Path
-from typing import Optional
-
-import numpy as np
-
-from dv2plex.config import Config
-
-
-class ExampleClass:
-    """Short class description."""
-    
-    def __init__(self, config: Config):
-        """
-        Initialize the class.
-        
-        Args:
-            config: Configuration object
-        """
-        self.config = config
-    
-    def example_method(self, value: int) -> Optional[str]:
-        """
-        Example method.
-        
-        Args:
-            value: An integer value
-        
-        Returns:
-            Optional string value
-        """
-        if value < 0:
-            return None
-        return str(value)
-```
-
-## Commit Messages
-
-We follow the [Conventional Commits](https://www.conventionalcommits.org/) standard:
-
-### Format
-
-```
-<type>(<scope>): <subject>
-
-<body>
-
-<footer>
-```
-
-### Types
-
-- `feat`: New features
-- `fix`: Bug fixes
-- `docs`: Documentation
-- `style`: Code formatting (no logic changes)
-- `refactor`: Code refactoring
-- `test`: Adding/changing tests
-- `chore`: Build process, dependencies, etc.
-
-### Examples
+The same commands run on every pull request (`.github/workflows/ci.yml`), on Linux,
+Windows and macOS:
 
 ```bash
-feat(capture): Add support for multiple capture parts
-fix(upscale): Fix memory leak in upscaling engine
-docs(readme): Update installation instructions
-refactor(config): Simplify configuration loading
+python -m pytest            # unit tests and the end-to-end runs with the simulated camera
+ruff check                  # errors and likely bugs
+mypy                        # types of the reworked modules
+python -m dv2plex --demo-run   # capture, merge, upscale, poster, export once, with a report
 ```
 
-### Rules
-
-- **Subject**: Maximum 50 characters, imperative ("Add" not "Added")
-- **Body**: Explain the "what" and "why", not the "how"
-- **Footer**: References to issues (e.g., `Closes #123`)
-
-## Pull Requests
-
-### Before Pull Request
-
-- [ ] Code follows coding standards
-- [ ] Self-tested
-- [ ] Comments and docstrings added
-- [ ] Documentation updated (if necessary)
-- [ ] No new warnings
-- [ ] Commit messages follow standard
-
-### Creating Pull Request
-
-1. **Description**:
-   - What was changed?
-   - Why was it changed?
-   - How was it tested?
-
-2. **References**:
-   - Link to relevant issues
-   - `Closes #123` for automatic closing
-
-3. **Screenshots**:
-   - For UI changes
-
-4. **Checklist**:
-   - Use the PR template checklist
-
-### Review Process
-
-- Maintainers will review the PR
-- Feedback may be given
-- Changes may be requested
-- After approval, the PR will be merged
-
-## Tests
-
-The tests live next to the code in `dv2plex/test_*.py`. They need neither a camera nor the
-upscaling and cover dependencies, which `dv2plex/conftest.py` stubs out:
+For interface changes also run the browser test and look at the screenshots
+(`pip install playwright && python -m playwright install chromium` first):
 
 ```bash
-uv run --with fastapi --with httpx --with pytest --with uvicorn pytest
+python scripts/ui_smoke.py
+python scripts/screenshots.py --out /tmp/shots
 ```
 
-New tests use `pytest`.
+No test may run `sudo`, `systemctl`, `chown` or a real `dvgrab`; `dv2plex/conftest.py` fails
+any test that tries. Code that talks to dvgrab is tested against `dv2plex/fake_dvgrab.py`.
 
-## Questions?
+## Making a change
 
-If you have questions:
+- Branch from `master`, one topic per pull request.
+- Keep the behaviour of the existing steps unless the pull request is about changing it.
+- Tests for what you fix or add; a bug fix comes with the test that failed before.
+- Interface texts go into `dv2plex/web/i18n.json`, in English and German
+  (`test_interface.py` checks that both have every key). Set text with `textContent`, never
+  `innerHTML`.
+- Update the documentation and `CHANGELOG.md` (under the coming version) in the same pull
+  request.
+- Commit messages in English, imperative, a short first line ("Keep the aspect of 16:9
+  tapes"), the why in the body.
 
-- Open an issue with the label "question"
-- Discuss in GitHub Discussions
-- Contact the maintainers
+## Releases
 
-## Thank you! 🙏
-
-Every contribution, no matter how small, is valuable. Thank you for making DV2Plex better!
+Versions follow [Semantic Versioning](https://semver.org/). To release, a maintainer sets
+`__version__` in `dv2plex/__init__.py`, moves the `CHANGELOG.md` entries under that version,
+and pushes a tag `v<version>`. The release workflow builds the desktop app for Windows,
+macOS and Linux, runs it once end to end, and creates a draft release with the packages and
+the changelog section; the maintainer reviews and publishes it.

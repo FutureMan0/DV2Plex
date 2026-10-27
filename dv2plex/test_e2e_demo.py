@@ -91,3 +91,32 @@ def test_capture_to_plex_through_the_web_api(demo_home, monkeypatch):
     assert projects[0]["has_poster"] is True
     stream = client.get("/api/player/stream", params={"path": str(upscaled)})
     assert stream.status_code == 200 and len(stream.content) > 10_000
+
+
+def test_clips_captured_elsewhere_are_merged_and_upscaled(demo_home):
+    """Windows and macOS: DV files put into LowRes/splits/ by hand go through the same chain."""
+    import shutil
+    import subprocess
+
+    from dv2plex.config import Config
+    from dv2plex.service import PostprocessingService, find_pending_movies
+
+    splits = demo_home / "DV_Import" / "Hochzeit (1999)" / "LowRes" / "splits"
+    splits.mkdir(parents=True)
+    for i, source in enumerate(("testsrc2", "smptebars")):
+        subprocess.run([shutil.which("ffmpeg"), "-v", "error", "-f", "lavfi", "-i", f"{source}=size=720x576:rate=25",
+                        "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000", "-t", "2",
+                        "-target", "pal-dv", "-aspect", "4:3", "-y", str(splits / f"clip{i}.dv")], check=True)
+    config = Config()
+    project = demo_home / "DV_Import" / "Hochzeit (1999)"
+    assert find_pending_movies(config) == [project]
+
+    done = []
+    PostprocessingService(config, log_callback=lambda m: None).process_movie(
+        project, "ffmpeg_hd", finished_callback=lambda ok, msg: done.append((ok, msg)))
+    assert _wait(lambda: bool(done), 120)
+
+    assert done[0][0], done[0][1]
+    merged = probe(project / "LowRes" / "movie_merged.mp4")
+    assert merged.duration and abs(merged.duration - 4.0) < 0.5
+    assert (project / "HighRes" / "Hochzeit (1999)_4k.mp4").is_file()
