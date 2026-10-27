@@ -193,23 +193,24 @@ def generate_poster_batch(request: PosterGenerateBatchRequest):
         # Hole Titel und Jahr aus der Map
         title, year = video_map.get(video_path_str, (video_path.stem, None))
         
-        def progress_cb(value: int):
+        # video_path as a default argument: each job reports its own film, not the loop's last one
+        def progress_cb(value: int, video_path: Path = video_path):
             state.broadcast_message_sync({
                 "type": "progress",
                 "value": value,
                 "operation": "poster_generation_batch",
                 "video_path": str(video_path)
             })
-        
-        def status_cb(status: str):
+
+        def status_cb(status: str, video_path: Path = video_path):
             state.broadcast_message_sync({
                 "type": "status",
                 "status": status,
                 "operation": "poster_generation_batch",
                 "video_path": str(video_path)
             })
-        
-        def finished_cb(success: bool, message: str, poster_path: Optional[Path]):
+
+        def finished_cb(success: bool, message: str, poster_path: Optional[Path], video_path: Path = video_path):
             state.broadcast_message_sync({
                 "type": "poster_generation_finished",
                 "success": success,

@@ -223,3 +223,65 @@ def test_slow_work_does_not_block_other_requests(api, monkeypatch):
 
     assert code == 200
     assert waited < 1.0, f"/api/status waited {waited:.2f} s for the frame extraction"
+
+
+def test_refused_start_during_rewind_leaves_no_project_behind(api, monkeypatch):
+    client, tmp_path = api
+    engine = web_app.capture_service.capture_engine
+    monkeypatch.setattr(engine, "is_rewind_block_active", lambda: True)
+    monkeypatch.setattr(engine, "get_rewind_block_remaining", lambda: 42)
+    monkeypatch.setattr(web_app.capture_service, "get_device", lambda: "0")
+    monkeypatch.setattr(engine, "get_device", lambda: "0")
+
+    response = client.post("/api/capture/start", json={"title": "Urlaub", "year": "2003"})
+
+    assert response.status_code == 400 and "42 seconds" in response.json()["detail"]
+    assert not (tmp_path / "DV_Import" / "Urlaub (2003)").exists()
+
+
+def test_two_quick_starts_run_one_capture(api, monkeypatch):
+    import time as _time
+
+    client, tmp_path = api
+    service = web_app.capture_service
+    started = []
+
+    def slow_start(*args, **kwargs):
+        started.append(1)
+        _time.sleep(0.5)
+        return True
+
+    monkeypatch.setattr(service.capture_engine, "get_device", lambda: "0")
+    monkeypatch.setattr(service.capture_engine, "start_capture", slow_start)
+    results = []
+    threads = [threading.Thread(target=lambda t=t: results.append(service.start_capture(t, "2003"))) for t in ("A", "B")]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    assert len(started) == 1
+    assert sorted(ok for ok, _ in results) == [False, True]
+
+
+def test_rename_refuses_the_import_folder_itself(api):
+    client, tmp_path = api
+
+    response = client.post("/api/player/rename", json={
+        "project_path": str(tmp_path / "DV_Import"), "new_title": "Moved", "new_year": "2003"})
+
+    assert response.status_code == 400
+    assert (tmp_path / "DV_Import").is_dir()
+
+
+def test_busy_project_is_not_renamed_or_deleted(api, monkeypatch):
+    client, tmp_path = api
+    project = tmp_path / "DV_Import" / "Urlaub (2003)"
+    (project / "LowRes").mkdir(parents=True)
+    monkeypatch.setattr(web_app.capture_service, "is_busy_with", lambda path: True)
+
+    rename = client.post("/api/player/rename", json={"project_path": str(project), "new_title": "X", "new_year": "2003"})
+    delete = client.post("/api/project/delete", json={"paths": [str(project)]})
+
+    assert rename.status_code == 409 and delete.status_code == 409
+    assert (project / "LowRes").is_dir()

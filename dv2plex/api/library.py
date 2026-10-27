@@ -53,6 +53,22 @@ class PlayerRenameRequest(BaseModel):
     new_year: Optional[str] = None
 
 
+def _project_folder(path: Path) -> Path:
+    """A project folder directly inside the import folder; never the import folder itself."""
+    resolved = state._ensure_in_dv_import_root(path)
+    if resolved.parent != state.config.get_dv_import_root().resolve():
+        raise HTTPException(status_code=400, detail="Not a project folder of the import folder.")
+    return resolved
+
+
+def _refuse_busy(project_dir: Path) -> None:
+    """Renaming or deleting a project that is being captured, merged or upscaled breaks that job."""
+    capture = state.capture_service
+    post = state.postprocessing_service
+    if (capture and capture.is_busy_with(project_dir)) or (post and post.current() == project_dir.name):
+        raise HTTPException(status_code=409, detail=f"{project_dir.name} is being worked on; try again when it is done.")
+
+
 @router.get("/api/upscaling/profiles")
 def get_upscaling_profiles():
     """Gibt alle verfügbaren Upscaling-Profile zurück"""
@@ -271,8 +287,9 @@ def rename_player_project(request: PlayerRenameRequest):
     
     project_dir = Path(request.project_path)
     
-    # Sicherheitsprüfung: Projekt muss im DV_Import-Ordner sein
-    project_dir = state._ensure_in_dv_import_root(project_dir)
+    # Sicherheitsprüfung: ein Projekt direkt im DV_Import-Ordner (nicht der Ordner selbst)
+    project_dir = _project_folder(project_dir)
+    _refuse_busy(project_dir)
     
     if not project_dir.exists() or not project_dir.is_dir():
         raise HTTPException(status_code=404, detail="Projekt-Ordner nicht gefunden")
@@ -712,8 +729,9 @@ async def delete_projects(request: DeleteProjectsRequest):
             else:
                 project_dir = resolved
 
-        # Safety: Projekt muss innerhalb DV_Import liegen
-        state._ensure_in_dv_import_root(project_dir)
+        # Safety: ein Projekt direkt im DV_Import-Ordner, gerade nicht in Arbeit
+        project_dir = _project_folder(project_dir)
+        _refuse_busy(project_dir)
 
         deleted = []
         for sub in ("LowRes", "HighRes"):

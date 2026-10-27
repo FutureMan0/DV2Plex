@@ -336,6 +336,7 @@ class CaptureService:
         self.state_callback = state_callback
         self.merge_finished_callback = merge_finished_callback
         self._capture_running = False
+        self._start_lock = Lock()
         # One engine, created once: it owns the merge queue and its worker thread.
         # (A new engine per status request used to start a worker thread each time.)
         self.capture_engine: CaptureEngine = CaptureEngine(
@@ -390,6 +391,17 @@ class CaptureService:
         Returns:
             (success, error_message)
         """
+        # Two quick clicks must not start two dvgrabs (starting takes about a second)
+        if not self._start_lock.acquire(blocking=False):
+            return False, "A capture is being started already."
+        try:
+            if self._capture_running:
+                return False, "A capture is already running."
+            return self._start_capture(title, year, preview_callback, auto_rewind_play)
+        finally:
+            self._start_lock.release()
+
+    def _start_capture(self, title, year, preview_callback, auto_rewind_play) -> Tuple[bool, Optional[str]]:
         try:
             movie_name = movie_folder_name(title, year)
         except InvalidName as e:
@@ -421,6 +433,11 @@ class CaptureService:
         except OSError as e:
             return False, f"Could not create {dv_import_root}: {e}"
 
+        # Before anything is created: a refused start must not leave an empty project behind
+        if self.capture_engine.is_rewind_block_active():
+            remaining = self.capture_engine.get_rewind_block_remaining()
+            return False, f"The tape is still rewinding for {remaining} seconds. Please wait."
+
         movie_dir = dv_import_root / movie_name
         lowres_dir = movie_dir / "LowRes"
         try:
@@ -431,10 +448,6 @@ class CaptureService:
             return False, f"No permission to create {lowres_dir}. Check the owner of the import folder."
         except OSError as e:
             return False, f"Could not create {lowres_dir}: {e}"
-
-        if self.capture_engine.is_rewind_block_active():
-            remaining = self.capture_engine.get_rewind_block_remaining()
-            return False, f"The tape is still rewinding for {remaining} seconds. Please wait."
 
         preview_fps = self.config.get("ui.preview_fps", 10)
         clean_title, clean_year = parse_movie_folder_name(movie_name)
@@ -481,6 +494,18 @@ class CaptureService:
             return True
         queue = getattr(engine, "merge_queue", None)
         return bool(queue and not queue.empty())
+
+    def is_busy_with(self, project_dir: Path) -> bool:
+        """Whether this project is being captured or merged right now."""
+        target = Path(project_dir).resolve()
+        engine = self.capture_engine
+        if self._capture_running and engine.splits_dir is not None:
+            try:
+                if Path(engine.splits_dir).resolve().parent.parent == target:
+                    return True
+            except OSError:
+                pass
+        return self.is_merging(target)
 
     def is_merging(self, project_dir: Path) -> bool:
         """Whether a merge for this project is queued or running."""

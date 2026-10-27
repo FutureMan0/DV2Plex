@@ -147,7 +147,10 @@ def setup_services(mode: str = "server"):
         })
 
     def capture_state_callback(state: str):
+        global active_capture
         if state == "stopped":
+            # Also when the tape ended by itself; /api/status showed the old capture before
+            active_capture = None
             broadcast_message_sync({
                 "type": "status",
                 "status": "capture_stopped",

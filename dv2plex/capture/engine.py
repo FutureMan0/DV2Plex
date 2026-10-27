@@ -65,8 +65,9 @@ class CaptureEngine:
         )
 
         self.is_capturing = False
-        # Set by stop_capture(): the monitor thread must not finalize a second time
+        # Set by whoever finalizes first (stop or tape end), under _finalize_lock
         self._stop_requested = False
+        self._finalize_lock = threading.Lock()
         self.recording_dvgrab_process: Optional[subprocess.Popen] = None
         self.interactive_dvgrab_process: Optional[subprocess.Popen] = None
         self.capture_thread: Optional[threading.Thread] = None
@@ -258,8 +259,6 @@ class CaptureEngine:
             auto_rewind_play: dvgrab -rewind (Band vor der Aufnahme zurückspulen)
             title, year: für die Merge-Queue und Benachrichtigungen
         """
-        self.current_capture_title = title
-        self.current_capture_year = year
         try:
             if self.is_capturing:
                 self.log("Aufnahme läuft bereits!")
@@ -268,11 +267,13 @@ class CaptureEngine:
                 self.log(f"Aufnahme gesperrt, Auto-Rewind läuft noch {self._remaining_rewind_block_seconds()} Sekunden.")
                 return False
 
-            self.dvgrab.start_sudo_keepalive()
             device = self.get_device()
             if not device:
                 self.log("Kein FireWire-Gerät verfügbar!")
                 return False
+            self.dvgrab.start_sudo_keepalive()
+            self.current_capture_title = title
+            self.current_capture_year = year
 
             output_dir = Path(output_path)
             output_dir.mkdir(parents=True, exist_ok=True)
@@ -318,10 +319,11 @@ class CaptureEngine:
 
     def stop_capture(self) -> bool:
         """Stops like Ctrl+C, then rewinds and queues the merge."""
-        if not self.is_capturing or self._stop_requested:
-            return False
-        # From here on, stop_capture() finalizes; the monitor thread only watches
-        self._stop_requested = True
+        with self._finalize_lock:
+            if not self.is_capturing or self._stop_requested:
+                return False
+            # From here on, stop_capture() finalizes; the monitor thread only watches
+            self._stop_requested = True
         try:
             self.log("Stoppe Aufnahme...")
             self.preview.stop()
@@ -361,7 +363,11 @@ class CaptureEngine:
             reader.join(timeout=1)
             self._report_dvgrab_output(return_code, b"".join(stderr_chunks).decode("utf-8", errors="ignore"))
 
-            if self.is_capturing and not self._stop_requested:
+            with self._finalize_lock:
+                finalize_here = self.is_capturing and not self._stop_requested
+                if finalize_here:
+                    self._stop_requested = True
+            if finalize_here:
                 self.is_capturing = False
                 self.preview.stop()
                 self._stop_all_processes()
