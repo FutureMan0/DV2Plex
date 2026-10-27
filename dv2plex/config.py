@@ -165,7 +165,7 @@ class Config:
                 "max_log_files": 10
             },
             "update": {
-                "enabled": True,
+                "enabled": False,
                 "interval_minutes": 60,
                 "branch": "master",
                 "service_name": "dv2plex",

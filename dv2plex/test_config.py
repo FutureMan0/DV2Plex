@@ -97,3 +97,22 @@ def test_explicit_config_path_ignores_legacy(config_dir, tmp_path):
 
     assert config.legacy_config_path is None
     assert config.get("paths.plex_movies_root") == str(Path.home() / "Plex" / "Movies")
+
+
+def test_auto_update_is_off_by_default(config_dir):
+    assert Config().get("update.enabled") is False
+
+
+def test_fresh_clone_does_not_inherit_auto_update_from_tracked_file(config_dir):
+    # The tracked settings.json says "enabled": true; a fresh clone must not pick that up.
+    (config_dir / "settings.json").write_bytes(TRACKED_SETTINGS.read_bytes())
+
+    assert Config().get("update.enabled") is False
+
+
+@pytest.mark.parametrize("enabled", [True, False])
+def test_existing_installation_keeps_its_update_setting(config_dir, enabled):
+    _write_legacy(config_dir, {"paths": {"plex_movies_root": "/srv"}, "update": {"enabled": enabled}})
+
+    assert Config().get("update.enabled") is enabled
+    assert Config().get("update.enabled") is enabled  # and after the move to settings.local.json

@@ -225,7 +225,7 @@ async def _start_update_scheduler():
         while True:
             interval_minutes = int(config.get("update.interval_minutes", 60) or 60)
             interval_minutes = max(1, interval_minutes)
-            if config.get("update.enabled", True):
+            if config.get("update.enabled", False):
                 try:
                     result = await update_manager.check_and_update(auto=True)
                     if result.get("blocked"):
@@ -1460,7 +1460,7 @@ async def get_settings():
         "auto_export": config.get("capture.auto_export", False),
         "ui_theme": config.get("ui.theme", "plex"),
         "show_cover_tab": config.get("ui.show_cover_tab", True),
-        "update_enabled": config.get("update.enabled", True),
+        "update_enabled": config.get("update.enabled", False),
         "update_interval_minutes": config.get("update.interval_minutes", 60),
     }
 

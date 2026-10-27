@@ -166,7 +166,7 @@ shows a complete file.
 | `upscaling.default_profile` | Profile used when none is chosen |
 | `capture.auto_merge`, `auto_upscale`, `auto_export` | Run the next step automatically |
 | `capture.timestamp_overlay` | Burn the recording date into the film |
-| `update.enabled` | Automatic updates, see [Limits](#limits) |
+| `update.enabled` | Automatic updates through git; off by default, see [Limits](#limits) |
 
 ### Upscaling profiles
 
@@ -193,9 +193,11 @@ Worth knowing before you run it:
 - **Notifications go to a public topic.** When a capture or merge finishes, a message with the
   title and year is posted to the public [ntfy.sh](https://ntfy.sh) topic `dv2plex-complete`,
   which anyone can subscribe to.
-- **It updates itself.** Every 60 minutes it checks the Git remote it was cloned from and, if
-  there is something new, runs `sudo git pull` and `sudo systemctl restart dv2plex`. It skips the update while a
-  capture or merge is running. Set `update.enabled` to `false` to switch it off.
+- **It can update itself.** Off by default. With `update.enabled` set to `true`, it checks the
+  Git remote it was cloned from every 60 minutes (`update.interval_minutes`) and, if there is
+  something new, runs `sudo git pull` and `sudo systemctl restart dv2plex`. It skips the update
+  while a capture or merge is running. Installations updated from an older version keep the
+  value from their settings, which is normally `true`.
 - **It needs `sudo` for dvgrab** unless it runs as root, and asks without a prompt (`sudo -n`).
   Either allow dvgrab without a password or start it with `./run.sh --no-gui`.
 - **The interface is German only.**
