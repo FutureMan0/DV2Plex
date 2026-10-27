@@ -34,6 +34,10 @@ version = { attr = "dv2plex.__version__" }
 [tool.setuptools.packages.find]
 include = ["dv2plex*"]
 
+[tool.setuptools.package-data]
+# The interface and the poster template are not Python files
+dv2plex = ["web/*", "resources/*"]
+
 [tool.pytest.ini_options]
 # The vendored Real-ESRGAN tests need its training stack; they are not DV2Plex tests.
 testpaths = ["dv2plex"]

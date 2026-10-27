@@ -29,6 +29,14 @@ def is_frozen() -> bool:
     return bool(getattr(sys, "frozen", False))
 
 
+def uses_user_folders() -> bool:
+    """
+    The packaged app and copies installed with pip keep their data in the user's folders;
+    a git checkout (run.sh next to the package) keeps it next to the code, as it always did.
+    """
+    return is_frozen() or not (PACKAGE_DIR.parent / "run.sh").is_file()
+
+
 def user_config_dir() -> Path:
     """Where the packaged app keeps settings and logs: its folder is read-only."""
     if sys.platform == "win32":
@@ -47,7 +55,7 @@ def _default_config_dir() -> Path:
     home = app_home()
     if home:
         return home / "config"
-    if is_frozen():
+    if uses_user_folders():
         return user_config_dir()
     return PACKAGE_DIR / "config"
 
@@ -110,7 +118,7 @@ class Config:
         plex_default = home / "PlexMovies" if home else home_dir / "Plex" / "Movies"
         if home:
             import_default, logs_default = home / "DV_Import", home / "logs"
-        elif is_frozen():
+        elif uses_user_folders():
             import_default, logs_default = user_videos_dir() / "DV2Plex", user_config_dir() / "logs"
         else:
             import_default, logs_default = dv2plex_dir / "DV_Import", dv2plex_dir / "logs"
