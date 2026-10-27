@@ -6,7 +6,21 @@ import numpy as np
 import os
 import shutil
 import subprocess
+import sys
+import types
+
 import torch
+
+# DV2Plex: basicsr 1.4.2 imports torchvision.transforms.functional_tensor, which torchvision
+# removed in 0.17. Provide the one function it needs, so basicsr imports on current versions.
+try:
+    import torchvision.transforms.functional_tensor  # noqa: F401
+except ImportError:
+    import torchvision.transforms.functional as _tv_functional
+    _shim = types.ModuleType('torchvision.transforms.functional_tensor')
+    _shim.rgb_to_grayscale = _tv_functional.rgb_to_grayscale
+    sys.modules['torchvision.transforms.functional_tensor'] = _shim
+
 from basicsr.archs.rrdbnet_arch import RRDBNet
 from basicsr.utils.download_util import load_file_from_url
 from os import path as osp
@@ -30,12 +44,19 @@ def get_video_meta_info(video_path):
     ret = {}
     probe = ffmpeg.probe(video_path)
     video_streams = [stream for stream in probe['streams'] if stream['codec_type'] == 'video']
-    has_audio = any(stream['codec_type'] == 'audio' for stream in probe['streams'])
+    audio_streams = [stream for stream in probe['streams'] if stream['codec_type'] == 'audio']
+    has_audio = bool(audio_streams)
     ret['width'] = video_streams[0]['width']
     ret['height'] = video_streams[0]['height']
-    ret['fps'] = eval(video_streams[0]['avg_frame_rate'])
+    num, den = video_streams[0]['avg_frame_rate'].split('/')
+    ret['fps'] = float(num) / float(den) if float(den) else 25.0
     ret['audio'] = ffmpeg.input(video_path).audio if has_audio else None
-    ret['nb_frames'] = int(video_streams[0]['nb_frames'])
+    # DV2Plex: MP4 can take AAC as it is; DV's PCM audio has to be converted
+    ret['audio_codec'] = audio_streams[0].get('codec_name') if has_audio else None
+    if video_streams[0].get('nb_frames') not in (None, 'N/A'):
+        ret['nb_frames'] = int(video_streams[0]['nb_frames'])
+    else:
+        ret['nb_frames'] = int(float(probe['format']['duration']) * ret['fps'])
     return ret
 
 
@@ -65,14 +86,19 @@ class Reader:
         self.input_type = 'folder' if input_type is None else input_type
         self.paths = []  # for image&folder type
         self.audio = None
+        self.audio_codec = None
         self.input_fps = None
         if self.input_type.startswith('video'):
             video_path = get_sub_video(args, total_workers, worker_idx)
+            # DV2Plex: optional deinterlacing (bwdif) before the frames reach the model
+            output_kwargs = {'format': 'rawvideo', 'pix_fmt': 'bgr24', 'loglevel': 'error'}
+            if getattr(args, 'deinterlace', None):
+                output_kwargs['vf'] = args.deinterlace
             self.stream_reader = (
-                ffmpeg.input(video_path).output('pipe:', format='rawvideo', pix_fmt='bgr24',
-                                                loglevel='error').run_async(
-                                                    pipe_stdin=True, pipe_stdout=True, cmd=args.ffmpeg_bin))
+                ffmpeg.input(video_path).output('pipe:', **output_kwargs).run_async(
+                    pipe_stdin=True, pipe_stdout=True, cmd=args.ffmpeg_bin))
             meta = get_video_meta_info(video_path)
+            self.audio_codec = meta['audio_codec']
             self.width = meta['width']
             self.height = meta['height']
             self.input_fps = meta['fps']
@@ -139,8 +165,11 @@ class Reader:
 
 class Writer:
 
-    def __init__(self, args, audio, height, width, video_save_path, fps):
+    def __init__(self, args, audio, height, width, video_save_path, fps, audio_codec=None):
         out_width, out_height = int(width * args.outscale), int(height * args.outscale)
+        # DV2Plex: encoder quality from the profile, AAC unless the source audio fits MP4
+        quality = {'crf': args.crf, 'preset': args.x264_preset, 'movflags': '+faststart'}
+        acodec = 'copy' if audio_codec in ('aac', 'mp3', 'ac3', 'eac3', 'alac') else 'aac'
         if out_height > 2160:
             print('You are generating video that is larger than 4K, which will be very slow due to IO speed.',
                   'We highly recommend to decrease the outscale(aka, -s).')
@@ -154,14 +183,15 @@ class Writer:
                                  pix_fmt='yuv420p',
                                  vcodec='libx264',
                                  loglevel='error',
-                                 acodec='copy').overwrite_output().run_async(
+                                 acodec=acodec,
+                                 **quality).overwrite_output().run_async(
                                      pipe_stdin=True, pipe_stdout=True, cmd=args.ffmpeg_bin))
         else:
             self.stream_writer = (
                 ffmpeg.input('pipe:', format='rawvideo', pix_fmt='bgr24', s=f'{out_width}x{out_height}',
                              framerate=fps).output(
                                  video_save_path, pix_fmt='yuv420p', vcodec='libx264',
-                                 loglevel='error').overwrite_output().run_async(
+                                 loglevel='error', **quality).overwrite_output().run_async(
                                      pipe_stdin=True, pipe_stdout=True, cmd=args.ffmpeg_bin))
 
     def write_frame(self, frame):
@@ -174,6 +204,10 @@ class Writer:
 
 
 def inference_video(args, video_save_path, device=None, total_workers=1, worker_idx=0):
+    # DV2Plex: use Apple's GPU when there is no CUDA (set DV2PLEX_NO_MPS=1 to stay on the CPU)
+    if (device is None and not torch.cuda.is_available() and not os.environ.get('DV2PLEX_NO_MPS')
+            and getattr(torch.backends, 'mps', None) is not None and torch.backends.mps.is_available()):
+        device = torch.device('mps')
     # ---------------------- determine models according to model names ---------------------- #
     args.model_name = args.model_name.split('.pth')[0]
     if args.model_name == 'RealESRGAN_x4plus':  # x4 RRDBNet model
@@ -229,7 +263,8 @@ def inference_video(args, video_save_path, device=None, total_workers=1, worker_
         tile=args.tile,
         tile_pad=args.tile_pad,
         pre_pad=args.pre_pad,
-        half=not args.fp32,
+        # DV2Plex: half precision only on CUDA; on the CPU it fails or crawls
+        half=not args.fp32 and (torch.cuda.is_available() or (device is not None and device.type == 'mps')),
         device=device,
     )
 
@@ -253,7 +288,7 @@ def inference_video(args, video_save_path, device=None, total_workers=1, worker_
     audio = reader.get_audio()
     height, width = reader.get_resolution()
     fps = reader.get_fps()
-    writer = Writer(args, audio, height, width, video_save_path, fps)
+    writer = Writer(args, audio, height, width, video_save_path, fps, audio_codec=reader.audio_codec)
 
     pbar = tqdm(total=len(reader), unit='frame', desc='inference')
     while True:
@@ -272,7 +307,8 @@ def inference_video(args, video_save_path, device=None, total_workers=1, worker_
         else:
             writer.write_frame(output)
 
-        torch.cuda.synchronize(device)
+        if torch.cuda.is_available():  # DV2Plex: raises on machines without CUDA
+            torch.cuda.synchronize(device)
         pbar.update(1)
 
     reader.close()
@@ -291,7 +327,7 @@ def run(args):
 
     num_gpus = torch.cuda.device_count()
     num_process = num_gpus * args.num_process_per_gpu
-    if num_process == 1:
+    if num_process <= 1:  # DV2Plex: 0 without CUDA; run in this process on the CPU
         inference_video(args, video_save_path)
         return
 
@@ -360,6 +396,10 @@ def main():
     parser.add_argument('--fps', type=float, default=None, help='FPS of the output video')
     parser.add_argument('--ffmpeg_bin', type=str, default='ffmpeg', help='The path to ffmpeg')
     parser.add_argument('--extract_frame_first', action='store_true')
+    # DV2Plex additions
+    parser.add_argument('--deinterlace', type=str, default=None, help='ffmpeg filter applied when reading, e.g. bwdif')
+    parser.add_argument('--crf', type=int, default=18, help='x264 CRF of the output video')
+    parser.add_argument('--x264_preset', type=str, default='medium', help='x264 preset of the output video')
     parser.add_argument('--num_process_per_gpu', type=int, default=1)
 
     parser.add_argument(
