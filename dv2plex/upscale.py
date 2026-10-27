@@ -68,6 +68,13 @@ def realesrgan_available() -> Optional[str]:
     """None if the PyTorch Real-ESRGAN backend can run here, else the reason why not."""
     if getattr(sys, "frozen", False):
         return "Real-ESRGAN (PyTorch) is not part of the desktop app; use an ffmpeg profile."
+    import importlib.util
+
+    missing = [name for name in ("torch", "torchvision", "basicsr", "cv2", "ffmpeg")
+               if importlib.util.find_spec(name) is None]
+    if missing:
+        return ("Real-ESRGAN needs PyTorch and its helpers (missing: " + ", ".join(missing)
+                + "). Install them with: pip install -r requirements.txt")
     return None
 
 

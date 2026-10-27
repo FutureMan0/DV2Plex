@@ -158,7 +158,9 @@ class PreviewPipeline:
 
     def _commands(self, path: Path) -> List[tuple]:
         ffmpeg = str(self._ffmpeg_path())
-        video = ["-vf", f"yadif,fps={self.fps},scale=640:-1", "-vcodec", "mjpeg", "-f", "image2pipe"]
+        # Square pixels, so a 4:3 tape looks 4:3 in the browser (DV stores 720 x 576)
+        scale = "scale=trunc(iw*sar/2)*2:ih,scale=640:-2,setsar=1"
+        video = ["-vf", f"yadif,fps={self.fps},{scale}", "-vcodec", "mjpeg", "-f", "image2pipe"]
         return [
             # AVI or DV in a container
             ("avi", [ffmpeg, "-hide_banner", "-loglevel", "error", "-fflags", "+genpts+igndts",
