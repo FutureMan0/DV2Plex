@@ -148,6 +148,8 @@ class CaptureEngine:
         self.rewind_block_until: Optional[float] = None
         self.rewind_block_timer: Optional[threading.Timer] = None
         self.rewind_block_active: bool = False
+        # Set by stop_capture(): the monitor thread must not finalize a second time
+        self._stop_requested = False
         # Diagnose: letzter dvgrab-Start (für bessere Fehlermeldungen via API)
         self.last_dvgrab_command: Optional[list[str]] = None
         self.last_dvgrab_error: Optional[str] = None
@@ -1376,6 +1378,7 @@ class CaptureEngine:
                 return False
             
             # 3. Markiere als aktiv (vor Preview-Threads, sonst stoppen sie sofort)
+            self._stop_requested = False
             self.is_capturing = True
             self.process = self.recording_dvgrab_process  # Für Kompatibilität
             # 3b. Starte Laufzeit-Logger
@@ -1433,8 +1436,10 @@ class CaptureEngine:
 
     def stop_capture(self) -> bool:
         """Stoppt die Aufnahme (sendet SIGINT) und führt automatisch Merge durch"""
-        if not self.is_capturing:
+        if not self.is_capturing or self._stop_requested:
             return False
+        # From here on, stop_capture() finalizes; the monitor thread only watches
+        self._stop_requested = True
 
         try:
             self.log("Stoppe Aufnahme...")
@@ -1631,8 +1636,8 @@ class CaptureEngine:
             stderr_thread.join(timeout=1)
 
             # Nur als beendet markieren, wenn nicht manuell gestoppt
-            # (wenn stop_capture() aufgerufen wurde, wird is_capturing bereits False sein)
-            if self.is_capturing:
+            # (stop_capture() finalizes itself; doing it here too queued a second merge)
+            if self.is_capturing and not self._stop_requested:
                 self.is_capturing = False
                 self._stop_preview()
                 self._stop_all_processes()
