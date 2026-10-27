@@ -41,8 +41,10 @@ Desktop.ini
 desktop.ini
 *.lnk
 
-# Local settings. Note: settings.json is still tracked from an earlier commit,
-# so this rule has no effect until it is removed from the index.
+# Local settings. The app keeps them in settings.local.json. settings.json is
+# still tracked from an earlier commit, so its rule has no effect until it is
+# removed from the index (see the upgrade note in the README).
+dv2plex/config/settings.local.json
 dv2plex/config/settings.json
 
 # Third-party binaries and model weights

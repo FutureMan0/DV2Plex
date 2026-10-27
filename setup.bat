@@ -117,7 +117,7 @@ if not errorlevel 1 (
 
 echo.
 echo 11. Erzeuge Standardkonfiguration (falls noetig)...
-if not exist "dv2plex\config\settings.json" (
+if not exist "dv2plex\config\settings.local.json" (
     python -c "from dv2plex.config import Config; Config().save_config(); print('Default configuration created.')"
 ) else (
     echo Konfiguration bereits vorhanden.

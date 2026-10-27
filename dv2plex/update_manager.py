@@ -189,6 +189,7 @@ class UpdateManager:
 
     def _perform_update_sync(self) -> Dict[str, Any]:
         """Führt git pull und Service-Restart aus."""
+        self._reset_legacy_settings()
         pull_cmd = ["sudo", "git", "pull", "origin", self.branch]
         pull = self._run_cmd(pull_cmd, timeout=300)
 
@@ -213,6 +214,32 @@ class UpdateManager:
             "message": "Update erfolgreich: git pull + Service neu gestartet.",
             "stdout": pull.stdout.strip(),
         }
+
+    def _reset_legacy_settings(self) -> None:
+        """
+        Resets the formerly used dv2plex/config/settings.json to HEAD.
+
+        Local changes to it would make `git pull` fail as soon as upstream changes or removes
+        the file. Only done once the settings live in the untracked settings.local.json
+        (Config moves them there on start).
+        """
+        config_path = getattr(self.config, "config_path", None)
+        legacy_path = getattr(self.config, "legacy_config_path", None)
+        if not config_path or not legacy_path or not Path(config_path).is_file():
+            return
+        try:
+            rel = Path(legacy_path).resolve().relative_to(Path(self.repo_path).resolve()).as_posix()
+        except ValueError:
+            return
+        # Exit 1: differs from HEAD; 0: unchanged or no longer tracked
+        diff = self._run_cmd(["git", "diff", "--quiet", "HEAD", "--", rel])
+        if diff.returncode != 1:
+            return
+        reset = self._run_cmd(["sudo", "git", "checkout", "HEAD", "--", rel])
+        if reset.returncode == 0:
+            self.log(f"Reset {rel} to the repository version before pulling; settings stay in {Path(config_path).name}.")
+        else:
+            self.log(f"Could not reset {rel} before pulling: {reset.stderr.strip()}")
 
     def _ensure_service_enabled(self) -> Dict[str, Any]:
         """Aktiviert systemd-Service, falls nötig."""

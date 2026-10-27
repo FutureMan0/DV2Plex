@@ -92,6 +92,23 @@ The Real-ESRGAN weights are downloaded on first use into `dv2plex/bin/realesrgan
 Automatic detection usually works; if not, put the device into `device.firewire_device` in the
 settings.
 
+### Updating an installation
+
+Older versions kept their settings in `dv2plex/config/settings.json`, a file that is also part
+of the repository. On its first start, the current version copies that file to
+`dv2plex/config/settings.local.json` if you had changed it, and does not touch it after that.
+The built-in updater resets the old file to the repository version before each `git pull`, so a
+later release can remove it from the repository without breaking the pull.
+
+If you pull by hand and git stops because of local changes to `dv2plex/config/settings.json`,
+keep your settings first:
+
+```bash
+cp -n dv2plex/config/settings.json dv2plex/config/settings.local.json
+git checkout -- dv2plex/config/settings.json
+git pull
+```
+
 ## Usage
 
 ### Start
@@ -134,7 +151,8 @@ The web interface is in German. Its tabs, in order:
 
 ### Configuration
 
-Settings live in `dv2plex/config/settings.json` and can be changed in the **Einstellungen** tab.
+Settings live in `dv2plex/config/settings.local.json`, which is created on the first start and
+ignored by git, and can be changed in the **Einstellungen** tab.
 Missing keys fall back to the defaults in [`dv2plex/config.py`](dv2plex/config.py), and
 [`config/examples/example_configuration.json`](config/examples/example_configuration.json)
 shows a complete file.
@@ -181,8 +199,9 @@ Worth knowing before you run it:
 - **It needs `sudo` for dvgrab** unless it runs as root, and asks without a prompt (`sudo -n`).
   Either allow dvgrab without a password or start it with `./run.sh --no-gui`.
 - **The interface is German only.**
-- **Hardly any tests.** Only the update manager is tested
-  ([`dv2plex/test_update_manager.py`](dv2plex/test_update_manager.py)).
+- **No automated tests for capture, merge or upscaling.** They need a camera and real
+  footage. The tests in `dv2plex/test_*.py` cover the settings and the updater; see
+  [CONTRIBUTING.md](CONTRIBUTING.md#tests) for how to run them.
 
 ## Troubleshooting
 

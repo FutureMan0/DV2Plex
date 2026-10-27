@@ -2,11 +2,28 @@
 Konfigurations-Management für DV2Plex
 """
 
+import hashlib
 import json
 import os
 import shutil
 from pathlib import Path
 from typing import Dict, Any, Optional
+
+
+# Folder holding the settings (tests point it to a temporary folder)
+CONFIG_DIR = Path(__file__).parent.parent / "dv2plex" / "config"
+# Settings of this installation, not tracked by git (.gitignore)
+SETTINGS_FILE_NAME = "settings.local.json"
+# Former location. The file is still tracked by git and is read only once, to move it.
+LEGACY_SETTINGS_FILE_NAME = "settings.json"
+# Git blob id of the tracked settings.json, which holds example values from development.
+# A local file with exactly these bytes was never written by this installation.
+SHIPPED_LEGACY_SETTINGS_BLOB = "78c5b960c68a08ca6fc81e8a599b166158076cc1"
+
+
+def git_blob_id(data: bytes) -> str:
+    """Git blob id of a file content, as `git hash-object` prints it."""
+    return hashlib.sha1(b"blob %d\0" % len(data) + data).hexdigest()
 
 
 class Config:
@@ -20,11 +37,14 @@ class Config:
             config_path: Pfad zur Konfigurationsdatei. Wenn None, wird Standardpfad verwendet.
         """
         self.base_dir = Path(__file__).parent.parent
-        self.config_dir = self.base_dir / "dv2plex" / "config"
+        self.config_dir = CONFIG_DIR
         self.config_dir.mkdir(parents=True, exist_ok=True)
         
+        # Former settings.json; only read when no settings.local.json exists yet
+        self.legacy_config_path: Optional[Path] = None
         if config_path is None:
-            self.config_path = self.config_dir / "settings.json"
+            self.config_path = self.config_dir / SETTINGS_FILE_NAME
+            self.legacy_config_path = self.config_dir / LEGACY_SETTINGS_FILE_NAME
         else:
             self.config_path = Path(config_path)
         
@@ -164,22 +184,55 @@ class Config:
     
     def _load_config(self) -> Dict[str, Any]:
         """Lädt die Konfiguration aus der Datei oder erstellt Standard-Konfiguration"""
-        if self.config_path.exists():
+        source = self.config_path
+        if not source.exists():
+            # No settings.local.json yet: take over the former settings.json once
+            source = self._legacy_settings_to_take_over() or source
+        if source.exists():
             try:
-                with open(self.config_path, 'r', encoding='utf-8') as f:
+                with open(source, 'r', encoding='utf-8') as f:
                     config = json.load(f)
                 # Merge mit Defaults für fehlende Schlüssel
                 merged = self._merge_dicts(self.default_config, config)
                 # Migriere Windows-Pfade zu Linux-Pfaden
                 merged = self._migrate_windows_paths(merged)
-                return merged
             except Exception as e:
                 print(f"Fehler beim Laden der Konfiguration: {e}")
                 return self.default_config.copy()
+            if source != self.config_path and self._save_best_effort(merged):
+                print(f"Settings moved from {source} to {self.config_path}.")
+            return merged
         else:
             # Erstelle Standard-Konfiguration
             self.save_config(self.default_config)
             return self.default_config.copy()
+
+    def _legacy_settings_to_take_over(self) -> Optional[Path]:
+        """
+        Returns the former, tracked settings.json if it holds values of this installation.
+
+        If it is unchanged from the repository (also as a CRLF checkout on Windows), it only
+        holds example values, and the defaults apply instead.
+        """
+        legacy = self.legacy_config_path
+        if legacy is None or not legacy.is_file():
+            return None
+        try:
+            data = legacy.read_bytes()
+        except OSError:
+            return None
+        if git_blob_id(data.replace(b"\r\n", b"\n")) == SHIPPED_LEGACY_SETTINGS_BLOB:
+            return None
+        return legacy
+
+    def _save_best_effort(self, config: Dict[str, Any]) -> bool:
+        """Saves; without write access the configuration is kept in memory only."""
+        try:
+            self.save_config(config)
+            return True
+        except OSError as e:
+            print(f"Could not write settings to {self.config_path}: {e}")
+            return False
     
     def _migrate_windows_paths(self, config: Dict[str, Any]) -> Dict[str, Any]:
         """Migriert Windows-Pfade zu Linux-Standard-Pfaden"""
@@ -236,7 +289,7 @@ class Config:
         if migrated:
             config["paths"] = paths
             config["device"] = device
-            self.save_config(config)
+            self._save_best_effort(config)
         
         return config
     

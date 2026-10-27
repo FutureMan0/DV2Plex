@@ -283,11 +283,14 @@ refactor(config): Simplify configuration loading
 
 ## Tests
 
-Tests are currently still planned. If you add tests:
+The tests live next to the code in `dv2plex/test_*.py`. They need neither a camera nor the
+upscaling and cover dependencies, which `dv2plex/conftest.py` stubs out:
 
-- Unit tests for individual functions
-- Integration tests for workflows
-- Use `pytest` as test framework
+```bash
+uv run --with fastapi --with httpx --with pytest --with uvicorn pytest
+```
+
+New tests use `pytest`.
 
 ## Questions?
 

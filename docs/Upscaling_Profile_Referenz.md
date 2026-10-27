@@ -192,7 +192,7 @@ This table documents all available upscaling profiles with their parameters, use
 
 ---
 
-## Configuration in settings.json
+## Configuration in settings.local.json
 
 Example of a complete profile in the configuration file:
 

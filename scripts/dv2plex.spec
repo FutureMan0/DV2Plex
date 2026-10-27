@@ -42,9 +42,8 @@ a = Analysis(
     pathex=[str(project_root)],
     binaries=[],
     datas=[
-        # Konfigurationsdateien
-        (str(dv2plex_dir / "config" / "settings.json"), "dv2plex/config"),
-        
+        # No settings are bundled; the app creates settings.local.json on first start.
+
         # Logo
         (str(project_root / "dv2plex_logo.png"), "."),
         

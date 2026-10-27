@@ -296,7 +296,7 @@ fi
 # 10. Create default configuration if not present
 echo ""
 echo "10. Creating default configuration..."
-if [ ! -f dv2plex/config/settings.json ]; then
+if [ ! -f dv2plex/config/settings.local.json ]; then
     echo "Creating default configuration..."
     # Use venv if available
     if [ -d "venv" ] && [ -f "venv/bin/python" ]; then
@@ -329,7 +329,7 @@ config.save_config()
 print('Default configuration created.')
 "
     fi
-    echo "✓ Configuration created: dv2plex/config/settings.json"
+    echo "✓ Configuration created: dv2plex/config/settings.local.json"
 else
     echo "✓ Configuration already present"
 fi

@@ -20,7 +20,7 @@ dv2plex/
 │   ├── cover_generation.py    # Cover generation (Stable Diffusion)
 │   ├── download_manager.py   # Download manager for dependencies
 │   ├── config/                # Configuration files
-│   │   └── settings.json      # Standard configuration
+│   │   └── settings.local.json  # Settings of this installation (created on first start, not in git)
 │   └── bin/                   # External binaries and tools
 │       └── realesrgan/         # Real-ESRGAN repository (submodule)
 │
@@ -63,7 +63,7 @@ dv2plex/
 
 ### Configuration
 
-- **`dv2plex/config/settings.json`**: Main configuration file
+- **`dv2plex/config/settings.local.json`**: Main configuration file, created on first start and ignored by git
 - **`config/examples/Konfiguration_Beispiel.json`**: Example configuration
 
 ### Documentation
@@ -164,6 +164,6 @@ Required system-wide or locally:
 
 ### Extending Configuration
 
-1. Add new entries to `settings.json`
-2. Extend `config.py`
+1. Add new entries to the defaults in `config.py`
+2. Extend the getters in `config.py` if needed
 3. Update example in `config/examples/`
