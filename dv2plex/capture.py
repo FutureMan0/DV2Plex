@@ -6,18 +6,50 @@ from __future__ import annotations
 
 import logging
 import os
+import signal
 import subprocess
+import sys
 import threading
 import time
 import shutil
-from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional, Callable, IO
+from typing import Any, Callable, Dict, List, Optional
 from queue import Queue, Empty
 
-from .merge import MergeEngine
+from .media import popen_kwargs
+from .merge import MergeEngine, find_split_files
 
-from typing import Union
+
+def default_use_sudo() -> bool:
+    """dvgrab needs root for /dev/raw1394 on Linux unless udev rules allow the user."""
+    return sys.platform.startswith("linux") and hasattr(os, "geteuid") and os.geteuid() != 0
+
+
+def interrupt_process(process: subprocess.Popen, timeout: float) -> None:
+    """
+    Stops a process the way Ctrl+C does, so dvgrab closes its current file cleanly.
+    Windows has no SIGINT for child processes; there it is terminated.
+    """
+    if process.poll() is not None:
+        return
+    try:
+        if os.name == "posix":
+            process.send_signal(signal.SIGINT)
+        else:
+            process.terminate()
+        process.wait(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        process.terminate()
+        try:
+            process.wait(timeout=3)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait(timeout=2)
+    except (OSError, ValueError):
+        try:
+            process.kill()
+        except OSError:
+            pass
 
 
 # Datenklasse für Merge-Job
@@ -47,10 +79,22 @@ class CaptureEngine:
         log_callback: Optional[Callable[[str], None]] = None,
         state_callback: Optional[Callable[[str], None]] = None,
         notify_callback: Optional[Callable[[str], None]] = None,
+        dvgrab_cmd: Optional[List[str]] = None,
+        use_sudo: Optional[bool] = None,
+        merge_options: Optional[Callable[[], Dict[str, Any]]] = None,
+        merge_finished_callback: Optional[Callable[["MergeJob"], None]] = None,
+        rewind_seconds: int = 300,
     ):
         self.ffmpeg_path = ffmpeg_path
         self.device_path = device_path
         self.dvgrab_path = dvgrab_path
+        # Command that starts dvgrab; the demo puts a simulated dvgrab here
+        self.dvgrab_cmd: List[str] = list(dvgrab_cmd) if dvgrab_cmd else [dvgrab_path]
+        self.use_sudo = default_use_sudo() if use_sudo is None else bool(use_sudo)
+        # Settings for each merge (date overlay), read when the merge starts
+        self.merge_options = merge_options or (lambda: {})
+        # Called after each merge job, successful or not (automatic upscaling hooks in here)
+        self.merge_finished_callback = merge_finished_callback
         self.log_callback = log_callback
         self.process: Optional[subprocess.Popen] = None
         self.preview_process: Optional[subprocess.Popen] = None
@@ -99,7 +143,7 @@ class CaptureEngine:
         self.capture_start_time: Optional[float] = None
         self.capture_duration_thread: Optional[threading.Thread] = None
         self.capture_duration_stop: Optional[threading.Event] = None
-        self.rewind_notification_delay_seconds: int = 300  # 5 Minuten Puffer vor Benachrichtigung
+        self.rewind_notification_delay_seconds: int = int(rewind_seconds)  # Puffer vor Benachrichtigung
         # Rewind-Sperre nach Aufnahmen
         self.rewind_block_until: Optional[float] = None
         self.rewind_block_timer: Optional[threading.Timer] = None
@@ -151,10 +195,29 @@ class CaptureEngine:
                 
                 try:
                     self.log(f"Background-Merge: Starte {job.title} ({job.year})")
-                    
-                    # Führe Merge durch
+
+                    options = {}
+                    try:
+                        options = dict(self.merge_options() or {})
+                    except Exception as e:
+                        self.log(f"Merge settings could not be read, using defaults: {e}")
+                    last_sent = [0.0]
+
+                    def on_progress(fraction: float, job=job):
+                        job.progress = int(fraction * 100)
+                        # At most every 2 seconds, so the WebSocket is not flooded
+                        if time.time() - last_sent[0] >= 2 or job.progress >= 100:
+                            last_sent[0] = time.time()
+                            self._notify_merge_progress(job)
+
                     merge_engine = MergeEngine(self.ffmpeg_path, log_callback=self.log)
-                    merged_file = merge_engine.merge_splits(job.splits_dir, job.output_path)
+                    merged_file = merge_engine.merge_splits(
+                        job.splits_dir,
+                        job.output_path,
+                        timestamp_overlay=bool(options.get("timestamp_overlay", True)),
+                        overlay_seconds=float(options.get("timestamp_duration", 4) or 4),
+                        progress=on_progress,
+                    )
                     
                     if merged_file and merged_file.exists():
                         job.status = "completed"
@@ -184,6 +247,11 @@ class CaptureEngine:
                     self._notify_merge_progress(job)
                     self.current_merge_job = None
                     self.merge_queue.task_done()
+                    if self.merge_finished_callback:
+                        try:
+                            self.merge_finished_callback(job)
+                        except Exception as e:
+                            self.log(f"Merge-finished callback failed: {e}")
                 
             except Exception as e:
                 self.log(f"Merge-Worker Fehler: {e}")
@@ -238,10 +306,14 @@ class CaptureEngine:
         """Entfernt abgeschlossene Jobs aus der Liste"""
         self.merge_jobs = [j for j in self.merge_jobs if j.status in ("pending", "running")]
 
+    def _sudo_prefix(self) -> List[str]:
+        """["sudo", "-n"] when dvgrab has to run as root, else []."""
+        return ["sudo", "-n"] if self.use_sudo else []
+
     def _start_sudo_keepalive(self):
         """Hält sudo-Timestamp aktiv, damit dvgrab/Steuerung nicht die Rechte verliert."""
-        if os.geteuid() == 0:
-            return  # Bereits root, nichts zu tun
+        if not self.use_sudo:
+            return  # root, other platforms, or the demo: nothing to keep alive
         if shutil.which("sudo") is None:
             return
         if self.sudo_keepalive_thread and self.sudo_keepalive_thread.is_alive():
@@ -253,6 +325,7 @@ class CaptureEngine:
                 ["sudo", "-n", "-v"],
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
+                timeout=15,
             )
             if result.returncode != 0:
                 self.log("sudo Keepalive nicht möglich (kein sudo-Timestamp). Bitte Programm mit sudo starten.")
@@ -331,7 +404,7 @@ class CaptureEngine:
             
             # Methode 3: Versuche dvgrab mit -card 0 (Standard)
             # Wenn dvgrab verfügbar ist, versuche einfach Karte 0
-            if shutil.which(self.dvgrab_path):
+            if shutil.which(self.dvgrab_cmd[0]) or Path(self.dvgrab_cmd[0]).is_file():
                 self.log("FireWire-Gerät: Verwende Standard-Karte 0")
                 return "0"
             
@@ -382,26 +455,19 @@ class CaptureEngine:
         if self.interactive_dvgrab_process:
             return True  # Bereits gestartet
         
-        # Prüfe, ob wir root sind
-        is_root = os.geteuid() == 0
-        # Halte sudo aktiv, falls nicht root
+        # Halte sudo aktiv, falls nötig
         self._start_sudo_keepalive()
         
         try:
             # Baue dvgrab-Befehl: -i (interaktiv, nur Steuerung)
-            dvgrab_cmd = [
-                self.dvgrab_path,
-            ] + self._format_device_for_dvgrab(device) + [
+            dvgrab_cmd = list(self.dvgrab_cmd) + self._format_device_for_dvgrab(device) + [
                 "-i",  # Interaktiver Modus
             ]
             
-            # Wenn nicht root, versuche mit sudo
-            if not is_root:
-                # -n: niemals Passwort abfragen (systemd/Services haben kein TTY)
-                cmd = ["sudo", "-n"] + dvgrab_cmd
+            # -n: niemals Passwort abfragen (systemd/Services haben kein TTY)
+            cmd = self._sudo_prefix() + dvgrab_cmd
+            if self.use_sudo:
                 self.log("HINWEIS: dvgrab benötigt root-Rechte. Versuche mit sudo...")
-            else:
-                cmd = dvgrab_cmd
             
             self.log("Starte interaktiven dvgrab für Steuerung...")
             self.log(f"dvgrab-Befehl: {' '.join(cmd)}")
@@ -411,17 +477,26 @@ class CaptureEngine:
             # Starte dvgrab (stdin für interaktive Befehle)
             self.interactive_dvgrab_process = subprocess.Popen(
                 cmd,
-                stdout=subprocess.PIPE,
+                # Only stdin is used; unread output pipes would fill up and block dvgrab
+                stdout=subprocess.DEVNULL,
                 stderr=subprocess.PIPE,
                 stdin=subprocess.PIPE,
                 text=False,  # Binärmodus für stdin (Befehle als Bytes)
                 bufsize=0,
+                **popen_kwargs(),
             )
             
             # Warte kurz, damit der Prozess startet
             time.sleep(1)
             
             if self.interactive_dvgrab_process.poll() is None:
+                # Keep reading its status output; a full pipe would block dvgrab mid-rewind
+                threading.Thread(
+                    target=self._drain_stream,
+                    args=(self.interactive_dvgrab_process.stderr,),
+                    daemon=True,
+                    name="InteractiveDvgrabStderr",
+                ).start()
                 self.log("Interaktiver dvgrab gestartet (nur Steuerung)")
                 self.log("Verfügbare Befehle: a=rewind, p=play, k=pause, Esc=stop")
                 # Setze auch interactive_process für Kompatibilität
@@ -473,9 +548,6 @@ class CaptureEngine:
         if self.recording_dvgrab_process:
             return True  # Bereits gestartet
         
-        # Prüfe, ob wir root sind
-        is_root = os.geteuid() == 0
-        
         try:
             # Erstelle splits-Ordner
             splits_dir.mkdir(parents=True, exist_ok=True)
@@ -485,7 +557,7 @@ class CaptureEngine:
             # Wichtig: dvgrab leitet den Container aus der Dateiendung ab.
             # Ohne Endung kommt es zu "Unknown filename extension".
             output_prefix = str(splits_dir / "dvgrab.avi")
-            base_cmd = [self.dvgrab_path] + self._format_device_for_dvgrab(device)
+            base_cmd = list(self.dvgrab_cmd) + self._format_device_for_dvgrab(device)
             if use_rewind:
                 base_cmd.append("-rewind")  # Automatisches Rewind (optional)
             base_cmd += [
@@ -496,13 +568,10 @@ class CaptureEngine:
             ]
             dvgrab_cmd = base_cmd
             
-            # Wenn nicht root, versuche mit sudo
-            if not is_root:
-                # -n: niemals Passwort abfragen (systemd/Services haben kein TTY)
-                cmd = ["sudo", "-n"] + dvgrab_cmd
+            # -n: niemals Passwort abfragen (systemd/Services haben kein TTY)
+            cmd = self._sudo_prefix() + dvgrab_cmd
+            if self.use_sudo:
                 self.log("HINWEIS: dvgrab benötigt root-Rechte. Versuche mit sudo...")
-            else:
-                cmd = dvgrab_cmd
             
             self.log("Starte non-interaktiven dvgrab für Aufnahme...")
             self.log(f"dvgrab-Befehl: {' '.join(cmd)}")
@@ -513,10 +582,12 @@ class CaptureEngine:
             # Starte dvgrab (non-interaktiv, schreibt direkt Dateien)
             self.recording_dvgrab_process = subprocess.Popen(
                 cmd,
-                stdout=subprocess.PIPE,
+                # stderr is read by _read_stderr; stdout is not, so it must not be a pipe
+                stdout=subprocess.DEVNULL,
                 stderr=subprocess.PIPE,
                 text=False,
                 bufsize=0,
+                **popen_kwargs(),
             )
             
             # Warte kurz, damit der Prozess startet
@@ -591,6 +662,7 @@ class CaptureEngine:
                     stderr=subprocess.DEVNULL,  # verhindert Blockieren
                     text=False,
                     bufsize=0,
+                    **popen_kwargs(),
                 )
                 time.sleep(0.3)
                 poll = proc.poll()
@@ -1036,6 +1108,15 @@ class CaptureEngine:
 
     # Recording-ffmpeg wurde entfernt - dvgrab schreibt jetzt direkt Dateien mit autosplit
     
+    @staticmethod
+    def _drain_stream(stream) -> None:
+        """Reads a child's output pipe until it closes."""
+        try:
+            while stream and stream.read(4096):
+                pass
+        except (OSError, ValueError):
+            pass
+
     def _send_interactive_command(self, command: str) -> bool:
         """
         Sendet einen Befehl an dvgrab im interaktiven Modus (nur für Steuerung)
@@ -1115,26 +1196,12 @@ class CaptureEngine:
                 pass
             self.preview_process = None
         
-        # Stoppe recording dvgrab (non-interaktiv) - sende SIGINT
+        # Stoppe recording dvgrab (non-interaktiv) - wie Strg+C
         if self.recording_dvgrab_process:
             try:
-                import signal
-                # Sende SIGINT (Strg+C)
-                self.recording_dvgrab_process.send_signal(signal.SIGINT)
-                self.recording_dvgrab_process.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                # Falls SIGINT nicht funktioniert, terminate
-                try:
-                    self.recording_dvgrab_process.terminate()
-                    self.recording_dvgrab_process.wait(timeout=2)
-                except:
-                    try:
-                        self.recording_dvgrab_process.kill()
-                        self.recording_dvgrab_process.wait(timeout=1)
-                    except:
-                        pass
-            except Exception:
-                pass
+                interrupt_process(self.recording_dvgrab_process, timeout=5)
+            except Exception as e:
+                self.log(f"dvgrab could not be stopped: {e}")
             self.recording_dvgrab_process = None
         
         # Stoppe interaktiven dvgrab (nur Steuerung)
@@ -1375,27 +1442,14 @@ class CaptureEngine:
             # Stoppe Preview-Queue
             self._stop_preview()
 
-            # Sende SIGINT an recording dvgrab (Strg+C)
+            # Stoppe recording dvgrab wie Strg+C, damit die letzte Datei sauber endet
             if self.recording_dvgrab_process and self.recording_dvgrab_process.poll() is None:
                 self.log("Sende SIGINT (Strg+C) an dvgrab...")
                 try:
-                    import signal
-                    self.recording_dvgrab_process.send_signal(signal.SIGINT)
-                    # Warte auf Beendigung
-                    self.recording_dvgrab_process.wait(timeout=10)
+                    interrupt_process(self.recording_dvgrab_process, timeout=10)
                     self.log("dvgrab wurde beendet")
-                except subprocess.TimeoutExpired:
-                    self.log("WARNUNG: dvgrab reagiert nicht auf SIGINT, verwende terminate...")
-                    try:
-                        self.recording_dvgrab_process.terminate()
-                        self.recording_dvgrab_process.wait(timeout=3)
-                    except:
-                        try:
-                            self.recording_dvgrab_process.kill()
-                        except:
-                            pass
                 except Exception as e:
-                    self.log(f"Fehler beim Senden von SIGINT: {e}")
+                    self.log(f"Fehler beim Stoppen von dvgrab: {e}")
 
             # Stoppe alle Prozesse
             self._stop_all_processes()
@@ -1410,7 +1464,7 @@ class CaptureEngine:
                 max_wait = 10  # Maximal 10 Sekunden warten
                 waited = 0
                 while waited < max_wait:
-                    files = list(self.splits_dir.glob("dvgrab-*.avi"))
+                    files = find_split_files(self.splits_dir)
                     if files:
                         # Prüfe ob alle Dateien stabil sind
                         all_stable = True
@@ -1455,7 +1509,6 @@ class CaptureEngine:
 
             # sudo-Keepalive beenden (falls gestartet)
             self._stop_sudo_keepalive()
-            self._notify_state("stopped")
 
             # State-Callback
             self._notify_state("stopped")
@@ -1618,7 +1671,7 @@ class CaptureEngine:
                 max_wait = 10  # Maximal 10 Sekunden warten
                 waited = 0
                 while waited < max_wait:
-                    files = list(self.splits_dir.glob("dvgrab-*.avi")) + list(self.splits_dir.glob("dvgrab*.avi"))
+                    files = find_split_files(self.splits_dir)
                     if files:
                         # Prüfe ob alle Dateien stabil sind
                         all_stable = True
@@ -1783,11 +1836,9 @@ class CaptureEngine:
 
                 proc = self.interactive_dvgrab_process or self.interactive_process
                 if proc and proc.poll() is None:
-                    import signal
                     self.log("Rewind nach Merge: Sende SIGINT (Ctrl+C) an interaktiven dvgrab...")
                     try:
-                        proc.send_signal(signal.SIGINT)
-                        proc.wait(timeout=5)
+                        interrupt_process(proc, timeout=5)
                     except Exception as e:
                         self.log(f"Rewind nach Merge: Fehler bei SIGINT: {e}")
                 self.interactive_dvgrab_process = None

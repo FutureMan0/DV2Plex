@@ -5,13 +5,33 @@ Konfigurations-Management für DV2Plex
 import hashlib
 import json
 import os
+import re
+import shlex
 import shutil
+import sys
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Dict, Any, List, Optional
+
+# DV2PLEX_HOME moves settings, logs and the default import and library folders into one
+# folder, for the demo and for installations that keep data outside the program folder.
+HOME_ENV = "DV2PLEX_HOME"
+PACKAGE_DIR = Path(__file__).resolve().parent
+
+
+def app_home() -> Optional[Path]:
+    """The DV2PLEX_HOME folder, if set."""
+    value = os.environ.get(HOME_ENV, "").strip()
+    return Path(value).expanduser().resolve() if value else None
+
+
+def _default_config_dir() -> Path:
+    home = app_home()
+    return home / "config" if home else PACKAGE_DIR / "config"
 
 
 # Folder holding the settings (tests point it to a temporary folder)
-CONFIG_DIR = Path(__file__).parent.parent / "dv2plex" / "config"
+CONFIG_DIR = _default_config_dir()
+_DRIVE_PATH = re.compile(r"^[A-Za-z]:[\\/]")
 # Settings of this installation, not tracked by git (.gitignore)
 SETTINGS_FILE_NAME = "settings.local.json"
 # Former location. The file is still tracked by git and is read only once, to move it.
@@ -62,20 +82,20 @@ class Config:
         """Erstellt die Standard-Konfiguration"""
         base_dir = Path(__file__).parent.parent
         dv2plex_dir = base_dir / "dv2plex"
-        
-        # Linux-Pfade (ohne .exe)
-        ffmpeg_default = shutil.which("ffmpeg") or str(dv2plex_dir / "bin" / "ffmpeg")
-        
-        # Linux Standard-Pfade
+        home = app_home()
         home_dir = Path.home()
-        
+        plex_default = home / "PlexMovies" if home else home_dir / "Plex" / "Movies"
+        import_default = home / "DV_Import" if home else dv2plex_dir / "DV_Import"
+        logs_default = home / "logs" if home else dv2plex_dir / "logs"
+
         return {
             "version": "1.0",
             "paths": {
-                "plex_movies_root": str(home_dir / "Plex" / "Movies"),
-                "dv_import_root": str(dv2plex_dir / "DV_Import"),
+                "plex_movies_root": str(plex_default),
+                "dv_import_root": str(import_default),
                 "ffmpeg_path": "",  # Leer = System-PATH verwenden
-                "realesrgan_path": ""  # Leer = System-PATH verwenden
+                "realesrgan_path": "",  # Leer = System-PATH verwenden
+                "dvgrab_path": ""  # Leer = dvgrab aus dem PATH
             },
             "device": {
                 "firewire_device": ""  # Leer = Auto-Detection
@@ -88,6 +108,7 @@ class Config:
                         "scale_factor": 4,
                         "model": "RealESRGAN_x4plus",
                         "face_enhance": False,
+                        "deinterlace": True,
                         "tile_size": 400,
                         "tile_pad": 10,
                         "encoder": "libx264",
@@ -102,6 +123,7 @@ class Config:
                         "scale_factor": 4,
                         "model": "RealESRGAN_x4plus",
                         "face_enhance": False,
+                        "deinterlace": True,
                         "tile_size": 400,
                         "tile_pad": 10,
                         "encoder": "libx264",
@@ -116,6 +138,7 @@ class Config:
                         "scale_factor": 4,
                         "model": "RealESRGAN_x4plus",
                         "face_enhance": False,
+                        "deinterlace": True,
                         "tile_size": 400,
                         "tile_pad": 10,
                         "encoder": "libx264",
@@ -130,6 +153,7 @@ class Config:
                         "scale_factor": 2,
                         "model": "RealESRGAN_x4plus",
                         "face_enhance": False,
+                        "deinterlace": True,
                         "tile_size": 400,
                         "tile_pad": 10,
                         "encoder": "libx264",
@@ -139,9 +163,21 @@ class Config:
                             "tune": "film"
                         }
                     },
+                    "ffmpeg_hd": {
+                        "backend": "ffmpeg",
+                        "scale_factor": 2,
+                        "deinterlace": True,
+                        "encoder": "libx264",
+                        "encoder_options": {
+                            "crf": 18,
+                            "preset": "veryfast",
+                            "tune": "film"
+                        }
+                    },
                     "ffmpeg_fast": {
                         "backend": "ffmpeg",
                         "scale_factor": 4,
+                        "deinterlace": True,
                         "encoder": "libx264",
                         "encoder_options": {
                             "crf": 20,
@@ -158,17 +194,20 @@ class Config:
                 "auto_postprocess": False,
                 "auto_rewind_play": True,
                 "timestamp_overlay": True,
-                "timestamp_duration": 4
+                "timestamp_duration": 4,
+                "use_sudo": "auto",  # auto = sudo for dvgrab on Linux unless running as root
+                "rewind_seconds": 300  # Rewind after a capture blocks new captures this long
             },
             "ui": {
                 "window_width": 1280,
                 "window_height": 720,
                 "preview_fps": 10,
-                "show_cover_tab": True
+                "show_cover_tab": True,
+                "language": ""  # Empty = the browser's language (English or German)
             },
             "logging": {
                 "level": "INFO",
-                "log_directory": str(dv2plex_dir / "logs"),
+                "log_directory": str(logs_default),
                 "max_log_files": 10
             },
             "update": {
@@ -180,7 +219,9 @@ class Config:
                 "skip_during_merge": True
             },
             "server": {
-                "api_token": ""  # Created on first start; DV2PLEX_TOKEN overrides it
+                "api_token": "",  # Created on first start; DV2PLEX_TOKEN overrides it
+                "host": "",  # Bind host in server mode; empty = 127.0.0.1, --host overrides it
+                "allowed_hosts": []  # Extra host names on 127.0.0.1, e.g. behind a reverse proxy
             },
             "notifications": {
                 "ntfy_topic": "",  # Empty = no push notifications
@@ -192,7 +233,8 @@ class Config:
                 "strength": 0.6,
                 "guidance_scale": 8.0,
                 "output_size": "1000x1500",
-                "num_inference_steps": 50
+                "num_inference_steps": 50,
+                "poster_engine": "auto"  # auto | full | simple
             }
         }
     
@@ -261,9 +303,12 @@ class Config:
         paths = config.get("paths", {})
         migrated = False
         
+        def is_windows_path(value: str) -> bool:
+            return bool(value) and (bool(_DRIVE_PATH.match(value)) or ".exe" in value.lower())
+
         # Plex Movies Root: Wenn Windows-Pfad, auf Linux-Standard setzen
         plex_root = paths.get("plex_movies_root", "")
-        if plex_root and ("C:\\" in plex_root or "C:/" in plex_root):
+        if is_windows_path(plex_root):
             paths["plex_movies_root"] = str(home_dir / "Plex" / "Movies")
             migrated = True
         elif plex_root and plex_root.startswith("~"):
@@ -273,19 +318,19 @@ class Config:
         
         # DV Import Root: Wenn Windows-Pfad, auf Linux-Standard setzen
         dv_root = paths.get("dv_import_root", "")
-        if dv_root and ("C:\\" in dv_root or "C:/" in dv_root):
+        if is_windows_path(dv_root):
             paths["dv_import_root"] = str(self.base_dir / "dv2plex" / "DV_Import")
             migrated = True
         
         # ffmpeg Path: Wenn Windows-Pfad oder .exe, auf leer setzen (System-PATH)
         ffmpeg_path = paths.get("ffmpeg_path", "")
-        if ffmpeg_path and (".exe" in ffmpeg_path or "C:\\" in ffmpeg_path or "C:/" in ffmpeg_path):
+        if is_windows_path(ffmpeg_path):
             paths["ffmpeg_path"] = ""
             migrated = True
         
         # RealESRGAN Path: Wenn Windows-Pfad, auf leer setzen (System-PATH)
         realesrgan_path = paths.get("realesrgan_path", "")
-        if realesrgan_path and ("C:\\" in realesrgan_path or "C:/" in realesrgan_path):
+        if is_windows_path(realesrgan_path):
             paths["realesrgan_path"] = ""
             migrated = True
         
@@ -383,7 +428,6 @@ class Config:
             # Dann lieber auto-detect (PATH/bundled) statt einen nicht existierenden Pfad zurückzugeben.
 
         # 1) System-PATH
-        import shutil
         ffmpeg_system = shutil.which("ffmpeg")
         if ffmpeg_system:
             return Path(ffmpeg_system)
@@ -402,7 +446,6 @@ class Config:
         if path and path.strip():
             return Path(path)
         # Leer = Suche im System-PATH
-        import shutil
         realesrgan_system = shutil.which("inference_realesrgan_video.py")
         if realesrgan_system:
             return Path(realesrgan_system)
@@ -466,6 +509,33 @@ class Config:
         profiles = self.get("upscaling.profiles", {})
         return profiles.get(profile_name, {})
     
+    def get_dvgrab_command(self) -> List[str]:
+        """
+        Command that starts dvgrab: paths.dvgrab_path (a path, or a command line such as
+        "python -m dv2plex.fake_dvgrab" for the demo), else dvgrab from PATH.
+        """
+        value = self.get("paths.dvgrab_path", "")
+        if isinstance(value, list) and value:
+            return [str(v) for v in value]
+        text = str(value or "").strip()
+        if not text:
+            return ["dvgrab"]
+        if Path(text).expanduser().is_file():
+            return [str(Path(text).expanduser())]
+        return shlex.split(text, posix=os.name == "posix")
+
+    def get_use_sudo(self) -> Optional[bool]:
+        """capture.use_sudo: True/False, or None for automatic (Linux and not root)."""
+        value = self.get("capture.use_sudo", "auto")
+        if isinstance(value, bool):
+            return value
+        text = str(value).strip().lower()
+        if text in ("true", "yes", "1"):
+            return True
+        if text in ("false", "no", "0"):
+            return False
+        return None
+
     def get_log_directory(self) -> Path:
         """Gibt das Log-Verzeichnis zurück"""
         log_dir = self.get("logging.log_directory")
