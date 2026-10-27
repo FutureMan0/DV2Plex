@@ -189,3 +189,37 @@ def test_update_status_explains_a_missing_checkout(tmp_path):
 
     assert status.ok is False
     assert "releases" in status.error
+
+
+def test_slow_work_does_not_block_other_requests(api, monkeypatch):
+    """Frame extraction runs ffmpeg for seconds; the page must keep getting status meanwhile."""
+    import time as _time
+
+    import httpx
+
+    client, tmp_path = api
+    video = tmp_path / "DV_Import" / "Film (2003)" / "HighRes" / "Film (2003)_4k.mp4"
+    video.parent.mkdir(parents=True)
+    video.write_bytes(b"x")
+
+    def slow_extract(path, count=4):
+        _time.sleep(1.5)
+        return False, [], "nothing"
+
+    monkeypatch.setattr(web_app.cover_service, "extract_frames", slow_extract)
+
+    async def scenario():
+        transport = httpx.ASGITransport(app=web_app.app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://127.0.0.1:5000") as http:
+            started = _time.perf_counter()
+            slow = asyncio.create_task(http.post("/api/cover/extract", json={"video_path": str(video)}))
+            await asyncio.sleep(0.2)
+            status = await http.get("/api/status")
+            waited = _time.perf_counter() - started  # since the slow request began
+            await slow
+            return status.status_code, waited
+
+    code, waited = asyncio.run(scenario())
+
+    assert code == 200
+    assert waited < 1.0, f"/api/status waited {waited:.2f} s for the frame extraction"

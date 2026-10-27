@@ -42,9 +42,19 @@ EXPECTED_ROUTES = {
 }
 
 
+def _flatten(routes):
+    """Routes of the app and of included routers (FastAPI wraps those in newer versions)."""
+    for route in routes:
+        inner = getattr(route, "original_router", None) or getattr(route, "routes", None)
+        if inner is not None and not hasattr(route, "path"):
+            yield from _flatten(getattr(inner, "routes", inner))
+        else:
+            yield route
+
+
 def _routes():
     found = set()
-    for route in web_app.app.routes:
+    for route in _flatten(web_app.app.routes):
         if not (route.path.startswith("/api") or route.path in ("/", "/ws")):
             continue
         methods = getattr(route, "methods", None) or {"WS"}
