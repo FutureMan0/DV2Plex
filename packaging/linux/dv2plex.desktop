@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=DV2Plex
+GenericName=MiniDV capture
+Comment=MiniDV tapes to a Plex library
+Exec=@INSTALL_DIR@/DV2Plex/DV2Plex
+Icon=@INSTALL_DIR@/dv2plex.png
+Terminal=false
+Categories=AudioVideo;Video;Recorder;
+StartupWMClass=DV2Plex
