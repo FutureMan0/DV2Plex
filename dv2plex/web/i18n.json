@@ -293,7 +293,12 @@
     "wizard.next": "Next",
     "wizard.finish": "Start",
     "wizard.saved": "All set.",
-    "foot.report": "Report a problem"
+    "foot.report": "Report a problem",
+    "settings.check_releases": "Look for a new version once a day (asks github.com)",
+    "settings.release_download": "Download the new version",
+    "release.off": "Version {current}. The check for new versions is off.",
+    "release.newer": "DV2Plex {latest} is available (installed: {current}).",
+    "release.current": "Version {current} is the newest."
   },
   "de": {
     "a11y.skip": "Zum Inhalt springen",
@@ -589,6 +594,11 @@
     "wizard.next": "Weiter",
     "wizard.finish": "Los geht's",
     "wizard.saved": "Alles eingerichtet.",
-    "foot.report": "Problem melden"
+    "foot.report": "Problem melden",
+    "settings.check_releases": "Einmal am Tag nach einer neuen Version sehen (fragt github.com)",
+    "settings.release_download": "Neue Version herunterladen",
+    "release.off": "Version {current}. Die Suche nach neuen Versionen ist aus.",
+    "release.newer": "DV2Plex {latest} ist verfügbar (installiert: {current}).",
+    "release.current": "Version {current} ist die neueste."
   }
 }

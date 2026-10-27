@@ -65,4 +65,7 @@ files = [
     "dv2plex/demo.py",
     "dv2plex/fake_dvgrab.py",
     "dv2plex/log_setup.py",
+    "dv2plex/release_check.py",
+    "dv2plex/instance.py",
+    "dv2plex/desktop_app.py",
 ]

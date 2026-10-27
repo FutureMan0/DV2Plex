@@ -8,6 +8,7 @@ import os
 import re
 import shlex
 import shutil
+import sys
 from pathlib import Path
 from typing import Dict, Any, List, Optional
 
@@ -23,9 +24,32 @@ def app_home() -> Optional[Path]:
     return Path(value).expanduser().resolve() if value else None
 
 
+def is_frozen() -> bool:
+    """True in the packaged desktop app (PyInstaller)."""
+    return bool(getattr(sys, "frozen", False))
+
+
+def user_config_dir() -> Path:
+    """Where the packaged app keeps settings and logs: its folder is read-only."""
+    if sys.platform == "win32":
+        return Path(os.environ.get("APPDATA") or Path.home() / "AppData" / "Roaming") / "DV2Plex"
+    if sys.platform == "darwin":
+        return Path.home() / "Library" / "Application Support" / "DV2Plex"
+    return Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config") / "dv2plex"
+
+
+def user_videos_dir() -> Path:
+    """The user's video folder (Movies on macOS)."""
+    return Path.home() / ("Movies" if sys.platform == "darwin" else "Videos")
+
+
 def _default_config_dir() -> Path:
     home = app_home()
-    return home / "config" if home else PACKAGE_DIR / "config"
+    if home:
+        return home / "config"
+    if is_frozen():
+        return user_config_dir()
+    return PACKAGE_DIR / "config"
 
 
 # Folder holding the settings (tests point it to a temporary folder)
@@ -84,8 +108,12 @@ class Config:
         home = app_home()
         home_dir = Path.home()
         plex_default = home / "PlexMovies" if home else home_dir / "Plex" / "Movies"
-        import_default = home / "DV_Import" if home else dv2plex_dir / "DV_Import"
-        logs_default = home / "logs" if home else dv2plex_dir / "logs"
+        if home:
+            import_default, logs_default = home / "DV_Import", home / "logs"
+        elif is_frozen():
+            import_default, logs_default = user_videos_dir() / "DV2Plex", user_config_dir() / "logs"
+        else:
+            import_default, logs_default = dv2plex_dir / "DV_Import", dv2plex_dir / "logs"
 
         return {
             "version": "1.0",
@@ -199,7 +227,7 @@ class Config:
             },
             "ui": {
                 "window_width": 1280,
-                "window_height": 720,
+                "window_height": 860,
                 "preview_fps": 10,
                 "show_cover_tab": True,
                 "language": "",  # Empty = the browser's language (English or German)
@@ -216,7 +244,9 @@ class Config:
                 "branch": "master",
                 "service_name": "dv2plex",
                 "skip_during_capture": True,
-                "skip_during_merge": True
+                "skip_during_merge": True,
+                # The desktop app looks for a newer release on GitHub (once a day, no auto-install)
+                "check_releases": is_frozen()
             },
             "server": {
                 "api_token": "",  # Created on first start; DV2PLEX_TOKEN overrides it
@@ -430,19 +460,28 @@ class Config:
             # Windows: Werte wie "\usr\bin\ffmpeg" (oder "/usr/bin/ffmpeg") sind hier meist ungültig.
             # Dann lieber auto-detect (PATH/bundled) statt einen nicht existierenden Pfad zurückzugeben.
 
+        bundled = next((c for c in self._bundled_ffmpeg_candidates() if c.is_file()), None)
+        # The desktop app ships a full ffmpeg (with drawtext); prefer it to whatever is on PATH
+        if bundled and is_frozen():
+            return bundled
+
         # 1) System-PATH
         ffmpeg_system = shutil.which("ffmpeg")
         if ffmpeg_system:
             return Path(ffmpeg_system)
 
-        # 2) Bundled Windows-ffmpeg (Repo liefert dv2plex/bin/ffmpeg/bin/ffmpeg.exe mit)
-        bundled = self.base_dir / "dv2plex" / "bin" / "ffmpeg" / "bin" / "ffmpeg.exe"
-        if bundled.exists():
+        # 2) Mitgeliefertes ffmpeg (dv2plex/bin/ffmpeg/bin/)
+        if bundled:
             return bundled
 
         # 3) Fallback
         return Path("ffmpeg")  # Verwende System-PATH (kann später fehlschlagen, aber sauberer Default)
     
+    @staticmethod
+    def _bundled_ffmpeg_candidates() -> List[Path]:
+        folder = PACKAGE_DIR / "bin" / "ffmpeg" / "bin"
+        return [folder / "ffmpeg.exe", folder / "ffmpeg"]
+
     def get_realesrgan_path(self) -> Path:
         """Gibt den Pfad zu inference_realesrgan_video.py zurück"""
         path = self.get("paths.realesrgan_path", "")

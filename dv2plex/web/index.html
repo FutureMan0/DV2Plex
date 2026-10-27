@@ -401,11 +401,21 @@
 
                 <div class="card" id="updates-card">
                     <h2 data-i18n="settings.updates">Updates</h2>
-                    <p class="status" id="update-status" role="status"></p>
-                    <label class="check"><input type="checkbox" id="settings-update-enabled"><span data-i18n="settings.update_enabled">Update automatically (git installations; checks every hour)</span></label>
-                    <div class="actions">
-                        <button type="button" class="btn" id="update-refresh-btn"><svg aria-hidden="true"><use href="#i-refresh"/></svg><span data-i18n="settings.update_check">Check now</span></button>
-                        <button type="button" class="btn" id="update-run-btn" data-i18n="settings.update_run">Update now</button>
+                    <div id="git-updates">
+                        <p class="status" id="update-status" role="status"></p>
+                        <label class="check"><input type="checkbox" id="settings-update-enabled"><span data-i18n="settings.update_enabled">Update automatically (git installations; checks every hour)</span></label>
+                        <div class="actions">
+                            <button type="button" class="btn" id="update-refresh-btn"><svg aria-hidden="true"><use href="#i-refresh"/></svg><span data-i18n="settings.update_check">Check now</span></button>
+                            <button type="button" class="btn" id="update-run-btn" data-i18n="settings.update_run">Update now</button>
+                        </div>
+                    </div>
+                    <div id="release-updates" hidden>
+                        <p class="status" id="release-status" role="status"></p>
+                        <label class="check"><input type="checkbox" id="settings-check-releases"><span data-i18n="settings.check_releases">Look for a new version once a day (asks github.com)</span></label>
+                        <div class="actions">
+                            <button type="button" class="btn" id="release-refresh-btn"><svg aria-hidden="true"><use href="#i-refresh"/></svg><span data-i18n="settings.update_check">Check now</span></button>
+                            <a class="btn primary" id="release-link" href="https://github.com/FutureMan0/DV2Plex/releases" target="_blank" rel="noopener" hidden data-i18n="settings.release_download">Download the new version</a>
+                        </div>
                     </div>
                 </div>
 

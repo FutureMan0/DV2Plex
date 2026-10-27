@@ -55,6 +55,8 @@ def _on_signal(signum, frame):  # noqa: ARG001
 
 def _say(message: str) -> None:
     """dvgrab reports on stderr; DV2Plex reads it from there."""
+    if sys.stderr is None:  # a windowed app started without a console
+        return
     sys.stderr.write(message + "\n")
     sys.stderr.flush()
 

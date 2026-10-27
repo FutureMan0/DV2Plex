@@ -136,6 +136,7 @@ def get_settings():
         "update_interval_minutes": state.config.get("update.interval_minutes", 60),
         "default_profile": state.config.get("upscaling.default_profile", "realesrgan_2x"),
         "setup_done": bool(state.config.get("ui.setup_done", True)),
+        "check_releases": bool(state.config.get("update.check_releases", False)),
         "firewire_device": state.config.get("device.firewire_device", "") or "",
     }
 
@@ -155,6 +156,7 @@ class SettingsUpdate(BaseModel):
     update_interval_minutes: Optional[int] = None
     default_profile: Optional[str] = None
     setup_done: Optional[bool] = None
+    check_releases: Optional[bool] = None
 
 
 @router.post("/api/settings")
@@ -178,6 +180,8 @@ def update_settings(update: SettingsUpdate):
         state.config.set("upscaling.default_profile", settings["default_profile"])
     if "setup_done" in settings:
         state.config.set("ui.setup_done", settings["setup_done"])
+    if "check_releases" in settings:
+        state.config.set("update.check_releases", settings["check_releases"])
     if "plex_movies_root" in settings:
         state.config.set("paths.plex_movies_root", settings["plex_movies_root"])
     if "dv_import_root" in settings:
@@ -351,3 +355,14 @@ def clear_logs():
     return {"status": "ok"}
 
 
+
+
+@router.get("/api/update/release")
+def get_release_status(refresh: bool = False):
+    """Newest release on GitHub (the desktop app updates from there); only asks GitHub when switched on."""
+    from dv2plex import release_check
+
+    if not state.config.get("update.check_releases", False) and not refresh:
+        return {"enabled": False, "current": __version__, "latest": None, "newer": False,
+                "url": release_check.RELEASES_PAGE, "error": None}
+    return {"enabled": True, **release_check.check(__version__, refresh=refresh)}

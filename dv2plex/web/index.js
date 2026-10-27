@@ -270,8 +270,14 @@ function activateTab(name, focus = false) {
         panel.hidden = !active;
     }
     if (focus) $(`tab-${name}`).focus();
-    // On narrow screens the tab strip scrolls; keep the active tab in sight
-    $(`tab-${name}`).scrollIntoView({block: 'nearest', inline: 'nearest'});
+    // On narrow screens the tab strip scrolls; keep the active tab in sight (only sideways:
+    // scrollIntoView also scrolls the page in WebKit)
+    const button = $(`tab-${name}`);
+    const strip = button.parentElement;
+    const left = button.offsetLeft - strip.offsetLeft;
+    if (left < strip.scrollLeft || left + button.offsetWidth > strip.scrollLeft + strip.clientWidth) {
+        strip.scrollLeft = Math.max(0, left - 16);
+    }
     history.replaceState(null, '', `${window.location.pathname}${window.location.search}#${name}`);
     loadTab(name);
 }
@@ -408,6 +414,9 @@ async function loadInfo() {
     $('capture-unsupported').hidden = !unsupported;
     for (const id of ['capture-start-btn', 'cam-rewind', 'cam-play', 'cam-pause']) $(id).disabled = unsupported;
     document.querySelectorAll('.posix-only').forEach(el => { el.hidden = info.platform === 'win32'; });
+    // The desktop app updates from GitHub Releases, a git checkout with git
+    $('git-updates').hidden = info.frozen;
+    $('release-updates').hidden = !info.frozen;
     renderSystemFacts();
 }
 
@@ -1179,6 +1188,7 @@ const SETTING_CHECKS = {
     'settings-auto-export': 'auto_export',
     'settings-show-cover': 'show_cover_tab',
     'settings-update-enabled': 'update_enabled',
+    'settings-check-releases': 'check_releases',
 };
 
 async function loadSettings(force = false) {
@@ -1190,7 +1200,8 @@ async function loadSettings(force = false) {
         return;
     }
     fillSettings();
-    loadUpdateStatus();
+    if (state.info && state.info.frozen) loadReleaseStatus();
+    else loadUpdateStatus();
 }
 
 function fillSettings() {
@@ -1296,6 +1307,27 @@ async function loadUpdateStatus(refresh = false) {
 }
 
 $('update-refresh-btn').addEventListener('click', () => loadUpdateStatus(true));
+
+async function loadReleaseStatus(refresh = false, quiet = false) {
+    if (!quiet) setStatus('release-status', t('update.checking'), 'busy');
+    let data;
+    try {
+        data = await api(`/api/update/release${refresh ? '?refresh=true' : ''}`);
+    } catch (e) {
+        if (!quiet) setStatus('release-status', e.message, 'bad');
+        return null;
+    }
+    const link = $('release-link');
+    link.hidden = !data.newer;
+    if (data.url) link.href = data.url;
+    if (!data.enabled) setStatus('release-status', t('release.off', {current: data.current}));
+    else if (data.error) setStatus('release-status', data.error, 'bad');
+    else if (data.newer) setStatus('release-status', t('release.newer', {latest: data.latest, current: data.current}), 'busy');
+    else setStatus('release-status', t('release.current', {current: data.current}), 'ok');
+    return data;
+}
+
+$('release-refresh-btn').addEventListener('click', () => loadReleaseStatus(true));
 $('update-run-btn').addEventListener('click', async () => {
     const ok = await confirmDialog({title: t('update.run_title'), text: t('update.run_text'), ok: t('settings.update_run')});
     if (!ok) return;
@@ -1543,6 +1575,10 @@ async function start() {
     setInterval(loadStatus, 4000);
     setInterval(loadMergeQueue, 6000);
     if (state.settings && state.settings.setup_done === false && !(state.info && state.info.demo)) openWizard();
+    if (state.info && state.info.frozen && state.settings && state.settings.check_releases) {
+        const release = await loadReleaseStatus(false, true);
+        if (release && release.newer) toast(t('release.newer', {latest: release.latest, current: release.current}), 'info', 12000);
+    }
 }
 
 window.dv2plex = {openWizard, activateTab, setLanguage, applyTheme};
