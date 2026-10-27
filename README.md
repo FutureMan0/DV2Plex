@@ -243,10 +243,11 @@ Worth knowing before you run it:
   value from their settings, which is normally `true`.
 - **It needs `sudo` for dvgrab** unless it runs as root, and asks without a prompt (`sudo -n`).
   Either allow dvgrab without a password or start it with `./run.sh --no-gui`.
-- **The interface is German only.**
+- **The interface is German,** apart from the prompt that asks for the API token.
 - **No automated tests for capture, merge or upscaling.** They need a camera and real
-  footage. The tests in `dv2plex/test_*.py` cover the settings and the updater; see
-  [CONTRIBUTING.md](CONTRIBUTING.md#tests) for how to run them.
+  footage. The tests in `dv2plex/test_*.py` cover the settings and their move, the updater,
+  the API token and bind host, and the ntfy switch; see [CONTRIBUTING.md](CONTRIBUTING.md#tests)
+  for how to run them.
 
 ## Troubleshooting
 
