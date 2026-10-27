@@ -38,7 +38,7 @@ async def get_info():
     dvgrab_cmd = state.config.get_dvgrab_command()
     dvgrab_found = bool(shutil.which(dvgrab_cmd[0])) or Path(dvgrab_cmd[0]).is_file()
     esr_reason = realesrgan_available()
-    full_poster = all(importlib.util.find_spec(m) is not None for m in ("cv2", "rembg", "sklearn", "playwright"))
+    full_poster = all(importlib.util.find_spec(m) is not None for m in ("cv2", "rembg", "playwright"))
     profiles = state.config.get("upscaling.profiles", {}) or {}
     return {
         "version": __version__,

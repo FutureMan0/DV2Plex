@@ -145,7 +145,7 @@ def probe(path: Path | str, ffmpeg_path: Optional[Path | str] = None) -> Optiona
     return info
 
 
-def even(value: float) -> int:
+def even(value: float | Fraction) -> int:
     """Nearest even integer, at least 2 (H.264 with 4:2:0 needs even sizes)."""
     return max(2, int(round(value / 2.0)) * 2)
 

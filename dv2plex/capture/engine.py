@@ -390,7 +390,7 @@ class CaptureEngine:
                 f"{reason}: {self.current_capture_title} ({self.current_capture_year}). Merge läuft im Hintergrund.",
                 delay_seconds=self.rewind_notification_delay_seconds,
             )
-            if self.splits_dir and self.splits_dir.exists():
+            if self.splits_dir and self.splits_dir.exists() and self.current_output_path:
                 count = len(find_split_files(self.splits_dir))
                 self.log(f"Gefunden: {count} Split-Dateien - Merge wird im Hintergrund durchgeführt")
                 self.merger.add(self.splits_dir, self.current_output_path, self.current_capture_title,

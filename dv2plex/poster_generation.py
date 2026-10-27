@@ -16,8 +16,7 @@ from typing import Optional, Callable, Tuple
 
 import cv2
 import numpy as np
-from PIL import Image, ImageDraw, ImageFont
-from sklearn.cluster import KMeans
+from PIL import Image
 from rembg import remove
 
 try:

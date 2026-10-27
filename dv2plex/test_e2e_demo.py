@@ -6,7 +6,6 @@ Needs ffmpeg and ffprobe on PATH (CI installs them). Takes some seconds per run.
 """
 
 import time
-from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient

@@ -1,0 +1,68 @@
+[project]
+name = "dv2plex"
+dynamic = ["version"]
+description = "MiniDV tapes to a Plex library: capture over FireWire, merge, upscale, cover, export."
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.10"
+# The core: web interface, capture, merge, ffmpeg upscaling, light poster, export.
+# requirements.txt adds Real-ESRGAN (PyTorch), Stable Diffusion covers and the full poster.
+dependencies = [
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.24",
+    "pywebview>=5.0",
+    "Pillow>=9.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "httpx>=0.27", "pytest-cov>=5", "ruff>=0.6", "mypy>=1.10"]
+
+[project.scripts]
+dv2plex = "dv2plex.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/FutureMan0/DV2Plex"
+Issues = "https://github.com/FutureMan0/DV2Plex/issues"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.dynamic]
+version = { attr = "dv2plex.__version__" }
+
+[tool.setuptools.packages.find]
+include = ["dv2plex*"]
+
+[tool.pytest.ini_options]
+# The vendored Real-ESRGAN tests need its training stack; they are not DV2Plex tests.
+testpaths = ["dv2plex"]
+addopts = "--ignore=dv2plex/bin"
+markers = ["e2e: end-to-end run with ffmpeg and the simulated camera"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+extend-exclude = ["dv2plex/bin"]
+
+[tool.ruff.lint]
+# Errors and likely bugs; style of the older modules is left as it is
+select = ["E9", "F", "B006", "B008", "B012", "B015", "B018", "PLE"]
+
+[tool.mypy]
+python_version = "3.10"
+ignore_missing_imports = true
+follow_imports = "silent"
+# Typed modules; the older ones follow as they are reworked
+files = [
+    "dv2plex/access.py",
+    "dv2plex/media.py",
+    "dv2plex/naming.py",
+    "dv2plex/merge.py",
+    "dv2plex/upscale.py",
+    "dv2plex/plex_export.py",
+    "dv2plex/capture",
+    "dv2plex/demo.py",
+    "dv2plex/fake_dvgrab.py",
+    "dv2plex/log_setup.py",
+]

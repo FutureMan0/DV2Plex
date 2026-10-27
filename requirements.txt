@@ -1,7 +1,6 @@
 # Web-Server Dependencies
 fastapi>=0.104.0
 uvicorn[standard]>=0.24.0
-ntfy
 
 # Desktop Web-App Wrapper (pywebview)
 pywebview>=5.0
@@ -30,11 +29,9 @@ accelerate>=0.20.0
 safetensors>=0.3.0
 
 # Poster-Generierung (HTML-Template + AI-Cutout)
-scikit-learn
 rembg
 onnxruntime
 playwright
 
-# Build-Tools
-PyInstaller>=5.13.0
+# Building the desktop app: requirements-build.txt
 

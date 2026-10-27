@@ -21,7 +21,7 @@ import tempfile
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 DEMO_PROFILE = "ffmpeg_hd"
 DEFAULT_DEMO_DIR = Path.home() / "DV2Plex-Demo"
@@ -165,7 +165,7 @@ def run_pipeline(
     def collect(message: str) -> None:
         logs.append(message)
 
-    merged_jobs = []
+    merged_jobs: List[Any] = []
     capture = CaptureService(config, log_callback=collect, merge_finished_callback=merged_jobs.append)
     post = PostprocessingService(config, log_callback=collect, merge_busy=capture.is_merging)
     covers = CoverService(config, log_callback=collect)

@@ -1,0 +1,6 @@
+# Building the desktop app with PyInstaller
+fastapi>=0.110
+uvicorn[standard]>=0.24
+pywebview>=5.0
+Pillow>=9.0
+pyinstaller>=6.6

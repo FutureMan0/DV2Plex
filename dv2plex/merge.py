@@ -64,8 +64,9 @@ def timestamp_from_filename(filename: str) -> Optional[datetime]:
     match = _TIMESTAMP_IN_NAME.search(filename)
     if not match:
         return None
+    year, month, day, hour, minute, second = (int(g) for g in match.groups())
     try:
-        return datetime(*(int(g) for g in match.groups()), tzinfo=timezone.utc)
+        return datetime(year, month, day, hour, minute, second, tzinfo=timezone.utc)
     except ValueError:
         return None
 

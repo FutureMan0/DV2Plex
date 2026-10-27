@@ -9,9 +9,6 @@ import sys
 import subprocess
 import shutil
 from pathlib import Path
-import urllib.request
-import zipfile
-import tarfile
 
 # Projekt-Root
 project_root = Path(__file__).parent
@@ -134,7 +131,7 @@ def build_with_pyinstaller():
     print()
     
     try:
-        result = subprocess.run(cmd, check=True, cwd=str(project_root))
+        subprocess.run(cmd, check=True, cwd=str(project_root))
         print("\n✓ Build erfolgreich!")
         return True
     except subprocess.CalledProcessError as e:
@@ -154,7 +151,7 @@ def copy_additional_files():
     readme = project_root / "README.md"
     if readme.exists():
         shutil.copy2(readme, dist_exe_dir / "README.md")
-        print(f"  ✓ README.md")
+        print("  ✓ README.md")
     
     # Erstelle Verzeichnisse für Output
     (dist_exe_dir / "DV_Import").mkdir(exist_ok=True)

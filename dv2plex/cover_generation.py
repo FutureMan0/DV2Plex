@@ -18,7 +18,6 @@ except ImportError:
 
 try:
     from diffusers import StableDiffusionImg2ImgPipeline
-    from diffusers.utils import load_image
     DIFFUSERS_AVAILABLE = True
 except ImportError:
     DIFFUSERS_AVAILABLE = False
