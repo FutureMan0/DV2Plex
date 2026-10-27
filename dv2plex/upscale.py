@@ -1,32 +1,96 @@
 """
-Upscale-Engine für Real-ESRGAN Video-Integration
+Upscale engine: turns the merged tape (720x576 or 720x480) into an HD or 4K film.
+
+Two backends, chosen by the profile:
+- realesrgan: the Real-ESRGAN video script (PyTorch) upscales 2x; for 4x profiles ffmpeg
+  scales that result on to 4K.
+- ffmpeg: plain Lanczos scaling, fast, no AI.
+
+Either way the result has square pixels and the tape's display aspect: a 4:3 tape becomes
+2880x2160 in the 4x profiles, a 16:9 tape 3840x2160. DV is interlaced; unless the profile
+says otherwise it is deinterlaced (bwdif) before scaling, so the combing is not enlarged.
 """
 
+from __future__ import annotations
+
+import logging
+import os
+import re
+import shutil
 import subprocess
 import sys
+import threading
+from fractions import Fraction
 from pathlib import Path
-from typing import Dict, Any, Optional, Callable
-import logging
+from typing import Any, Callable, Dict, List, Optional
+
+from .media import (
+    H264_COMPAT,
+    MP4_FASTSTART,
+    VideoInfo,
+    audio_args_for_mp4,
+    display_geometry,
+    popen_kwargs,
+    probe,
+    run_ffmpeg,
+)
+
+# Size each scale factor fits into
+BOXES = {4: (3840, 2160), 2: (1920, 1080)}
+_TQDM_PERCENT = re.compile(r"inference:\s+(\d{1,3})%")
+_INTERLACED_ORDERS = {"tt", "bb", "tb", "bt"}
+
+
+def deinterlace_filter(info: Optional[VideoInfo], setting: Any = True) -> Optional[str]:
+    """
+    bwdif filter for interlaced sources, or None.
+
+    setting: True/"auto" deinterlaces DV-sized and interlaced-flagged video, False never.
+    DV is bottom field first; the merged MP4 no longer carries that flag, so DV-sized video
+    is treated as bottom field first.
+    """
+    if setting in (False, "off", "false", "no", None):
+        return None
+    if info is None:
+        return None
+    if info.field_order in ("tt", "tb"):
+        parity = "tff"
+    elif info.field_order in ("bb", "bt"):
+        parity = "bff"
+    elif info.is_dv_resolution:
+        parity = "bff"
+    else:
+        return None
+    return f"bwdif=mode=send_frame:parity={parity}:deint=all"
+
+
+def realesrgan_available() -> Optional[str]:
+    """None if the PyTorch Real-ESRGAN backend can run here, else the reason why not."""
+    if getattr(sys, "frozen", False):
+        return "Real-ESRGAN (PyTorch) is not part of the desktop app; use an ffmpeg profile."
+    return None
 
 
 class UpscaleEngine:
-    """Verwaltet Video-Upscaling mit Real-ESRGAN Video-Skript"""
-    
-    def __init__(self, realesrgan_path: Path, ffmpeg_path: Optional[Path] = None, log_callback: Optional[Callable] = None):
-        """
-        Initialisiert die Upscale-Engine
-        
-        Args:
-            realesrgan_path: Pfad zu inference_realesrgan_video.py
-            ffmpeg_path: Pfad zu ffmpeg (wird vom Skript benötigt)
-            log_callback: Optionaler Callback für Log-Nachrichten
-        """
-        self.realesrgan_path = realesrgan_path
+    """Runs one upscaling job."""
+
+    def __init__(
+        self,
+        realesrgan_path: Path,
+        ffmpeg_path: Optional[Path] = None,
+        log_callback: Optional[Callable[[str], None]] = None,
+        python_executable: Optional[str] = None,
+    ):
+        self.realesrgan_path = Path(realesrgan_path)
         self.ffmpeg_path = ffmpeg_path
         self.log_callback = log_callback
+        self.python = python_executable or sys.executable
         self.logger = logging.getLogger(__name__)
         self.process: Optional[subprocess.Popen] = None
-    
+        self._stop = threading.Event()
+
+    # ------------------------------------------------------------------ public API
+
     def upscale(
         self,
         input_path: Path,
@@ -34,375 +98,271 @@ class UpscaleEngine:
         profile: Dict[str, Any],
         progress_hook: Optional[Callable[[int], None]] = None,
     ) -> bool:
-        """
-        Führt Video-Upscaling mit Real-ESRGAN Video-Skript durch (direkt Video-zu-Video)
-        
-        Args:
-            input_path: Pfad zur Eingabedatei (movie_merged.avi)
-            output_path: Pfad zur Ausgabedatei (4K-Video)
-            profile: Upscaling-Profil (aus Config)
-        
-        Returns:
-            True wenn erfolgreich, False bei Fehler
-        """
+        """Upscales input_path into output_path (MP4). Returns True on success."""
+        # Real-ESRGAN runs in its own folder; relative paths would point elsewhere there
+        input_path = Path(input_path).resolve()
+        output_path = Path(output_path).resolve()
         if not input_path.exists():
-            self.log(f"Eingabedatei nicht gefunden: {input_path}")
+            self.log(f"Input not found: {input_path}")
             return False
-        
-        # Erstelle Ausgabeordner
+        if not self.ffmpeg_path or not Path(self.ffmpeg_path).exists():
+            self.log("ffmpeg not found. Install ffmpeg or set its path in the settings.")
+            return False
+        if not profile:
+            self.log("Upscaling profile not found; check upscaling.profiles in the settings.")
+            return False
+
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        
+        info = probe(input_path, self.ffmpeg_path)
+        if info is None or not info.width:
+            self.log(f"ffprobe cannot read {input_path}; is it a complete video?")
+            return False
+        self.log(
+            f"Source: {info.width}x{info.height}, display aspect {info.dar.numerator}:{info.dar.denominator}, "
+            f"{(info.duration or 0):.0f} s, audio {info.audio_codec or 'none'}"
+        )
+
         backend = profile.get("backend", "realesrgan")
-        
-        # Prüfe ob ffmpeg-only Backend
-        if backend == "ffmpeg":
-            return self._ffmpeg_only_upscale(input_path, output_path, profile)
-        
-        # Real-ESRGAN Backend
-        if not self.realesrgan_path.exists():
-            self.log(f"Real-ESRGAN nicht gefunden: {self.realesrgan_path}")
-            return False
-        
-        # Real-ESRGAN Video-Skript erstellt Output in results/ Ordner
-        # Wir verwenden einen temporären Output-Ordner
-        import tempfile
-        temp_output_dir = Path(tempfile.mkdtemp(prefix="realesrgan_video_"))
-        
+        partial = output_path.with_name(f".{output_path.stem}.partial{output_path.suffix}")
         try:
-            self.log(f"Starte Upscaling: {input_path.name} -> {output_path.name}")
-            self.log(f"Profil: {profile.get('backend', 'unknown')}")
-            
-            # Optimierte Strategie: Real-ESRGAN 2x, dann ffmpeg auf 4K
-            # Das ist deutlich schneller bei minimalem Qualitätsverlust
-            model_name = profile.get("model", "RealESRGAN_x4plus")
-            target_scale = profile.get("scale_factor", 4)
-            
-            # Verwende 2x für Real-ESRGAN (schneller)
-            realesrgan_scale = 2
-            tile_size = profile.get("tile_size", 400)  # 400 für bessere Performance
-            tile_pad = profile.get("tile_pad", 10)
-            
-            cmd = [
-                sys.executable,
-                str(self.realesrgan_path),
-                "-i", str(input_path),
-                "-n", model_name,
-                "-s", str(realesrgan_scale),  # Immer 2x für Real-ESRGAN
-                "-o", str(temp_output_dir),
-                "--tile", str(tile_size),
-                "--tile_pad", str(tile_pad),
-                "--num_process_per_gpu", "1"
-            ]
-            
-            # Füge ffmpeg-Pfad hinzu falls vorhanden
-            if self.ffmpeg_path and self.ffmpeg_path.exists():
-                cmd.extend(["--ffmpeg_bin", str(self.ffmpeg_path)])
-            
-            self.log(f"Real-ESRGAN Video-Befehl: {' '.join(cmd)}")
-            
-            # Starte Prozess
-            self.process = subprocess.Popen(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                cwd=str(self.realesrgan_path.parent),
-                bufsize=1
-            )
-            
-            # Zeige Fortschritt (stderr enthält Progress-Info)
-            import time
-            last_log_time = time.time()
-            
-            while True:
-                returncode = self.process.poll()
-                if returncode is not None:
-                    break
-                
-                # Lese stderr für Fortschrittsanzeige
-                try:
-                    line = self.process.stderr.readline()
-                    if line:
-                        line = line.strip()
-                        if line and ("%" in line or "frame" in line.lower() or "fps" in line.lower()):
-                            # Zeige Fortschritt alle 2 Sekunden
-                            current_time = time.time()
-                            if current_time - last_log_time >= 2.0:
-                                self.log(f"Real-ESRGAN: {line}")
-                                last_log_time = current_time
-                except:
-                    pass
-                
-                time.sleep(0.1)
-            
-            # Warte auf vollständige Beendigung
-            stdout, stderr = self.process.communicate()
-            
-            if returncode != 0:
-                self.log(f"Real-ESRGAN-Fehler (Code {returncode})")
-                if stderr:
-                    self.log(f"stderr: {stderr[-2000:]}")
-                if stdout:
-                    self.log(f"stdout: {stdout[-1000:]}")
-                return False
-            
-            # Finde Output-Datei (Skript erstellt: input_name_out.mp4)
-            input_stem = input_path.stem
-            realesrgan_output = temp_output_dir / f"{input_stem}_out.mp4"
-            
-            if not realesrgan_output.exists():
-                # Versuche alle .mp4 Dateien im Output-Ordner
-                mp4_files = list(temp_output_dir.glob("*.mp4"))
-                if mp4_files:
-                    realesrgan_output = mp4_files[0]
-                    self.log(f"Gefundene Real-ESRGAN Output-Datei: {realesrgan_output.name}")
-                else:
-                    self.log(f"Real-ESRGAN Output-Datei nicht gefunden in {temp_output_dir}")
-                    self.log(f"Verfügbare Dateien: {list(temp_output_dir.iterdir())}")
-                    return False
-            
-            self.log(f"Real-ESRGAN 2x abgeschlossen: {realesrgan_output}")
-            
-            # Schritt 2: ffmpeg auf 4K hochskalieren (wenn target_scale > 2)
-            target_scale = profile.get("scale_factor", 4)
-            if target_scale > 2:
-                self.log(f"Skaliere mit ffmpeg auf {target_scale}x (4K)...")
-                if not self._ffmpeg_upscale_to_4k(realesrgan_output, output_path, profile, progress_hook):
-                    return False
+            if backend == "ffmpeg":
+                ok = self._ffmpeg_upscale(input_path, partial, profile, info, progress_hook)
             else:
-                # Wenn target_scale <= 2, kopiere einfach die Real-ESRGAN Ausgabe
-                import shutil
-                shutil.copy2(realesrgan_output, output_path)
-                self.log(f"Video erfolgreich erstellt: {output_path}")
-            
+                ok = self._realesrgan_upscale(input_path, partial, profile, info, progress_hook)
+            if not ok:
+                return False
+            partial.replace(output_path)
+            result = probe(output_path, self.ffmpeg_path)
+            if result:
+                self.log(f"Upscaled film: {output_path} ({result.width}x{result.height})")
+            if progress_hook:
+                progress_hook(100)
             return True
-            
-        except Exception as e:
-            self.log(f"Fehler beim Upscaling: {e}")
-            import traceback
-            self.log(traceback.format_exc())
-            return False
         finally:
-            # Aufräumen: Lösche temporären Ordner
-            try:
-                import shutil
-                shutil.rmtree(temp_output_dir)
-            except:
-                pass
-    
-    def _ffmpeg_only_upscale(self, input_video: Path, output_path: Path, profile: Dict[str, Any], progress_hook: Optional[Callable[[int], None]] = None) -> bool:
-        """Nur ffmpeg Upscaling (schnell, keine AI) - einfacher Ansatz"""
-        if not self.ffmpeg_path or not self.ffmpeg_path.exists():
-            self.log("ffmpeg nicht gefunden")
-            return False
-        
-        scale_factor = profile.get("scale_factor", 4)
-        encoder_options = profile.get("encoder_options", {})
-        
-        # Bestimme Ziel-Auflösung basierend auf scale_factor
-        if scale_factor == 4:
-            scale_filter = "scale=3840:2160:flags=lanczos"
-        elif scale_factor == 2:
-            scale_filter = "scale=1920:1080:flags=lanczos"
-        else:
-            scale_filter = f"scale=iw*{scale_factor}:ih*{scale_factor}:flags=lanczos"
-        
-        # Einfacher Befehl wie gewünscht
-        cmd = [
-            str(self.ffmpeg_path),
-            "-i", str(input_video),
-            "-vf", scale_filter,
-            "-c:v", "libx264",
-            "-preset", encoder_options.get("preset", "veryfast"),
-            "-crf", str(encoder_options.get("crf", 18)),
-            "-c:a", "copy",
-            "-y", str(output_path)
-        ]
-        
-        try:
-            self.log(f"ffmpeg-only Upscaling ({scale_factor}x): {' '.join(cmd)}")
-            self.process = subprocess.Popen(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                bufsize=1
-            )
-            
-            # Zeige Fortschritt
-            import time
-            last_log_time = time.time()
-            stderr_lines = []
-            last_progress = 0
-            
-            while True:
-                returncode = self.process.poll()
-                if returncode is not None:
-                    break
-                
-                try:
-                    line = self.process.stderr.readline()
-                    if line:
-                        line = line.strip()
-                        stderr_lines.append(line)
-                        if line.startswith("frame=") or ("fps=" in line and "size=" in line):
-                            current_time = time.time()
-                            if current_time - last_log_time >= 2.0:
-                                self.log(f"ffmpeg: {line[:100]}")
-                                last_log_time = current_time
-                            if progress_hook:
-                                try:
-                                    if "frame=" in line:
-                                        parts = line.split()
-                                        for p in parts:
-                                            if p.startswith("frame="):
-                                                frame_val = int(p.split("=")[1])
-                                                est = min(100, max(last_progress, int(frame_val / 3000 * 100)))
-                                                last_progress = est
-                                                progress_hook(est)
-                                                break
-                                except Exception:
-                                    pass
-                except:
-                    pass
-                
-                time.sleep(0.1)
-            
-            # Warte auf vollständige Beendigung
-            stdout, stderr = self.process.communicate()
-            
-            # Kombiniere alle stderr-Lines
-            full_stderr = "\n".join(stderr_lines)
-            if stderr:
-                full_stderr += "\n" + stderr
-            
-            if returncode != 0:
-                # Zeige nur relevante Fehler (ohne "Concealing bitstream errors")
-                error_lines = [l for l in full_stderr.split("\n") if l and "Concealing" not in l and "repeated" not in l and "AC EOB" not in l]
-                error_msg = "\n".join(error_lines[-20:])
-                self.log(f"ffmpeg Upscaling Fehler (Code {returncode}): {error_msg}")
-                return False
-            
-            if output_path.exists():
-                self.log(f"Video erfolgreich erstellt: {output_path}")
-                return True
-            else:
-                self.log("Video-Datei wurde nicht erstellt")
-                return False
-                
-        except Exception as e:
-            self.log(f"Fehler beim ffmpeg Upscaling: {e}")
-            return False
-    
-    def _ffmpeg_upscale_to_4k(self, input_video: Path, output_path: Path, profile: Dict[str, Any], progress_hook: Optional[Callable[[int], None]] = None) -> bool:
-        """Skaliert Video mit ffmpeg schnell auf 4K hoch (Lanczos)"""
-        if not self.ffmpeg_path or not self.ffmpeg_path.exists():
-            self.log("ffmpeg nicht gefunden für 4K-Upscaling")
-            return False
-        
-        encoder = profile.get("encoder", "libx264")
-        encoder_options = profile.get("encoder_options", {})
-        
-        # ffmpeg-Befehl für schnelles 4K-Upscaling
-        cmd = [
-            str(self.ffmpeg_path),
-            "-i", str(input_video),
-            "-vf", "scale=3840:2160:flags=lanczos",  # 4K mit Lanczos
-            "-c:v", encoder,
-            "-preset", "veryfast",  # Schnell
-            "-crf", str(encoder_options.get("crf", 18)),  # Qualität aus Profil
-            "-c:a", "copy"  # Audio kopieren
-        ]
-        
-        # Weitere Encoder-Optionen (außer crf, preset die wir schon haben)
-        skip_options = {"crf", "preset"}
-        for key, value in encoder_options.items():
-            if key not in skip_options:
-                cmd.extend(["-" + key, str(value)])
-        
-        cmd.extend(["-y", str(output_path)])
-        
-        try:
-            self.log(f"ffmpeg 4K-Upscaling: {' '.join(cmd)}")
-            self.process = subprocess.Popen(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True
-            )
-            import time
-            last_log_time = time.time()
-            last_progress = 0
-            stderr_lines = []
+            partial.unlink(missing_ok=True)
 
-            while True:
-                returncode = self.process.poll()
-                if returncode is not None:
-                    break
-
-                try:
-                    line = self.process.stderr.readline()
-                    if line:
-                        line = line.strip()
-                        stderr_lines.append(line)
-                        if line.startswith("frame=") or ("fps=" in line and "size=" in line):
-                            current_time = time.time()
-                            if current_time - last_log_time >= 2.0:
-                                self.log(f"ffmpeg: {line[:100]}")
-                                last_log_time = current_time
-                            if progress_hook:
-                                try:
-                                    if "frame=" in line:
-                                        parts = line.split()
-                                        for p in parts:
-                                            if p.startswith("frame="):
-                                                frame_val = int(p.split("=")[1])
-                                                est = min(100, max(last_progress, int(frame_val / 4000 * 100)))
-                                                last_progress = est
-                                                progress_hook(est)
-                                                break
-                                except Exception:
-                                    pass
-                except:
-                    pass
-
-                time.sleep(0.1)
-
-            stdout, stderr = self.process.communicate()
-            
-            if self.process.returncode != 0:
-                self.log(f"ffmpeg 4K-Upscaling Fehler: {stderr[-1000:]}")
-                return False
-            
-            if output_path.exists():
-                self.log(f"4K-Video erfolgreich erstellt: {output_path}")
-                return True
-            else:
-                self.log("4K-Video-Datei wurde nicht erstellt")
-                return False
-                
-        except Exception as e:
-            self.log(f"Fehler beim 4K-Upscaling: {e}")
-            return False
-    
-    def is_running(self) -> bool:
-        """Prüft ob Upscaling läuft"""
-        if self.process is None:
-            return False
-        return self.process.poll() is None
-    
-    def stop(self):
-        """Stoppt laufendes Upscaling (falls möglich)"""
-        if self.process and self.is_running():
+    def stop(self) -> None:
+        """Stops a running job."""
+        self._stop.set()
+        if self.process and self.process.poll() is None:
             try:
                 self.process.terminate()
                 self.process.wait(timeout=5)
-            except:
+            except Exception:
                 self.process.kill()
-    
+
+    def is_running(self) -> bool:
+        return self.process is not None and self.process.poll() is None
+
+    # ------------------------------------------------------------------ ffmpeg backend
+
+    def _scale_filters(self, info: VideoInfo, scale_factor: Any, deinterlace: Any) -> List[str]:
+        filters = []
+        deint = deinterlace_filter(info, deinterlace)
+        if deint:
+            filters.append(deint)
+        try:
+            factor = int(scale_factor)
+        except (TypeError, ValueError):
+            factor = 4
+        if factor in BOXES:
+            width, height = display_geometry(info.dar, *BOXES[factor])
+        else:
+            # Any other factor: that many times the display width, square pixels
+            square_width = info.height * info.dar
+            width, height = display_geometry(info.dar, int(square_width * factor), int(info.height * factor))
+        filters.append(f"scale={width}:{height}:flags=lanczos")
+        filters.append("setsar=1")
+        return filters
+
+    def _encoder_args(self, profile: Dict[str, Any], default_preset: str = "veryfast") -> List[str]:
+        options = dict(profile.get("encoder_options") or {})
+        args = ["-c:v", str(profile.get("encoder", "libx264"))]
+        args += ["-preset", str(options.pop("preset", default_preset))]
+        args += ["-crf", str(options.pop("crf", 18))]
+        for key, value in options.items():
+            args += [f"-{key}", str(value)]
+        return args + H264_COMPAT
+
+    def _ffmpeg_upscale(self, input_path, output_path, profile, info, progress_hook) -> bool:
+        filters = self._scale_filters(info, profile.get("scale_factor", 4), profile.get("deinterlace", True))
+        cmd = [
+            str(self.ffmpeg_path), "-hide_banner", "-y",
+            "-i", str(input_path),
+            "-map", "0:v:0", "-map", "0:a?",
+            "-vf", ",".join(filters),
+            *self._encoder_args(profile),
+            *audio_args_for_mp4(info),
+            *MP4_FASTSTART,
+            str(output_path),
+        ]
+        self.log(f"ffmpeg upscaling: {', '.join(filters)}")
+        code, _ = run_ffmpeg(
+            cmd,
+            duration=info.duration,
+            progress=(lambda f: progress_hook(int(f * 99))) if progress_hook else None,
+            log=self.log,
+            stop_event=self._stop,
+        )
+        return code == 0 and output_path.exists()
+
+    # ------------------------------------------------------------------ Real-ESRGAN backend
+
+    def _realesrgan_upscale(self, input_path, output_path, profile, info, progress_hook) -> bool:
+        reason = realesrgan_available()
+        if reason:
+            self.log(reason)
+            return False
+        if not self.realesrgan_path.exists():
+            self.log(f"Real-ESRGAN not found: {self.realesrgan_path}")
+            return False
+
+        work_dir = output_path.parent / f".realesrgan-{os.getpid()}"
+        shutil.rmtree(work_dir, ignore_errors=True)
+        work_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            scale_factor = profile.get("scale_factor", 4)
+            options = profile.get("encoder_options") or {}
+            final_in_script = int(scale_factor) <= 2
+            deint = deinterlace_filter(info, profile.get("deinterlace", True))
+            cmd = [
+                self.python, str(self.realesrgan_path),
+                "-i", str(input_path),
+                "-n", str(profile.get("model", "RealESRGAN_x4plus")),
+                "-s", "2",
+                "-o", str(work_dir),
+                "--tile", str(profile.get("tile_size", 400)),
+                "--tile_pad", str(profile.get("tile_pad", 10)),
+                "--num_process_per_gpu", "1",
+                "--ffmpeg_bin", str(self.ffmpeg_path),
+                # The 2x result is the final film; for 4x it is an intermediate step
+                "--crf", str(options.get("crf", 18) if final_in_script else 14),
+                "--x264_preset", str(options.get("preset", "slow") if final_in_script else "veryfast"),
+            ]
+            if deint:
+                cmd += ["--deinterlace", deint]
+            if profile.get("face_enhance"):
+                cmd.append("--face_enhance")
+            self.log("Starting Real-ESRGAN (2x). The first run downloads the model weights.")
+            self.log(f"Command: {' '.join(cmd)}")
+
+            stage_share = 0.85 if not final_in_script else 0.97
+            if not self._run_realesrgan(cmd, progress_hook, stage_share):
+                return False
+
+            produced = sorted(work_dir.glob("*.mp4"))
+            if not produced:
+                self.log(f"Real-ESRGAN finished without writing a video into {work_dir}.")
+                return False
+            intermediate = produced[0]
+            self.log("Real-ESRGAN 2x done.")
+
+            if final_in_script:
+                return self._fix_aspect(intermediate, output_path, info.dar)
+
+            # The intermediate lost the tape's pixel aspect; the size comes from the source
+            width, height = display_geometry(info.dar, *BOXES.get(int(scale_factor), (3840, 2160)))
+            filters = [f"scale={width}:{height}:flags=lanczos", "setsar=1"]
+            inter_info = probe(intermediate, self.ffmpeg_path)
+            cmd = [
+                str(self.ffmpeg_path), "-hide_banner", "-y",
+                "-i", str(intermediate),
+                "-map", "0:v:0", "-map", "0:a?",
+                "-vf", ",".join(filters),
+                *self._encoder_args(profile),
+                *audio_args_for_mp4(inter_info),
+                *MP4_FASTSTART,
+                str(output_path),
+            ]
+            self.log(f"Scaling to {width}x{height} with ffmpeg...")
+            code, _ = run_ffmpeg(
+                cmd,
+                duration=info.duration,
+                progress=(lambda f: progress_hook(int(85 + f * 14))) if progress_hook else None,
+                log=self.log,
+                stop_event=self._stop,
+            )
+            return code == 0 and output_path.exists()
+        finally:
+            shutil.rmtree(work_dir, ignore_errors=True)
+
+    def _run_realesrgan(self, cmd: List[str], progress_hook, stage_share: float) -> bool:
+        """Runs the script; stdout and stderr share one pipe so neither can fill up and block."""
+        env = dict(os.environ)
+        env.setdefault("PYTHONUNBUFFERED", "1")
+        self.process = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            cwd=str(self.realesrgan_path.parent),
+            env=env,
+            **popen_kwargs(),
+        )
+        tail: List[str] = []
+        last_percent = -1
+        assert self.process.stdout is not None
+        for line in self.process.stdout:  # tqdm's \r updates arrive as separate lines
+            line = line.strip()
+            if not line:
+                continue
+            match = _TQDM_PERCENT.search(line)
+            if match:
+                percent = int(match.group(1))
+                if percent != last_percent:
+                    last_percent = percent
+                    if progress_hook:
+                        progress_hook(int(percent * stage_share))
+                    if percent % 10 == 0:
+                        self.log(f"Real-ESRGAN: {percent}%")
+                continue
+            tail.append(line)
+            del tail[:-40]
+        code = self.process.wait()
+        if code != 0:
+            self.log(f"Real-ESRGAN failed (exit code {code}):\n" + "\n".join(tail[-15:]))
+            hint = _realesrgan_hint("\n".join(tail))
+            if hint:
+                self.log(hint)
+            return False
+        return True
+
+    def _fix_aspect(self, source: Path, output_path: Path, dar: Fraction) -> bool:
+        """Sets the pixel aspect in the H.264 stream so the 2x film shows as 4:3 or 16:9."""
+        info = probe(source, self.ffmpeg_path)
+        if info is None or not info.width:
+            shutil.copy2(source, output_path)
+            return True
+        sar = (dar * info.height / info.width).limit_denominator(1000)
+        cmd = [
+            str(self.ffmpeg_path), "-hide_banner", "-y", "-i", str(source),
+            "-map", "0", "-c", "copy",
+            "-bsf:v", f"h264_metadata=sample_aspect_ratio={sar.numerator}/{sar.denominator}",
+            *MP4_FASTSTART, str(output_path),
+        ]
+        code, _ = run_ffmpeg(cmd, log=self.log)
+        if code != 0:
+            self.log("Could not set the aspect ratio; keeping the Real-ESRGAN output as it is.")
+            shutil.copy2(source, output_path)
+        return True
+
     def log(self, message: str):
-        """Loggt eine Nachricht"""
         self.logger.info(message)
         if self.log_callback:
             self.log_callback(message)
 
+
+def _realesrgan_hint(output: str) -> Optional[str]:
+    """A plain-language next step for the usual Real-ESRGAN failures."""
+    text = output.lower()
+    if "no module named 'torch'" in text or 'no module named "torch"' in text:
+        return "PyTorch is missing. Install the upscaling packages: pip install -r requirements.txt"
+    if "no module named 'basicsr'" in text:
+        return "basicsr is missing. Install the upscaling packages: pip install -r requirements.txt"
+    if "out of memory" in text:
+        return "The GPU ran out of memory. Use a profile with a smaller tile_size (for example 200)."
+    if "urlopen error" in text or "connection" in text and "weights" in text:
+        return "Downloading the model weights failed. Check the internet connection and try again."
+    return None
