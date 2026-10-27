@@ -16,8 +16,11 @@ from realesrgan import RealESRGANer
 from realesrgan.archs.srvgg_arch import SRVGGNetCompact
 
 try:
-    import os
-    os.environ["PATH"] = r"C:\Users\luisb\PycharmProjects\ACR\dv2plex\bin\ffmpeg\bin;" + os.environ["PATH"]
+    # Prefer the ffmpeg bundled with DV2Plex (dv2plex/bin/ffmpeg/bin), if there is one;
+    # otherwise ffmpeg and ffprobe come from PATH.
+    _bundled_ffmpeg = osp.join(osp.dirname(osp.dirname(osp.abspath(__file__))), 'ffmpeg', 'bin')
+    if osp.isdir(_bundled_ffmpeg):
+        os.environ['PATH'] = _bundled_ffmpeg + os.pathsep + os.environ.get('PATH', '')
     import ffmpeg
 except ImportError:
     pass
