@@ -179,6 +179,9 @@ class Config:
                 "skip_during_capture": True,
                 "skip_during_merge": True
             },
+            "server": {
+                "api_token": ""  # Created on first start; DV2PLEX_TOKEN overrides it
+            },
             "notifications": {
                 "ntfy_topic": "",  # Empty = no push notifications
                 "ntfy_server": "https://ntfy.sh"

@@ -1,3 +1,62 @@
+// API token. It arrives once as ?token=... (the desktop window opens the page that way),
+// is kept in localStorage and goes along with every API request. Where no header can be
+// set (video, image, WebSocket) it travels as ?token=... instead.
+const API_TOKEN_STORAGE_KEY = 'dv2plex_api_token';
+let apiToken = '';
+let apiTokenPromptShown = false;
+
+(function initApiToken() {
+    const params = new URLSearchParams(window.location.search);
+    const fromUrl = params.get('token') || '';
+    let stored = '';
+    try {
+        if (fromUrl) localStorage.setItem(API_TOKEN_STORAGE_KEY, fromUrl);
+        stored = localStorage.getItem(API_TOKEN_STORAGE_KEY) || '';
+    } catch (e) {
+        // No localStorage: keep the token in the URL
+    }
+    apiToken = fromUrl || stored;
+    if (fromUrl && stored === fromUrl) {
+        params.delete('token');
+        const query = params.toString();
+        history.replaceState(null, '', window.location.pathname + (query ? `?${query}` : '') + window.location.hash);
+    }
+})();
+
+function withApiToken(url) {
+    if (!apiToken) return url;
+    return `${url}${url.includes('?') ? '&' : '?'}token=${encodeURIComponent(apiToken)}`;
+}
+
+function askForApiToken() {
+    // Once per page load; a reload asks again
+    if (apiTokenPromptShown) return;
+    apiTokenPromptShown = true;
+    const entered = window.prompt(
+        'This DV2Plex server needs its API token.\n' +
+        'Print it on the server with: python -m dv2plex --show-token'
+    );
+    if (entered && entered.trim()) {
+        const params = new URLSearchParams(window.location.search);
+        params.set('token', entered.trim());
+        window.location.search = params.toString();
+    }
+}
+
+const nativeFetch = window.fetch.bind(window);
+window.fetch = async (input, init = {}) => {
+    const url = typeof input === 'string' ? input : input.url;
+    const isApi = url.startsWith('/api/');
+    if (isApi && apiToken) {
+        const headers = new Headers(init.headers || {});
+        headers.set('X-DV2Plex-Token', apiToken);
+        init = {...init, headers};
+    }
+    const response = await nativeFetch(input, init);
+    if (isApi && response.status === 401) askForApiToken();
+    return response;
+};
+
 let ws = null;
 let selectedPostprocessMovie = null;
 let selectedMovieVideos = [];
@@ -75,7 +134,7 @@ function updateCaptureTimeUI() {
 // WebSocket connection
 function connectWebSocket() {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    ws = new WebSocket(`${protocol}//${window.location.host}/ws`);
+    ws = new WebSocket(withApiToken(`${protocol}//${window.location.host}/ws`));
     
     ws.onmessage = (event) => {
         const data = JSON.parse(event.data);
@@ -1055,7 +1114,7 @@ function showPlayerCover(project) {
         // Zeige Poster
         if (placeholder) placeholder.style.display = 'none';
         if (poster) {
-            poster.src = `/api/player/poster?path=${encodeURIComponent(project.poster_path)}`;
+            poster.src = withApiToken(`/api/player/poster?path=${encodeURIComponent(project.poster_path)}`);
             poster.style.display = 'block';
         }
         if (nowPlaying) nowPlaying.textContent = project.title;
@@ -1080,7 +1139,7 @@ function playVideo(path, label) {
     
     // Zeige Video
     video.style.display = 'block';
-    video.src = `/api/player/stream?path=${encodeURIComponent(path)}`;
+    video.src = withApiToken(`/api/player/stream?path=${encodeURIComponent(path)}`);
     video.play().catch(() => {});
     nowPlaying.textContent = `Spielt: ${label}`;
     

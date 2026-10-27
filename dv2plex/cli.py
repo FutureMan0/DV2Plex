@@ -37,7 +37,7 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--host",
         default=None,
-        help="Bind-Host für den Webserver (Server-Modus Default: 0.0.0.0, Desktop Default: 127.0.0.1).",
+        help="Bind host of the web server (default: 127.0.0.1). Any other host makes every API request need the token.",
     )
     p.add_argument(
         "--port",
@@ -56,22 +56,39 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Desktop: bindet den lokalen Server auf 0.0.0.0 (für Zugriff aus dem LAN); Fenster öffnet weiterhin 127.0.0.1.",
     )
+    p.add_argument(
+        "--show-token",
+        action="store_true",
+        help="Print the API token (created on first use) and exit.",
+    )
     return p
+
+
+def _show_token() -> None:
+    from dv2plex.access import load_or_create_token
+    from dv2plex.config import Config
+
+    print(load_or_create_token(Config()))
 
 
 def main(argv: Optional[Sequence[str]] = None) -> None:
     args = _build_parser().parse_args(argv)
 
+    if args.show_token:
+        _show_token()
+        return
+
     server_mode = bool(args.server or args.no_gui)
 
     if server_mode:
-        host = args.host or "0.0.0.0"
+        host = args.host or "127.0.0.1"
         port = args.port if args.port and args.port > 0 else 5000
 
         import uvicorn
-        from dv2plex.web_app import app, setup_services
+        from dv2plex.web_app import app, setup_access, setup_services
 
         setup_services()
+        setup_access(host, port)
         uvicorn.run(app, host=host, port=port, log_level="info")
         return
 

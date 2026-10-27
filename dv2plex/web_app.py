@@ -15,8 +15,8 @@ from pathlib import Path
 from typing import Optional, List, Dict, Any
 from datetime import datetime
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
-from fastapi.responses import HTMLResponse, FileResponse
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Request
+from fastapi.responses import HTMLResponse, FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -39,6 +39,17 @@ from dv2plex.service import (
     parse_movie_folder_name
 )
 from dv2plex.update_manager import UpdateManager
+from dv2plex.access import (
+    ALWAYS_PROTECTED_PATHS,
+    TOKEN_SETTING,
+    RedactTokenFilter,
+    is_loopback,
+    load_or_create_token,
+    requires_token,
+    token_from_environment,
+    token_from_request,
+    token_matches,
+)
 
 QIMAGE_AVAILABLE = False
 
@@ -49,6 +60,9 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+# Keep the API token out of uvicorn's request and WebSocket log lines
+for _uvicorn_logger in ("uvicorn.access", "uvicorn.error"):
+    logging.getLogger(_uvicorn_logger).addFilter(RedactTokenFilter())
 
 
 # FastAPI app
@@ -66,6 +80,11 @@ main_event_loop: Optional[asyncio.AbstractEventLoop] = None
 
 # WebSocket connections for broadcasting
 websocket_connections: List[WebSocket] = []
+
+# API token, set by setup_access(). Without it, protected requests are refused.
+api_token: Optional[str] = None
+# True when the server listens on more than the loopback interface
+token_required_everywhere = False
 
 # Active operations
 active_capture: Optional[Dict[str, Any]] = None
@@ -163,6 +182,50 @@ def setup_services():
         capture_service,
         log_callback=lambda msg: add_log_entry(msg, "update"),
     )
+
+
+def setup_access(bind_host: str, port: Optional[int] = None) -> str:
+    """
+    Loads or creates the API token and decides which requests need it.
+
+    On a loopback host only the routes in ALWAYS_PROTECTED_PATHS need it; on any other host,
+    every /api request and the WebSocket do.
+    """
+    global api_token, token_required_everywhere
+    api_token = load_or_create_token(config)
+    token_required_everywhere = not is_loopback(bind_host)
+
+    if token_from_environment():
+        source = "it is set by DV2PLEX_TOKEN"
+    else:
+        source = f"it is stored as {TOKEN_SETTING} in {config.config_path}"
+    if token_required_everywhere:
+        logger.warning("Listening on %s: every /api request and /ws need the API token.", bind_host)
+        logger.warning(
+            "Print the token with `python -m dv2plex --show-token` (%s), then open "
+            "http://<this machine>:%s/?token=<token> once; the browser keeps it.",
+            source, port if port else "<port>",
+        )
+    else:
+        logger.info(
+            "Listening on %s only. %s need the API token; print it with "
+            "`python -m dv2plex --show-token` (%s).",
+            bind_host, ", ".join(sorted(ALWAYS_PROTECTED_PATHS)), source,
+        )
+    return api_token
+
+
+@app.middleware("http")
+async def require_api_token(request: Request, call_next):
+    """Refuses protected requests without the API token (see dv2plex/access.py)."""
+    if requires_token(request.scope["path"], token_required_everywhere):
+        given = token_from_request(request.headers, request.query_params)
+        if not token_matches(api_token, given):
+            return JSONResponse(
+                status_code=401,
+                content={"detail": "API token missing or wrong. Print it on the server with: python -m dv2plex --show-token"},
+            )
+    return await call_next(request)
 
 
 async def broadcast_message(message: Dict[str, Any]):
@@ -1658,6 +1721,11 @@ async def clear_logs():
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     """WebSocket-Endpoint für Live-Updates"""
+    if requires_token("/ws", token_required_everywhere):
+        given = token_from_request(websocket.headers, websocket.query_params)
+        if not token_matches(api_token, given):
+            await websocket.close(code=1008)
+            return
     await websocket.accept()
     websocket_connections.append(websocket)
     
@@ -1756,14 +1824,15 @@ def get_html_interface() -> str:
 def main():
     """Startet den Webserver"""
     setup_services()
+    setup_access("127.0.0.1", 5000)
     
     logger.info("DV2Plex Web-Server wird gestartet...")
-    logger.info("Öffne http://0.0.0.0:5000 im Browser")
+    logger.info("Öffne http://127.0.0.1:5000 im Browser")
     logger.info("Für SSH-Zugriff: ssh -L 5000:localhost:5000 user@host")
     
     uvicorn.run(
         app,
-        host="0.0.0.0",
+        host="127.0.0.1",
         port=5000,
         log_level="info"
     )

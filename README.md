@@ -100,6 +100,11 @@ of the repository. On its first start, the current version copies that file to
 The built-in updater resets the old file to the repository version before each `git pull`, so a
 later release can remove it from the repository without breaking the pull.
 
+Older versions also listened on all interfaces in server mode and had no token. The current
+version listens on `127.0.0.1`. To keep reaching an installed server from other machines, add
+`--host 0.0.0.0` to its service and open the page once with the token, as described under
+[Access and the API token](#access-and-the-api-token).
+
 If you pull by hand and git stops because of local changes to `dv2plex/config/settings.json`,
 keep your settings first:
 
@@ -114,14 +119,47 @@ git pull
 ### Start
 
 ```bash
-./run.sh                           # desktop window with its own local server
-./run.sh --server --port 5000      # headless web server on all interfaces
-./run.sh --url http://host:5000    # desktop window for a server running elsewhere
-./run.sh --share                   # desktop window, server also reachable on the LAN
+./run.sh                                # desktop window with its own local server
+./run.sh --server --port 5000           # headless web server on 127.0.0.1
+./run.sh --server --host 0.0.0.0        # headless web server, reachable from the network
+./run.sh --url "http://host:5000/?token=<token>"   # desktop window for a server elsewhere
+./run.sh --share                        # desktop window, server also reachable on the LAN
+./run.sh --show-token                   # print the API token
 ```
 
 `python -m dv2plex` takes the same options. `./run.sh --no-gui` starts the server through `sudo`,
 so dvgrab and the camera control keep their rights for the whole session.
+
+### Access and the API token
+
+The server listens on `127.0.0.1` unless you pass `--host` or `--share`. Each installation has
+an API token, created on the first start and stored as `server.api_token` in
+`dv2plex/config/settings.local.json`; the environment variable `DV2PLEX_TOKEN` takes precedence.
+`python -m dv2plex --show-token` prints it, and the server log says where it comes from.
+
+- **On `127.0.0.1`**, four routes need the token because they run `sudo` or list folders:
+  `/api/browse`, `/api/chown`, `/api/fix-config-permissions` and `/api/update/run`. The desktop
+  window opens the page with the token. In a browser, the page asks for it the first time one of
+  these is used.
+- **On any other host** (`--host 0.0.0.0`, `--share`), every `/api` request and the WebSocket
+  need it. Open `http://<server>:5000/?token=<token>` once; the page keeps the token in the
+  browser's local storage and sends it with each request. Without it, the page asks for it.
+- **Scripts** send it as a header:
+
+  ```bash
+  curl -H "X-DV2Plex-Token: <token>" http://127.0.0.1:5000/api/status
+  ```
+
+  `Authorization: Bearer <token>` works too.
+
+The server speaks plain HTTP, so on a network the token travels unencrypted. Bind to the network
+only on one you trust, or reach the server through an SSH tunnel
+(`ssh -L 5000:localhost:5000 user@server`) and leave it on `127.0.0.1`.
+
+The systemd service that `setup.sh` installs runs `./run.sh --no-gui`, so it listens on
+`127.0.0.1` too. To reach it from other machines, add `--host 0.0.0.0` to `ExecStart` in
+`/etc/systemd/system/dv2plex.service`, then run `sudo systemctl daemon-reload` and
+`sudo systemctl restart dv2plex`.
 
 ### Capture a tape
 
@@ -167,6 +205,7 @@ shows a complete file.
 | `capture.auto_merge`, `auto_upscale`, `auto_export` | Run the next step automatically |
 | `capture.timestamp_overlay` | Burn the recording date into the film |
 | `update.enabled` | Automatic updates through git; off by default, see [Limits](#limits) |
+| `server.api_token` | API token, created on the first start; `DV2PLEX_TOKEN` overrides it |
 | `notifications.ntfy_topic` | ntfy topic for push messages; empty (the default) sends none |
 | `notifications.ntfy_server` | ntfy server, `https://ntfy.sh` by default |
 
@@ -189,9 +228,10 @@ Worth knowing before you run it:
 
 - **Capture is Linux-only.** It depends on dvgrab. `setup.bat` and `run.bat` exist for Windows,
   but without dvgrab there is no capture there.
-- **No login.** Anyone who can reach the web interface can start captures, change settings,
-  browse folders, run `sudo chown -R` on a path and trigger an update. The headless server
-  listens on all interfaces by default. Run it only on a network you trust.
+- **One shared token, no user accounts.** Whoever has the API token can do everything the
+  interface can, including `sudo chown -R` on a path and an update. On `127.0.0.1`, all other
+  routes are open to every program and user on that machine. Over plain HTTP the token is not
+  encrypted; see [Access and the API token](#access-and-the-api-token).
 - **Push notifications are off by default.** Set `notifications.ntfy_topic` to get an
   [ntfy](https://ntfy.sh) message when a capture, merge or upscale finishes. The message
   contains the title and year. On the public server anyone who knows the topic can read it, so
@@ -227,6 +267,7 @@ DV2Plex/
 ├── dv2plex/                 Python package
 │   ├── cli.py               command line: desktop, --server, --url
 │   ├── web_app.py           FastAPI server and API
+│   ├── access.py            API token and which requests need it
 │   ├── desktop_app.py       pywebview window
 │   ├── service.py           ties the steps together
 │   ├── capture.py           dvgrab capture, preview, merge queue
@@ -237,6 +278,7 @@ DV2Plex/
 │   ├── poster_generation.py poster rendering (Playwright)
 │   ├── plex_export.py       export into the Plex library
 │   ├── update_manager.py    self-update via git
+│   ├── notifications.py     ntfy push messages
 │   ├── web/                 the web interface (HTML, CSS, JS)
 │   └── bin/realesrgan/      Real-ESRGAN, vendored (BSD 3-Clause)
 ├── config/examples/         example configuration

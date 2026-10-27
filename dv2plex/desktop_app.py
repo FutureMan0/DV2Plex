@@ -11,6 +11,7 @@ import socket
 import threading
 import time
 from typing import Optional, Tuple
+from urllib.parse import quote
 
 import uvicorn
 
@@ -48,14 +49,15 @@ def _wait_for_port(host: str, port: int, timeout_s: float = 10.0) -> bool:
     return False
 
 
-def _start_uvicorn_in_thread(host: str, port: int, log_level: str = "info") -> Tuple[uvicorn.Server, threading.Thread]:
+def _start_uvicorn_in_thread(host: str, port: int, log_level: str = "info") -> Tuple[uvicorn.Server, threading.Thread, str]:
     """
-    Startet uvicorn in einem Background-Thread und gibt (server, thread) zurück.
+    Startet uvicorn in einem Background-Thread und gibt (server, thread, api_token) zurück.
     """
     from dv2plex import web_app as web
 
     # Services initialisieren, bevor der Server startet
     web.setup_services()
+    token = web.setup_access(host, port)
 
     config = uvicorn.Config(
         web.app,
@@ -68,7 +70,7 @@ def _start_uvicorn_in_thread(host: str, port: int, log_level: str = "info") -> T
 
     t = threading.Thread(target=server.run, name="dv2plex-uvicorn", daemon=True)
     t.start()
-    return server, t
+    return server, t, token
 
 
 def main(
@@ -105,7 +107,7 @@ def main(
     if port is None:
         port = _pick_free_port(open_host)
 
-    server, thread = _start_uvicorn_in_thread(host=bind_host, port=port, log_level=log_level)
+    server, thread, token = _start_uvicorn_in_thread(host=bind_host, port=port, log_level=log_level)
 
     if not _wait_for_port(open_host, port, timeout_s=15.0):
         # Server konnte nicht starten -> beenden
@@ -113,7 +115,8 @@ def main(
         thread.join(timeout=2.0)
         raise RuntimeError(f"Webserver konnte nicht gestartet werden (http://{open_host}:{port})")
 
-    local_url = f"http://{open_host}:{port}"
+    # The page keeps the token from the URL and sends it with every API request
+    local_url = f"http://{open_host}:{port}/?token={quote(token, safe='')}"
     try:
         import webview  # pywebview import-name
         webview.create_window(title, local_url, width=width, height=height)
