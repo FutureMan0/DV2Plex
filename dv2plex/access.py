@@ -9,6 +9,11 @@ header, as "Authorization: Bearer <token>", or as ?token=... where no header can
 Which requests need it:
 - the routes in ALWAYS_PROTECTED_PATHS (sudo, file system), whatever the bind host;
 - every /api request and /ws when the server listens on more than the loopback interface.
+
+Independent of the token, two checks keep other web pages out of a server on 127.0.0.1:
+- the Host header has to name this machine (blocks DNS rebinding);
+- a browser request that changes something, and the WebSocket, has to come from the page
+  itself: its Origin has to match the Host (blocks cross-site requests).
 """
 
 from __future__ import annotations
@@ -18,7 +23,8 @@ import logging
 import os
 import re
 import secrets
-from typing import Any, Mapping, Optional
+from typing import Any, Iterable, Mapping, Optional
+from urllib.parse import urlsplit
 
 TOKEN_ENV = "DV2PLEX_TOKEN"
 TOKEN_SETTING = "server.api_token"
@@ -91,6 +97,61 @@ def token_matches(expected: Optional[str], given: Optional[str]) -> bool:
     if not expected or not given:
         return False
     return secrets.compare_digest(expected.encode("utf-8"), given.encode("utf-8"))
+
+
+LOOPBACK_HOST_NAMES = frozenset({"localhost", "127.0.0.1", "::1"})
+# Methods a cross-site page must not trigger
+STATE_CHANGING_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
+
+
+def _host_name(host_header: str) -> str:
+    """Host name of a Host header value, without port and IPv6 brackets, lower case."""
+    value = (host_header or "").strip().lower()
+    if value.startswith("["):
+        return value[1:].split("]", 1)[0]
+    if value.count(":") == 1:
+        return value.split(":", 1)[0]
+    return value
+
+
+def host_allowed(host_header: Optional[str], loopback_only: bool, extra_hosts: Iterable[str] = ()) -> bool:
+    """
+    Whether a request with this Host header may reach the server.
+
+    A server bound to the loopback interface only answers to names of this machine, so a web
+    page cannot reach it through a DNS name that later resolves to 127.0.0.1 (DNS rebinding).
+    A server on the network answers to any name; there every API request needs the token.
+    """
+    if not loopback_only:
+        return True
+    name = _host_name(host_header or "")
+    if not name:
+        return False
+    allowed = {h.strip().lower() for h in extra_hosts if h and h.strip()}
+    if name in LOOPBACK_HOST_NAMES or name in allowed:
+        return True
+    try:
+        return ipaddress.ip_address(name).is_loopback
+    except ValueError:
+        return False
+
+
+def origin_allowed(origin: Optional[str], host_header: Optional[str]) -> bool:
+    """
+    Whether a request with this Origin header comes from the DV2Plex page itself.
+
+    Browsers send Origin with cross-site requests, form posts and WebSocket handshakes.
+    Scripts and curl usually send none; those are judged by the token rules alone.
+    """
+    if origin is None:
+        return True
+    origin = origin.strip()
+    if not origin or origin == "null":
+        return False
+    parts = urlsplit(origin)
+    if parts.scheme not in ("http", "https") or not parts.netloc:
+        return False
+    return parts.netloc.lower() == (host_header or "").strip().lower()
 
 
 def redact_token(text: str) -> str:

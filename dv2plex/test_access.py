@@ -31,9 +31,9 @@ def start_server(monkeypatch, tmp_path):
     monkeypatch.setattr(web_app, "token_required_everywhere", False)
     monkeypatch.delenv(TOKEN_ENV, raising=False)
 
-    def start(host):
+    def start(host, base_url="http://127.0.0.1:5000"):
         token = web_app.setup_access(host, 5000)
-        return TestClient(web_app.app), token
+        return TestClient(web_app.app, base_url=base_url), token
 
     return start
 
@@ -149,7 +149,7 @@ def test_token_opens_protected_routes(start_server, tmp_path):
 def test_local_websocket_needs_no_token(start_server):
     client, _ = start_server("127.0.0.1")
 
-    with client.websocket_connect("/ws") as ws:
+    with client.websocket_connect("ws://127.0.0.1:5000/ws") as ws:
         assert ws.receive_json()["type"] == "status"
 
 
@@ -169,10 +169,10 @@ def test_network_websocket_needs_token(start_server):
     client, token = start_server("0.0.0.0")
 
     with pytest.raises(WebSocketDisconnect):
-        with client.websocket_connect("/ws") as ws:
+        with client.websocket_connect("ws://127.0.0.1:5000/ws") as ws:
             ws.receive_json()
 
-    with client.websocket_connect(f"/ws?token={token}") as ws:
+    with client.websocket_connect(f"ws://127.0.0.1:5000/ws?token={token}") as ws:
         assert ws.receive_json()["type"] == "status"
 
 
@@ -194,7 +194,8 @@ def no_server(monkeypatch):
     import uvicorn
 
     calls = {}
-    monkeypatch.setattr(web_app, "setup_services", lambda: None)
+    monkeypatch.setattr(web_app, "setup_services", lambda **kw: calls.setdefault("services", kw))
+    monkeypatch.setattr(cli, "_setup_logging", lambda: None)
     monkeypatch.setattr(web_app, "setup_access", lambda host, port=None: calls.setdefault("access", (host, port)))
     monkeypatch.setattr(uvicorn, "run", lambda app, host, port, **kw: calls.setdefault("run", (host, port)))
     monkeypatch.setattr(desktop_app, "main", lambda **kw: calls.setdefault("desktop", kw))
@@ -251,3 +252,81 @@ def test_desktop_window_opens_with_the_token(monkeypatch):
     desktop_app.main(bind_host="127.0.0.1", port=5123)
 
     assert opened["url"] == "http://127.0.0.1:5123/?token=tok-123"
+
+
+# --- other web pages (DNS rebinding, cross-site requests) -------------------------------
+
+@pytest.mark.parametrize("host", ["127.0.0.1:5000", "localhost:5000", "[::1]:5000", "127.0.0.1", "LOCALHOST:5000"])
+def test_local_server_answers_to_its_own_names(host):
+    assert access.host_allowed(host, loopback_only=True)
+
+
+@pytest.mark.parametrize("host", ["evil.example:5000", "192.168.1.20:5000", "", "127.0.0.1.evil.example"])
+def test_local_server_refuses_other_host_names(host):
+    assert not access.host_allowed(host, loopback_only=True)
+
+
+def test_extra_host_names_can_be_allowed():
+    assert access.host_allowed("dv2plex.lan:5000", loopback_only=True, extra_hosts=["dv2plex.lan"])
+    assert access.host_allowed("anything:5000", loopback_only=False)
+
+
+@pytest.mark.parametrize("origin,host,allowed", [
+    (None, "127.0.0.1:5000", True),
+    ("http://127.0.0.1:5000", "127.0.0.1:5000", True),
+    ("https://dv.example.org", "dv.example.org", True),
+    ("http://evil.example", "127.0.0.1:5000", False),
+    ("http://127.0.0.1:6000", "127.0.0.1:5000", False),
+    ("null", "127.0.0.1:5000", False),
+    ("file://", "127.0.0.1:5000", False),
+])
+def test_origin_has_to_match_the_host(origin, host, allowed):
+    assert access.origin_allowed(origin, host) is allowed
+
+
+def test_dns_rebinding_host_is_refused(start_server):
+    client, _ = start_server("127.0.0.1", base_url="http://rebind.evil.example:5000")
+
+    assert client.get("/api/status").status_code == 421
+    assert client.get("/").status_code == 421
+
+
+def test_cross_site_post_is_refused_even_on_open_routes(start_server, tmp_path):
+    client, _ = start_server("127.0.0.1")
+
+    refused = client.post("/api/project/delete", json={"paths": [str(tmp_path)]},
+                          headers={"Origin": "http://evil.example"})
+    settings = client.post("/api/settings", json={"auto_export": True}, headers={"Origin": "http://evil.example"})
+
+    assert refused.status_code == 403
+    assert settings.status_code == 403
+    assert web_app.config.get("capture.auto_export") is False
+
+
+def test_same_page_post_and_scripts_without_origin_pass(start_server):
+    client, _ = start_server("127.0.0.1")
+
+    same_page = client.post("/api/settings", json={"auto_export": False}, headers={"Origin": "http://127.0.0.1:5000"})
+    script = client.post("/api/settings", json={"auto_export": False})
+
+    assert same_page.status_code == 200
+    assert script.status_code == 200
+
+
+def test_cross_site_websocket_is_refused(start_server):
+    client, _ = start_server("127.0.0.1")
+
+    with pytest.raises(WebSocketDisconnect):
+        with client.websocket_connect("ws://127.0.0.1:5000/ws", headers={"Origin": "http://evil.example"}) as ws:
+            ws.receive_json()
+    with client.websocket_connect("ws://127.0.0.1:5000/ws", headers={"Origin": "http://127.0.0.1:5000"}) as ws:
+        assert ws.receive_json()["type"] == "status"
+
+
+def test_server_mode_reads_the_host_setting(no_server, monkeypatch):
+    monkeypatch.setitem(web_app.config.config["server"], "host", "0.0.0.0")
+
+    cli.main(["--server"])
+
+    assert no_server["run"] == ("0.0.0.0", 5000)
+    assert no_server["services"] == {"mode": "server"}

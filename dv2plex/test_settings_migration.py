@@ -58,8 +58,8 @@ def _start_installation(instance: Path, monkeypatch) -> UpdateManager:
     manager = UpdateManager(instance, "master", "dv2plex", Config(), None)
 
     def run_without_sudo(cmd, timeout=60):
-        if cmd[0] == "sudo":
-            cmd = cmd[1:]
+        if cmd[:2] == ["sudo", "-n"]:
+            cmd = cmd[2:]
         if cmd[0] != "git":  # systemctl
             return SimpleNamespace(returncode=0, stdout="", stderr="")
         return subprocess.run(cmd, cwd=instance, capture_output=True, text=True, timeout=timeout)

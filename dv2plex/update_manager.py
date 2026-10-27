@@ -4,7 +4,7 @@ import asyncio
 import logging
 import subprocess
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional
 
@@ -124,7 +124,12 @@ class UpdateManager:
         return None
 
     def _refresh_status_sync(self) -> UpdateStatus:
-        now = datetime.utcnow().isoformat() + "Z"
+        now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+        if not (Path(self.repo_path) / ".git").exists():
+            return UpdateStatus(
+                local=None, remote=None, fetched=False, ok=False, last_checked=now,
+                error="This installation is not a git checkout; update it from the GitHub releases page.",
+            )
         try:
             fetch = self._run_cmd(["git", "fetch", "origin", self.branch])
             fetched = fetch.returncode == 0
@@ -190,7 +195,8 @@ class UpdateManager:
     def _perform_update_sync(self) -> Dict[str, Any]:
         """Führt git pull und Service-Restart aus."""
         self._reset_legacy_settings()
-        pull_cmd = ["sudo", "git", "pull", "origin", self.branch]
+        # -n: fail instead of waiting for a password nobody can type (service, desktop window)
+        pull_cmd = ["sudo", "-n", "git", "pull", "--ff-only", "origin", self.branch]
         pull = self._run_cmd(pull_cmd, timeout=300)
 
         if pull.returncode != 0:
@@ -235,7 +241,7 @@ class UpdateManager:
         diff = self._run_cmd(["git", "diff", "--quiet", "HEAD", "--", rel])
         if diff.returncode != 1:
             return
-        reset = self._run_cmd(["sudo", "git", "checkout", "HEAD", "--", rel])
+        reset = self._run_cmd(["sudo", "-n", "git", "checkout", "HEAD", "--", rel])
         if reset.returncode == 0:
             self.log(f"Reset {rel} to the repository version before pulling; settings stay in {Path(config_path).name}.")
         else:
@@ -248,7 +254,7 @@ class UpdateManager:
             if check.returncode == 0:
                 return {"success": True, "message": "Service bereits aktiviert"}
 
-            enable = self._run_cmd(["sudo", "systemctl", "enable", self.service_name])
+            enable = self._run_cmd(["sudo", "-n", "systemctl", "enable", self.service_name])
             if enable.returncode != 0:
                 return {
                     "success": False,
@@ -262,7 +268,7 @@ class UpdateManager:
 
     def _restart_service(self) -> Dict[str, Any]:
         """Startet den systemd-Service neu."""
-        restart = self._run_cmd(["sudo", "systemctl", "restart", self.service_name])
+        restart = self._run_cmd(["sudo", "-n", "systemctl", "restart", self.service_name])
         if restart.returncode != 0:
             return {
                 "success": False,
@@ -274,13 +280,22 @@ class UpdateManager:
 
     def _run_cmd(self, cmd: list[str], timeout: int = 60) -> subprocess.CompletedProcess:
         """Führt Kommando im Repo aus."""
-        return subprocess.run(
-            cmd,
-            cwd=self.repo_path,
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-        )
+        # The service often runs as root in a checkout owned by the user who cloned it;
+        # git (2.35.2 and later) then refuses with "dubious ownership" unless told otherwise.
+        git_at = 2 if cmd[:2] == ["sudo", "-n"] else (1 if cmd[:1] == ["sudo"] else 0)
+        if len(cmd) > git_at and cmd[git_at] == "git":
+            cmd = cmd[: git_at + 1] + ["-c", f"safe.directory={Path(self.repo_path).resolve()}"] + cmd[git_at + 1:]
+        try:
+            return subprocess.run(
+                cmd,
+                cwd=self.repo_path,
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+            )
+        except FileNotFoundError as e:
+            # git or systemctl missing (Windows, macOS, a packaged app)
+            return subprocess.CompletedProcess(cmd, 127, "", f"{cmd[0]} not found: {e}")
 
     @property
     def last_result(self) -> Optional[Dict[str, Any]]:

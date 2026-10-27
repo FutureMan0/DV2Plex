@@ -56,7 +56,7 @@ def _start_uvicorn_in_thread(host: str, port: int, log_level: str = "info") -> T
     from dv2plex import web_app as web
 
     # Services initialisieren, bevor der Server startet
-    web.setup_services()
+    web.setup_services(mode="desktop")
     token = web.setup_access(host, port)
 
     config = uvicorn.Config(

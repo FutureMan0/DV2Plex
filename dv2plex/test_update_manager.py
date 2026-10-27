@@ -88,6 +88,10 @@ class SettingsConfig(DummyConfig):
             self.config_path.write_text("{}", encoding="utf-8")
 
 
+# sudo -n: fail instead of waiting for a password; --ff-only: never create merge commits
+PULL = ["sudo", "-n", "git", "pull", "--ff-only", "origin", "master"]
+
+
 def _record_commands(manager, monkeypatch, diff_returncode):
     commands = []
 
@@ -108,8 +112,8 @@ def test_update_resets_changed_legacy_settings_before_pull(monkeypatch, tmp_path
 
     assert result["success"] is True
     assert commands[0] == ["git", "diff", "--quiet", "HEAD", "--", "dv2plex/config/settings.json"]
-    assert commands[1] == ["sudo", "git", "checkout", "HEAD", "--", "dv2plex/config/settings.json"]
-    assert commands[2] == ["sudo", "git", "pull", "origin", "master"]
+    assert commands[1] == ["sudo", "-n", "git", "checkout", "HEAD", "--", "dv2plex/config/settings.json"]
+    assert commands[2] == PULL
 
 
 def test_update_leaves_unchanged_legacy_settings(monkeypatch, tmp_path: Path):
@@ -118,8 +122,8 @@ def test_update_leaves_unchanged_legacy_settings(monkeypatch, tmp_path: Path):
 
     manager._perform_update_sync()
 
-    assert not any(cmd[:3] == ["sudo", "git", "checkout"] for cmd in commands)
-    assert ["sudo", "git", "pull", "origin", "master"] in commands
+    assert not any(cmd[:4] == ["sudo", "-n", "git", "checkout"] for cmd in commands)
+    assert PULL in commands
 
 
 def test_update_keeps_legacy_settings_until_they_are_moved(monkeypatch, tmp_path: Path):
@@ -129,4 +133,4 @@ def test_update_keeps_legacy_settings_until_they_are_moved(monkeypatch, tmp_path
 
     manager._perform_update_sync()
 
-    assert commands[0] == ["sudo", "git", "pull", "origin", "master"]
+    assert commands[0] == PULL

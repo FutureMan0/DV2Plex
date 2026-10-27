@@ -26,12 +26,15 @@ import uvicorn
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
+from dv2plex import __version__
 from dv2plex.config import Config
+from dv2plex.naming import InvalidName, movie_folder_name
 from dv2plex.service import (
     PostprocessingService,
     CaptureService,
     MovieModeService,
     CoverService,
+    find_merged_file,
     find_pending_movies,
     find_upscaled_videos,
     find_available_videos,
@@ -41,10 +44,13 @@ from dv2plex.service import (
 from dv2plex.update_manager import UpdateManager
 from dv2plex.access import (
     ALWAYS_PROTECTED_PATHS,
+    STATE_CHANGING_METHODS,
     TOKEN_SETTING,
     RedactTokenFilter,
+    host_allowed,
     is_loopback,
     load_or_create_token,
+    origin_allowed,
     requires_token,
     token_from_environment,
     token_from_request,
@@ -70,6 +76,8 @@ app = FastAPI(title="DV2Plex Web Interface")
 
 # Global state
 config = Config()
+# "server" (headless, may manage the systemd service) or "desktop" (window on this machine)
+run_mode = "server"
 capture_service: Optional[CaptureService] = None
 postprocessing_service: Optional[PostprocessingService] = None
 movie_mode_service: Optional[MovieModeService] = None
@@ -132,9 +140,10 @@ def add_log_entry(msg: str, category: str = "general"):
         log_buffer = log_buffer[-LOG_BUFFER_MAX_SIZE:]
 
 
-def setup_services():
+def setup_services(mode: str = "server"):
     """Initialisiert die Services"""
-    global capture_service, postprocessing_service, movie_mode_service, cover_service, update_manager
+    global capture_service, postprocessing_service, movie_mode_service, cover_service, update_manager, run_mode
+    run_mode = mode
     
     def log_callback(msg: str):
         logger.info(msg)
@@ -164,14 +173,29 @@ def setup_services():
                 "operation": "capture"
             })
     
+    def merge_finished_callback(job):
+        """After a capture's merge: upscale (and export) automatically if that is switched on."""
+        if job.status != "completed" or not config.get("capture.auto_postprocess", False):
+            return
+        if not config.get("capture.auto_upscale", True):
+            add_log_entry(f"Auto-postprocessing is on, auto-upscaling off: {job.title} stays merged only.", "merge")
+            return
+        project_dir = Path(job.splits_dir).parent.parent
+        profile = config.get("upscaling.default_profile", "realesrgan_2x")
+        add_log_entry(f"Merge done, upscaling {project_dir.name} automatically ({profile}).", "merge")
+        _start_postprocessing(project_dir, profile)
+
     capture_service = CaptureService(
         config, 
         log_callback=log_callback,
         merge_progress_callback=merge_progress_callback,
         state_callback=capture_state_callback,
+        merge_finished_callback=merge_finished_callback,
     )
     
-    postprocessing_service = PostprocessingService(config, log_callback=log_callback)
+    postprocessing_service = PostprocessingService(
+        config, log_callback=log_callback, merge_busy=capture_service.is_merging
+    )
     movie_mode_service = MovieModeService(config, log_callback=log_callback)
     cover_service = CoverService(config, log_callback=log_callback)
     update_manager = UpdateManager(
@@ -215,9 +239,31 @@ def setup_access(bind_host: str, port: Optional[int] = None) -> str:
     return api_token
 
 
+def _allowed_hosts() -> List[str]:
+    """Extra host names (reverse proxy, mDNS name) set in server.allowed_hosts."""
+    value = config.get("server.allowed_hosts", []) or []
+    if isinstance(value, str):
+        value = [value]
+    return [str(v) for v in value]
+
+
 @app.middleware("http")
 async def require_api_token(request: Request, call_next):
-    """Refuses protected requests without the API token (see dv2plex/access.py)."""
+    """
+    Refuses requests from other web pages and protected requests without the API token
+    (see dv2plex/access.py).
+    """
+    host_header = request.headers.get("host")
+    if not host_allowed(host_header, not token_required_everywhere, _allowed_hosts()):
+        return JSONResponse(
+            status_code=421,
+            content={"detail": "Unknown host name. Open DV2Plex as http://127.0.0.1:<port>/, or add the name to server.allowed_hosts."},
+        )
+    if request.method in STATE_CHANGING_METHODS and not origin_allowed(request.headers.get("origin"), host_header):
+        return JSONResponse(
+            status_code=403,
+            content={"detail": "Request from another web page refused."},
+        )
     if requires_token(request.scope["path"], token_required_everywhere):
         given = token_from_request(request.headers, request.query_params)
         if not token_matches(api_token, given):
@@ -391,6 +437,60 @@ async def get_status():
     }
 
 
+@app.get("/api/info")
+async def get_info():
+    """What this installation can do: version, mode, ffmpeg, capture and upscaling backends."""
+    import importlib.util
+    import platform
+
+    from dv2plex.media import has_filter
+    from dv2plex.merge import ffmpeg_version
+    from dv2plex.upscale import realesrgan_available
+
+    ffmpeg = config.get_ffmpeg_path()
+    ffmpeg_found = ffmpeg.exists() or bool(shutil.which(str(ffmpeg)))
+    dvgrab_cmd = config.get_dvgrab_command()
+    dvgrab_found = bool(shutil.which(dvgrab_cmd[0])) or Path(dvgrab_cmd[0]).is_file()
+    esr_reason = realesrgan_available()
+    full_poster = all(importlib.util.find_spec(m) is not None for m in ("cv2", "rembg", "sklearn", "playwright"))
+    profiles = config.get("upscaling.profiles", {}) or {}
+    return {
+        "version": __version__,
+        "platform": sys.platform,
+        "os": platform.platform(terse=True),
+        "frozen": bool(getattr(sys, "frozen", False)),
+        "demo": bool(config.get("demo.enabled", False)),
+        "mode": run_mode,
+        "language": config.get("ui.language", "") or "",
+        "ffmpeg": {
+            "path": str(ffmpeg),
+            "found": ffmpeg_found,
+            "version": await asyncio.to_thread(ffmpeg_version, ffmpeg) if ffmpeg_found else None,
+            "drawtext": bool(ffmpeg_found and await asyncio.to_thread(has_filter, ffmpeg, "drawtext")),
+        },
+        "capture": {
+            "dvgrab_found": dvgrab_found,
+            "supported": dvgrab_found and (sys.platform.startswith("linux") or bool(config.get("demo.enabled", False))),
+        },
+        "upscaling": {
+            "realesrgan": esr_reason is None,
+            "realesrgan_reason": esr_reason,
+            "profiles": [
+                {"name": name, "backend": p.get("backend", "realesrgan"), "scale_factor": p.get("scale_factor"),
+                 "available": p.get("backend") == "ffmpeg" or esr_reason is None}
+                for name, p in profiles.items()
+            ],
+        },
+        "poster": {"full": full_poster, "engine": config.get("cover.poster_engine", "auto")},
+        "paths": {
+            "dv_import_root": str(config.get_dv_import_root()),
+            "plex_movies_root": str(config.get_plex_movies_root()),
+            "settings": str(config.config_path),
+            "logs": str(config.get_log_directory()),
+        },
+    }
+
+
 @app.get("/api/update/status")
 async def get_update_status(refresh: bool = False):
     """Gibt den Update-Status zurück"""
@@ -454,7 +554,10 @@ async def get_postprocess_list():
             "path": str(movie_dir),
             "title": title,
             "year": year,
-            "display": f"{title} ({year})" if year else movie_dir.name
+            "display": f"{title} ({year})" if year else movie_dir.name,
+            # Clips that were never merged; processing merges them first
+            "needs_merge": find_merged_file(movie_dir / "LowRes") is None,
+            "merging": bool(capture_service and capture_service.is_merging(movie_dir)),
         })
     return {"movies": result}
 
@@ -671,18 +774,29 @@ async def pause_camera():
     return {"success": True}
 
 
-def _ensure_in_dv_import_root(file_path: Path) -> Path:
-    """Validiert, dass sich der Pfad innerhalb des DV_Import-Verzeichnisses befindet."""
-    root = config.get_dv_import_root().resolve()
+def _ensure_within(file_path: Path, roots: List[Path], what: str = "Path") -> Path:
+    """The resolved path, if it lies inside one of the roots; else 400."""
     try:
         resolved = file_path.resolve()
-    except Exception:
-        raise HTTPException(status_code=400, detail="Ungültiger Pfad")
-    try:
-        resolved.relative_to(root)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Pfad liegt nicht im DV_Import-Ordner")
-    return resolved
+    except (OSError, RuntimeError, ValueError):
+        raise HTTPException(status_code=400, detail=f"{what}: invalid path")
+    for root in roots:
+        try:
+            resolved.relative_to(root.resolve())
+            return resolved
+        except ValueError:
+            continue
+    raise HTTPException(status_code=400, detail=f"{what} is outside the folders DV2Plex works in.")
+
+
+def _frames_dir() -> Path:
+    import tempfile
+    return Path(tempfile.gettempdir()) / "dv2plex_cover_frames"
+
+
+def _ensure_in_dv_import_root(file_path: Path) -> Path:
+    """Validiert, dass sich der Pfad innerhalb des DV_Import-Verzeichnisses befindet."""
+    return _ensure_within(file_path, [config.get_dv_import_root()], "Path")
 
 
 def _rmtree_force(path: Path) -> None:
@@ -753,6 +867,7 @@ async def list_player_projects():
         
         projects.append({
             "title": project_dir.name,
+            "path": str(project_dir),
             "lowres": lowres,
             "highres": highres,
             "poster_path": str(poster_path) if has_poster else None,
@@ -824,11 +939,11 @@ async def rename_player_project(request: PlayerRenameRequest):
     if not project_dir.exists() or not project_dir.is_dir():
         raise HTTPException(status_code=404, detail="Projekt-Ordner nicht gefunden")
     
-    # Erstelle neuen Ordnernamen
-    if request.new_year:
-        new_folder_name = f"{request.new_title} ({request.new_year})"
-    else:
-        new_folder_name = request.new_title
+    # Erstelle neuen Ordnernamen (gültig auf allen Systemen, nicht außerhalb des Import-Ordners)
+    try:
+        new_folder_name = movie_folder_name(request.new_title, request.new_year, year_required=False)
+    except InvalidName as e:
+        raise HTTPException(status_code=400, detail=str(e))
     
     # Prüfe ob Zielordner bereits existiert
     new_project_dir = project_dir.parent / new_folder_name
@@ -905,56 +1020,55 @@ async def rename_player_project(request: PlayerRenameRequest):
         raise HTTPException(status_code=500, detail=f"Fehler beim Umbenennen: {str(e)}")
 
 
+def _start_postprocessing(movie_dir: Path, profile_name: str) -> tuple:
+    """Queues upscaling for a project; progress and the result go out over the WebSocket."""
+    global active_postprocessing
+
+    def progress_cb(value: int):
+        broadcast_message_sync({"type": "progress", "value": value, "operation": "postprocessing",
+                                "project": movie_dir.name})
+
+    def status_cb(status: str):
+        global active_postprocessing
+        active_postprocessing = {"movie_dir": str(movie_dir), "started_at": datetime.now().isoformat()}
+        broadcast_message_sync({"type": "status", "status": status, "operation": "postprocessing"})
+
+    def finished_cb(success: bool, message: str):
+        global active_postprocessing
+        active_postprocessing = None
+        add_log_entry(message, "postprocessing")
+        broadcast_message_sync({
+            "type": "postprocessing_finished",
+            "success": success,
+            "message": message,
+            "project": movie_dir.name,
+        })
+
+    return postprocessing_service.process_movie(
+        movie_dir,
+        profile_name,
+        progress_callback=progress_cb,
+        status_callback=status_cb,
+        finished_callback=finished_cb,
+    )
+
+
 @app.post("/api/postprocess/process")
 async def process_movie(request: PostprocessRequest):
     """Startet Postprocessing für einen Film"""
-    global active_postprocessing
-    
     if not postprocessing_service:
         raise HTTPException(status_code=500, detail="Postprocessing-Service nicht initialisiert")
-    
-    movie_dir = Path(request.movie_dir)
-    if not movie_dir.exists():
-        raise HTTPException(status_code=404, detail=f"Film-Ordner nicht gefunden: {movie_dir}")
-    
-    # Run in background thread
-    def run_postprocessing():
-        global active_postprocessing
-        active_postprocessing = {
-            "movie_dir": str(movie_dir),
-            "started_at": datetime.now().isoformat()
-        }
-        
-        def progress_cb(value: int):
-            broadcast_message_sync({"type": "progress", "value": value, "operation": "postprocessing"})
-        
-        def status_cb(status: str):
-            broadcast_message_sync({"type": "status", "status": status, "operation": "postprocessing"})
 
-        def finished_cb(success: bool, message: str):
-            global active_postprocessing
-            active_postprocessing = None
-            broadcast_message_sync({
-                "type": "postprocessing_finished",
-                "success": success,
-                "message": message
-            })
-        
-        success, message = postprocessing_service.process_movie(
-            movie_dir,
-            request.profile_name,
-            progress_callback=progress_cb,
-            status_callback=status_cb,
-            finished_callback=finished_cb,
-        )
-        # Wenn die Queue nur angenommen hat, nicht sofort abschließen; finished_cb macht das
-        if not success:
-            finished_cb(False, message)
-    
-    thread = threading.Thread(target=run_postprocessing, daemon=True)
-    thread.start()
-    
-    return {"success": True, "message": "Postprocessing gestartet"}
+    movie_dir = _ensure_in_dv_import_root(Path(request.movie_dir))
+    if not movie_dir.is_dir():
+        raise HTTPException(status_code=404, detail=f"Project folder not found: {movie_dir.name}")
+    if not config.get_upscaling_profile(request.profile_name):
+        raise HTTPException(status_code=400, detail=f"Unknown upscaling profile: {request.profile_name}")
+
+    queued, message = _start_postprocessing(movie_dir, request.profile_name)
+    if not queued:
+        raise HTTPException(status_code=409, detail=message)
+    return {"success": True, "message": "Postprocessing gestartet", "queued": postprocessing_service.queued_count()}
 
 
 @app.post("/api/movie/merge")
@@ -963,7 +1077,7 @@ async def merge_videos(request: MergeRequest):
     if not movie_mode_service:
         raise HTTPException(status_code=500, detail="Movie-Mode-Service nicht initialisiert")
     
-    video_paths = [Path(p) for p in request.video_paths]
+    video_paths = [_ensure_in_dv_import_root(Path(p)) for p in request.video_paths]
 
     global active_movie_merge
     if active_movie_merge.get("running"):
@@ -971,9 +1085,11 @@ async def merge_videos(request: MergeRequest):
 
     # Schnell validieren, damit wir sofort Fehler zurückgeben
     if len(video_paths) < 2:
-        raise HTTPException(status_code=400, detail="Mindestens 2 Videos erforderlich")
-    if not request.title or not request.year:
-        raise HTTPException(status_code=400, detail="Titel und Jahr müssen angegeben werden")
+        raise HTTPException(status_code=400, detail="Select at least two videos.")
+    try:
+        movie_folder_name(request.title, request.year)
+    except InvalidName as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
     active_movie_merge = {"running": True, "current": f"{request.title} ({request.year})"}
 
@@ -1053,7 +1169,7 @@ async def export_video(request: ExportRequest):
     if not movie_mode_service:
         raise HTTPException(status_code=500, detail="Movie-Mode-Service nicht initialisiert")
     
-    video_path = Path(request.video_path)
+    video_path = _ensure_in_dv_import_root(Path(request.video_path))
 
     global active_export_single
     if active_export_single.get("running"):
@@ -1334,9 +1450,10 @@ async def extract_frames(request: CoverExtractRequest):
     if not cover_service:
         raise HTTPException(status_code=500, detail="Cover-Service nicht initialisiert")
     
-    video_path = Path(request.video_path)
-    
-    success, frames, error = cover_service.extract_frames(video_path, request.count)
+    video_path = _ensure_in_dv_import_root(Path(request.video_path))
+    count = max(1, min(int(request.count or 4), 16))
+
+    success, frames, error = cover_service.extract_frames(video_path, count)
     
     if success:
         # Convert frames to base64
@@ -1364,8 +1481,8 @@ async def generate_cover(request: CoverGenerateRequest):
     if not cover_service:
         raise HTTPException(status_code=500, detail="Cover-Service nicht initialisiert")
     
-    frame_path = Path(request.frame_path)
-    
+    frame_path = _ensure_within(Path(request.frame_path), [_frames_dir()], "Frame")
+
     # Run in background thread
     def run_generation():
         def progress_cb(value: int):
@@ -1407,10 +1524,10 @@ async def generate_poster(request: PosterGenerateRequest):
     if not cover_service:
         raise HTTPException(status_code=500, detail="Cover-Service nicht initialisiert")
     
-    video_path = Path(request.video_path)
+    video_path = _ensure_in_dv_import_root(Path(request.video_path))
     if not video_path.exists():
-        raise HTTPException(status_code=404, detail=f"Video nicht gefunden: {video_path}")
-    
+        raise HTTPException(status_code=404, detail=f"Video not found: {video_path.name}")
+
     # Füge Job zur Queue hinzu
     def progress_cb(value: int):
         broadcast_message_sync({"type": "progress", "value": value, "operation": "poster_generation"})
@@ -1457,7 +1574,10 @@ async def generate_poster_batch(request: PosterGenerateBatchRequest):
     
     added_count = 0
     for video_path_str in request.video_paths:
-        video_path = Path(video_path_str)
+        try:
+            video_path = _ensure_in_dv_import_root(Path(video_path_str))
+        except HTTPException:
+            continue
         if not video_path.exists():
             continue
         
@@ -1521,16 +1641,51 @@ async def get_settings():
         "auto_postprocess": config.get("capture.auto_postprocess", False),
         "auto_upscale": config.get("capture.auto_upscale", True),
         "auto_export": config.get("capture.auto_export", False),
+        "timestamp_overlay": config.get("capture.timestamp_overlay", True),
         "ui_theme": config.get("ui.theme", "plex"),
+        "ui_language": config.get("ui.language", ""),
         "show_cover_tab": config.get("ui.show_cover_tab", True),
         "update_enabled": config.get("update.enabled", False),
         "update_interval_minutes": config.get("update.interval_minutes", 60),
+        "default_profile": config.get("upscaling.default_profile", "realesrgan_2x"),
     }
 
 
+class SettingsUpdate(BaseModel):
+    plex_movies_root: Optional[str] = None
+    dv_import_root: Optional[str] = None
+    ffmpeg_path: Optional[str] = None
+    auto_postprocess: Optional[bool] = None
+    auto_upscale: Optional[bool] = None
+    auto_export: Optional[bool] = None
+    timestamp_overlay: Optional[bool] = None
+    ui_theme: Optional[str] = None
+    ui_language: Optional[str] = None
+    show_cover_tab: Optional[bool] = None
+    update_enabled: Optional[bool] = None
+    update_interval_minutes: Optional[int] = None
+    default_profile: Optional[str] = None
+
+
 @app.post("/api/settings")
-async def update_settings(settings: Dict[str, Any]):
+async def update_settings(update: SettingsUpdate):
     """Aktualisiert die Einstellungen"""
+    settings = update.model_dump(exclude_none=True) if hasattr(update, "model_dump") else update.dict(exclude_none=True)
+    for key in ("plex_movies_root", "dv_import_root"):
+        if key in settings and not str(settings[key]).strip():
+            raise HTTPException(status_code=400, detail=f"{key} must not be empty.")
+    if "update_interval_minutes" in settings and not (5 <= settings["update_interval_minutes"] <= 24 * 60):
+        raise HTTPException(status_code=400, detail="update_interval_minutes must be between 5 and 1440.")
+    if "default_profile" in settings and not config.get_upscaling_profile(settings["default_profile"]):
+        raise HTTPException(status_code=400, detail=f"Unknown upscaling profile: {settings['default_profile']}")
+    if "ui_language" in settings and settings["ui_language"] not in ("", "en", "de"):
+        raise HTTPException(status_code=400, detail="ui_language must be en, de or empty.")
+    if "timestamp_overlay" in settings:
+        config.set("capture.timestamp_overlay", settings["timestamp_overlay"])
+    if "ui_language" in settings:
+        config.set("ui.language", settings["ui_language"])
+    if "default_profile" in settings:
+        config.set("upscaling.default_profile", settings["default_profile"])
     if "plex_movies_root" in settings:
         config.set("paths.plex_movies_root", settings["plex_movies_root"])
     if "dv_import_root" in settings:
@@ -1551,8 +1706,11 @@ async def update_settings(settings: Dict[str, Any]):
         config.set("update.enabled", settings["update_enabled"])
     if "update_interval_minutes" in settings:
         config.set("update.interval_minutes", settings["update_interval_minutes"])
-    
-    config.save_config()
+
+    try:
+        config.save_config()
+    except OSError as e:
+        raise HTTPException(status_code=500, detail=f"Could not save the settings to {config.config_path}: {e}")
     return {"success": True, "message": "Einstellungen gespeichert"}
 
 
@@ -1721,6 +1879,13 @@ async def clear_logs():
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     """WebSocket-Endpoint für Live-Updates"""
+    host_header = websocket.headers.get("host")
+    if not host_allowed(host_header, not token_required_everywhere, _allowed_hosts()) or not origin_allowed(
+        websocket.headers.get("origin"), host_header
+    ):
+        # Another web page must not read the live log and preview
+        await websocket.close(code=1008)
+        return
     if requires_token("/ws", token_required_everywhere):
         given = token_from_request(websocket.headers, websocket.query_params)
         if not token_matches(api_token, given):
@@ -1763,7 +1928,9 @@ async def on_startup():
     global main_event_loop
     main_event_loop = asyncio.get_running_loop()
     await _start_update_scheduler()
-    if update_manager:
+    # Only a headless installation with automatic updates manages its systemd service;
+    # the desktop window must not ask for sudo or enable a service.
+    if update_manager and run_mode == "server" and config.get("update.enabled", False):
         try:
             result = await asyncio.to_thread(update_manager._ensure_service_enabled)
             if not result.get("success", False):
