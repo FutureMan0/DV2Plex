@@ -1,0 +1,88 @@
+name: Release
+
+# A tag v<major>.<minor>.<patch> builds the desktop app on all three systems and creates a
+# draft release with the packages, their checksums and the CHANGELOG section of that version.
+# A maintainer reads it and publishes it. Started by hand, it only builds (no release).
+
+on:
+  push:
+    tags: ["v*.*.*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Desktop app (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: Windows x64, os: windows-latest }
+          - { name: macOS arm64, os: macos-14 }
+          - { name: macOS x86_64, os: macos-15-intel }
+          - { name: Linux x86_64, os: ubuntu-22.04 }  # oldest glibc we support
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Version matches the tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          version=$(python -c "import dv2plex; print(dv2plex.__version__)")
+          test "v$version" = "${GITHUB_REF_NAME}" || { echo "dv2plex/__init__.py says $version, the tag ${GITHUB_REF_NAME}"; exit 1; }
+      - name: WebKitGTK for the Linux window
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y python3-gi gir1.2-webkit2-4.1 libgirepository1.0-dev libcairo2-dev
+          pip install "PyGObject<3.51" pycairo
+      - name: Inno Setup
+        if: runner.os == 'Windows'
+        run: if (-not (Get-Command iscc -ErrorAction SilentlyContinue)) { choco install innosetup -y --no-progress }
+      - run: pip install -r requirements-build.txt
+      - name: Build
+        run: python packaging/build.py
+      - name: The packaged app runs the whole chain
+        shell: bash
+        run: |
+          case "${RUNNER_OS}" in
+            Windows) app=dist/DV2Plex/DV2Plex.exe ;;
+            macOS) app=dist/DV2Plex.app/Contents/MacOS/DV2Plex ;;
+            *) app=dist/DV2Plex/DV2Plex ;;
+          esac
+          "$app" --demo-run --demo-dir "$RUNNER_TEMP/demo"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: DV2Plex-${{ runner.os }}-${{ matrix.os }}
+          path: |
+            dist/DV2Plex-*.exe
+            dist/DV2Plex-*.zip
+            dist/DV2Plex-*.tar.gz
+          if-no-files-found: error
+
+  release:
+    name: Draft release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: packages
+          merge-multiple: true
+      - name: Notes from CHANGELOG.md
+        run: python scripts/changelog_section.py "${GITHUB_REF_NAME#v}" > notes.md
+      - name: Checksums
+        run: cd packages && sha256sum * > SHA256SUMS.txt && cat SHA256SUMS.txt
+      - name: Create the draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" packages/* --draft --title "DV2Plex ${GITHUB_REF_NAME#v}" --notes-file notes.md

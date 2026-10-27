@@ -32,7 +32,11 @@ def keep(name: str) -> bool:
 datas = [
     (str(ROOT / "dv2plex" / "web"), "dv2plex/web"),
     (str(ROOT / "dv2plex" / "resources"), "dv2plex/resources"),
+    (str(ROOT / "LICENSE"), "."),
+    (str(ROOT / "THIRD_PARTY_NOTICES.md"), "."),
 ]
+if os.environ.get("DV2PLEX_LICENSES_FILE"):
+    datas.append((os.environ["DV2PLEX_LICENSES_FILE"], "."))
 binaries = []
 if FFMPEG_DIR:
     for name in sorted(os.listdir(FFMPEG_DIR)):

@@ -175,6 +175,39 @@ def check_ffmpeg(folder: Path) -> None:
     print(f"Bundling {first}", flush=True)
 
 
+# ------------------------------------------------------------------ licences
+
+BUILD_ONLY = {"dv2plex", "pyinstaller", "pyinstaller-hooks-contrib", "altgraph", "macholib", "pefile", "pip", "setuptools",
+              "wheel", "packaging", "pywin32-ctypes"}
+
+
+def write_package_licences() -> Path:
+    """Name, version and licence of every Python package in the build environment."""
+    from importlib import metadata
+
+    rows = []
+    for dist in metadata.distributions():
+        name = dist.metadata.get("Name") or "?"
+        if name.lower() in BUILD_ONLY:
+            continue
+        licence = (dist.metadata.get("License-Expression") or "").strip()
+        if not licence:
+            classifiers = [c.split("::")[-1].strip() for c in dist.metadata.get_all("Classifier") or []
+                           if c.startswith("License ::")]
+            licence = ", ".join(classifiers) or (dist.metadata.get("License") or "").strip().splitlines()[0:1]
+            licence = licence if isinstance(licence, str) else (licence[0] if licence else "see the package")
+        rows.append((name, dist.version, licence[:80]))
+    out = BUILD / "licenses" / "THIRD_PARTY_LICENSES.txt"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    lines = [
+        "Python packages inside this build of DV2Plex, with their licences.",
+        "DV2Plex itself: MIT. More (ffmpeg, Real-ESRGAN, models): THIRD_PARTY_NOTICES.md.",
+        "",
+    ] + [f"{n} {v}: {lic}" for n, v, lic in sorted(rows, key=lambda r: r[0].lower())]
+    out.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return out
+
+
 # ------------------------------------------------------------------ packages
 
 def package(ver: str) -> list:
@@ -221,7 +254,7 @@ def main() -> None:
     ver = version()
     print(f"Building DV2Plex {ver} for {_platform_key()}", flush=True)
     icons = make_icons()
-    env = dict(os.environ, DV2PLEX_ICON_DIR=str(icons))
+    env = dict(os.environ, DV2PLEX_ICON_DIR=str(icons), DV2PLEX_LICENSES_FILE=str(write_package_licences()))
 
     if args.ffmpeg != "none":
         folder = fetch_ffmpeg() if args.ffmpeg == "auto" else Path(args.ffmpeg)
