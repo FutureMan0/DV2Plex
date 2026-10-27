@@ -202,7 +202,8 @@ class Config:
                 "window_height": 720,
                 "preview_fps": 10,
                 "show_cover_tab": True,
-                "language": ""  # Empty = the browser's language (English or German)
+                "language": "",  # Empty = the browser's language (English or German)
+                "setup_done": False  # The first-start assistant ran (or was skipped)
             },
             "logging": {
                 "level": "INFO",
@@ -249,6 +250,9 @@ class Config:
                     config = json.load(f)
                 # Merge mit Defaults für fehlende Schlüssel
                 merged = self._merge_dicts(self.default_config, config)
+                # Installations from before the first-start assistant are set up already
+                if "setup_done" not in (config.get("ui") or {}):
+                    merged["ui"]["setup_done"] = True
                 # Migriere Windows-Pfade zu Linux-Pfaden
                 merged = self._migrate_windows_paths(merged)
                 merged = self._migrate_retired_cover_model(merged)

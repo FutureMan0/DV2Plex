@@ -135,6 +135,8 @@ def get_settings():
         "update_enabled": state.config.get("update.enabled", False),
         "update_interval_minutes": state.config.get("update.interval_minutes", 60),
         "default_profile": state.config.get("upscaling.default_profile", "realesrgan_2x"),
+        "setup_done": bool(state.config.get("ui.setup_done", True)),
+        "firewire_device": state.config.get("device.firewire_device", "") or "",
     }
 
 
@@ -152,6 +154,7 @@ class SettingsUpdate(BaseModel):
     update_enabled: Optional[bool] = None
     update_interval_minutes: Optional[int] = None
     default_profile: Optional[str] = None
+    setup_done: Optional[bool] = None
 
 
 @router.post("/api/settings")
@@ -173,6 +176,8 @@ def update_settings(update: SettingsUpdate):
         state.config.set("ui.language", settings["ui_language"])
     if "default_profile" in settings:
         state.config.set("upscaling.default_profile", settings["default_profile"])
+    if "setup_done" in settings:
+        state.config.set("ui.setup_done", settings["setup_done"])
     if "plex_movies_root" in settings:
         state.config.set("paths.plex_movies_root", settings["plex_movies_root"])
     if "dv_import_root" in settings:

@@ -1,392 +1,562 @@
 <!DOCTYPE html>
-<html lang="de">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>DV2Plex - MiniDV Digitalisierung</title>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="light dark">
+    <title>DV2Plex</title>
 </head>
 <body>
-    <div class="container">
-        <div class="logo-container">
-            <h1>DV2Plex</h1>
+<svg class="sprite" aria-hidden="true" focusable="false">
+    <symbol id="i-capture" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="3.5" class="fill"/></symbol>
+    <symbol id="i-upscale" viewBox="0 0 24 24"><rect x="3.5" y="3.5" width="17" height="17" rx="2"/><path d="M9 15l6-6M10.5 9H15v4.5"/><rect x="5.5" y="13.5" width="5" height="5" class="fill"/></symbol>
+    <symbol id="i-cover" viewBox="0 0 24 24"><rect x="5" y="3.5" width="14" height="17" rx="1.5"/><path d="M5 14l4-4 4 4 2-2 4 4"/><circle cx="14.5" cy="8" r="1.4"/></symbol>
+    <symbol id="i-export" viewBox="0 0 24 24"><rect x="3.5" y="5.5" width="5" height="13" rx="1"/><rect x="9.5" y="5.5" width="5" height="13" rx="1"/><path d="M16.5 6.5l3.4-1 3 12.4-3.4 1z"/></symbol>
+    <symbol id="i-queue" viewBox="0 0 24 24"><path d="M3.5 6h6c2 0 3 1 4 3l1 2c1 2 2 3 4 3h2M3.5 18h6c2 0 3-1 4-3"/><path d="M17.5 11l3 3-3 3"/></symbol>
+    <symbol id="i-player" viewBox="0 0 24 24"><rect x="3.5" y="4.5" width="17" height="15" rx="2"/><path d="M10 9l5 3-5 3z" class="fill"/></symbol>
+    <symbol id="i-logs" viewBox="0 0 24 24"><path d="M8 6.5h12M8 12h12M8 17.5h12"/><circle cx="4.5" cy="6.5" r="1" class="fill"/><circle cx="4.5" cy="12" r="1" class="fill"/><circle cx="4.5" cy="17.5" r="1" class="fill"/></symbol>
+    <symbol id="i-settings" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2.8v2.6M12 18.6v2.6M2.8 12h2.6M18.6 12h2.6M5.5 5.5l1.8 1.8M16.7 16.7l1.8 1.8M5.5 18.5l1.8-1.8M16.7 7.3l1.8-1.8"/></symbol>
+    <symbol id="i-tape" viewBox="0 0 48 32"><rect x="2" y="2" width="44" height="28" rx="4"/><rect x="9" y="6" width="30" height="5" rx="1" class="soft"/><rect x="10" y="15" width="28" height="11" rx="5.5"/><circle cx="17" cy="20.5" r="3.2"/><circle cx="31" cy="20.5" r="3.2"/></symbol>
+    <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3.5 6.5a1 1 0 011-1h5l2 2h8a1 1 0 011 1v9a1 1 0 01-1 1h-15a1 1 0 01-1-1z"/></symbol>
+    <symbol id="i-file" viewBox="0 0 24 24"><path d="M6.5 3.5h7l4 4v13h-11z"/><path d="M13.5 3.5v4h4"/></symbol>
+    <symbol id="i-lock" viewBox="0 0 24 24"><rect x="5.5" y="10.5" width="13" height="9" rx="1.5"/><path d="M8.5 10.5V8a3.5 3.5 0 017 0v2.5"/></symbol>
+    <symbol id="i-rewind" viewBox="0 0 24 24"><path d="M11 7l-6 5 6 5zM19 7l-6 5 6 5z" class="fill"/></symbol>
+    <symbol id="i-play" viewBox="0 0 24 24"><path d="M8 6l10 6-10 6z" class="fill"/></symbol>
+    <symbol id="i-pause" viewBox="0 0 24 24"><rect x="7" y="6" width="3.5" height="12" class="fill"/><rect x="13.5" y="6" width="3.5" height="12" class="fill"/></symbol>
+    <symbol id="i-stop" viewBox="0 0 24 24"><rect x="7" y="7" width="10" height="10" class="fill"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></symbol>
+    <symbol id="i-close" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
+    <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M19 12a7 7 0 11-2.05-4.95M19 4.5V8h-3.5"/></symbol>
+    <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4.5 7h15M9.5 7V4.5h5V7M6.5 7l1 13h9l1-13"/></symbol>
+    <symbol id="i-edit" viewBox="0 0 24 24"><path d="M4.5 19.5l1-4 10-10 3 3-10 10z"/></symbol>
+</svg>
+
+<a class="skip-link" href="#main" data-i18n="a11y.skip">Skip to content</a>
+
+<div class="sheet">
+    <header class="topbar">
+        <div class="brand">
+            <svg class="brand-mark" aria-hidden="true"><use href="#i-tape"/></svg>
+            <div>
+                <p class="eyebrow" data-i18n="app.tagline">MiniDV tapes to a Plex library</p>
+                <h1>DV2Plex</h1>
+            </div>
         </div>
-        
-        <div class="tabs">
-            <div class="tab active" id="tab-capture" onclick="switchTab('capture')"><span>📹 Digitalisieren</span></div>
-            <div class="tab" onclick="switchTab('postprocess')"><span>🎬 Upscaling</span></div>
-            <div class="tab" id="tab-cover" onclick="switchTab('cover')"><span>🖼️ Cover Gen</span></div>
-            <div class="tab" onclick="switchTab('movie')"><span>🎞️ Plex Export</span></div>
-            <div class="tab" onclick="switchTab('queue')"><span>🔄 Merge-Queue</span></div>
-            <div class="tab" onclick="switchTab('player')"><span>▶ Video Player</span></div>
-            <div class="tab" onclick="switchTab('logs')"><span>📋 Logs</span></div>
-            <div class="tab" onclick="switchTab('settings')"><span>⚙️ Einstellungen</span></div>
+        <div class="chips">
+            <span class="chip accent" id="chip-demo" hidden data-i18n="chip.demo">Demo</span>
+            <span class="chip" id="chip-camera" data-state="unknown"><span class="dot" aria-hidden="true"></span><span id="chip-camera-text">Camera …</span></span>
+            <span class="chip" id="chip-connection" data-state="connecting"><span class="dot" aria-hidden="true"></span><span id="chip-connection-text">Connecting …</span></span>
         </div>
-        
-        <!-- Capture Tab -->
-        <div id="capture" class="tab-content active">
-            <div class="capture-grid">
-                <div>
-                    <div class="preview-container" id="preview">
-                        <div class="preview-placeholder">
-                            <div class="preview-placeholder-icon">📹</div>
-                            <div class="preview-placeholder-text">Kein Preview</div>
-                            <div class="preview-placeholder-hint">Starte eine Aufnahme für Live-Vorschau</div>
+    </header>
+
+    <div class="banner" id="demo-banner" hidden>
+        <strong data-i18n="demo.title">Demo mode.</strong>
+        <span data-i18n="demo.text">A simulated camera plays a test tape. Everything happens in a separate demo folder; your settings and library stay untouched.</span>
+    </div>
+
+    <nav class="tabs" role="tablist" aria-label="Sections" data-i18n-aria-label="a11y.sections">
+        <button class="tab" role="tab" id="tab-capture" data-tab="capture" aria-controls="panel-capture" aria-selected="true">
+            <svg aria-hidden="true"><use href="#i-capture"/></svg><span data-i18n="tab.capture">Capture</span>
+        </button>
+        <button class="tab" role="tab" id="tab-postprocess" data-tab="postprocess" aria-controls="panel-postprocess" aria-selected="false" tabindex="-1">
+            <svg aria-hidden="true"><use href="#i-upscale"/></svg><span data-i18n="tab.postprocess">Upscaling</span>
+        </button>
+        <button class="tab" role="tab" id="tab-cover" data-tab="cover" aria-controls="panel-cover" aria-selected="false" tabindex="-1">
+            <svg aria-hidden="true"><use href="#i-cover"/></svg><span data-i18n="tab.cover">Covers</span>
+        </button>
+        <button class="tab" role="tab" id="tab-movie" data-tab="movie" aria-controls="panel-movie" aria-selected="false" tabindex="-1">
+            <svg aria-hidden="true"><use href="#i-export"/></svg><span data-i18n="tab.movie">Plex export</span>
+        </button>
+        <button class="tab" role="tab" id="tab-queue" data-tab="queue" aria-controls="panel-queue" aria-selected="false" tabindex="-1">
+            <svg aria-hidden="true"><use href="#i-queue"/></svg><span data-i18n="tab.queue">Merge queue</span>
+        </button>
+        <button class="tab" role="tab" id="tab-player" data-tab="player" aria-controls="panel-player" aria-selected="false" tabindex="-1">
+            <svg aria-hidden="true"><use href="#i-player"/></svg><span data-i18n="tab.player">Video player</span>
+        </button>
+        <button class="tab" role="tab" id="tab-logs" data-tab="logs" aria-controls="panel-logs" aria-selected="false" tabindex="-1">
+            <svg aria-hidden="true"><use href="#i-logs"/></svg><span data-i18n="tab.logs">Logs</span>
+        </button>
+        <button class="tab" role="tab" id="tab-settings" data-tab="settings" aria-controls="panel-settings" aria-selected="false" tabindex="-1">
+            <svg aria-hidden="true"><use href="#i-settings"/></svg><span data-i18n="tab.settings">Settings</span>
+        </button>
+    </nav>
+
+    <main id="main" tabindex="-1">
+        <!-- Capture -->
+        <section class="panel" role="tabpanel" id="panel-capture" aria-labelledby="tab-capture">
+            <div class="grid capture-grid">
+                <div class="card">
+                    <div class="card-head">
+                        <h2 class="label" data-i18n="capture.preview">Preview</h2>
+                        <span class="rec" id="capture-rec" hidden><span class="rec-dot" aria-hidden="true"></span><span data-i18n="capture.rec">Recording</span></span>
+                    </div>
+                    <div class="preview" id="preview">
+                        <div class="empty preview-empty" id="preview-empty">
+                            <svg class="empty-icon" aria-hidden="true"><use href="#i-tape"/></svg>
+                            <p class="empty-title" data-i18n="capture.no_picture">No picture yet</p>
+                            <p class="empty-hint" data-i18n="capture.no_picture_hint">The picture of the tape shows here while it is being captured.</p>
                         </div>
+                        <img id="preview-img" hidden alt="Live picture from the camera" data-i18n-alt="capture.preview_alt">
                     </div>
+                    <dl class="timebar">
+                        <div><dt class="label" data-i18n="capture.clock">Clock</dt><dd id="capture-clock">--:--:--</dd></div>
+                        <div><dt class="label" data-i18n="capture.elapsed">Recording time</dt><dd id="capture-elapsed">--:--:--</dd></div>
+                    </dl>
                 </div>
-                <div>
-                    <div class="form-group">
-                        <label>Titel</label>
-                        <input type="text" id="capture-title" placeholder="Film-Titel eingeben...">
-                    </div>
-                    <div class="form-group">
-                        <label>Jahr</label>
-                        <input type="text" id="capture-year" placeholder="2024">
-                    </div>
-                    <div class="form-group">
-                        <label style="display: flex; align-items: center; cursor: pointer;">
+
+                <div class="card">
+                    <form id="capture-form" novalidate>
+                        <h2 class="label" data-i18n="capture.new_tape">New tape</h2>
+                        <div class="field">
+                            <label for="capture-title" data-i18n="field.title">Title</label>
+                            <input type="text" id="capture-title" autocomplete="off" required aria-describedby="capture-title-hint capture-title-error" placeholder="Summer holiday" data-i18n-placeholder="capture.title_placeholder">
+                            <p class="hint" id="capture-title-hint" data-i18n="capture.title_hint">Becomes the folder and the Plex name: Title (Year).</p>
+                            <p class="error" id="capture-title-error" hidden></p>
+                        </div>
+                        <div class="field">
+                            <label for="capture-year" data-i18n="field.year">Year</label>
+                            <input type="text" id="capture-year" inputmode="numeric" maxlength="4" autocomplete="off" required aria-describedby="capture-year-error" placeholder="2003">
+                            <p class="error" id="capture-year-error" hidden></p>
+                        </div>
+                        <label class="check">
                             <input type="checkbox" id="auto-rewind" checked>
-                            <span>Automatisches Rewind</span>
+                            <span data-i18n="capture.auto_rewind">Rewind the tape before recording</span>
                         </label>
-                    </div>
-                    <div class="form-group button-group">
-                        <button class="btn-primary" onclick="startCapture()" id="capture-start-btn">
-                            <span>▶ Aufnahme starten</span>
-                        </button>
-                        <button onclick="stopCapture()" id="capture-stop-btn" disabled>
-                            <span>■ Stoppen</span>
-                        </button>
-                    </div>
-                    <div class="form-group button-group">
-                        <button onclick="rewindCamera()"><span>⏪ Zurück</span></button>
-                        <button onclick="playCamera()"><span>▶ Play</span></button>
-                        <button onclick="pauseCamera()"><span>⏸ Pause</span></button>
-                    </div>
-                    <!-- Zeit-Anzeige (Uhrzeit + Dauer seit Aufnahme-Start) -->
-                    <div class="status" id="capture-timebar" style="display:flex; justify-content:space-between; align-items:center; gap: 12px;">
-                        <span>🕒 Uhrzeit: <strong id="capture-clock">--:--:--</strong></span>
-                        <span>⏱ Dauer: <strong id="capture-elapsed">--:--:--</strong></span>
-                    </div>
-                    <div class="status" id="capture-status">Bereit zum Digitalisieren.</div>
-                    
-                    <!-- Merge Queue Anzeige -->
-                    <div id="merge-queue-container" style="margin-top: 15px; display: none;">
-                        <h4 style="color: var(--plex-gold); margin-bottom: 10px;">🔄 Merge-Queue</h4>
-                        <div id="merge-queue-current" style="display: none;">
-                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-                                <span id="merge-current-title">-</span>
-                                <span id="merge-current-status" class="badge">-</span>
-                </div>
-                            <div class="progress-bar" style="height: 8px; margin-bottom: 5px;">
-                                <div class="progress-fill" id="merge-progress-fill" style="width: 0%"></div>
-                            </div>
-                            <div id="merge-current-message" style="font-size: 11px; color: var(--plex-text-secondary);"></div>
+                        <div class="actions">
+                            <button type="submit" class="btn primary" id="capture-start-btn">
+                                <svg aria-hidden="true"><use href="#i-capture"/></svg><span data-i18n="capture.start">Start recording</span>
+                            </button>
+                            <button type="button" class="btn danger" id="capture-stop-btn" disabled>
+                                <svg aria-hidden="true"><use href="#i-stop"/></svg><span data-i18n="capture.stop">Stop</span>
+                            </button>
                         </div>
-                        <div id="merge-queue-pending" style="margin-top: 10px; font-size: 12px; color: var(--plex-text-secondary);"></div>
+                    </form>
+
+                    <h2 class="label spaced" data-i18n="capture.camera">Camera</h2>
+                    <div class="actions three" role="group" aria-label="Camera" data-i18n-aria-label="capture.camera">
+                        <button type="button" class="btn" id="cam-rewind"><svg aria-hidden="true"><use href="#i-rewind"/></svg><span data-i18n="capture.rewind">Rewind</span></button>
+                        <button type="button" class="btn" id="cam-play"><svg aria-hidden="true"><use href="#i-play"/></svg><span data-i18n="capture.play">Play</span></button>
+                        <button type="button" class="btn" id="cam-pause"><svg aria-hidden="true"><use href="#i-pause"/></svg><span data-i18n="capture.pause">Pause</span></button>
                     </div>
+
+                    <p class="status" id="capture-status" role="status"></p>
+                    <p class="note" id="capture-unsupported" hidden data-i18n="capture.unsupported">Capture needs Linux with dvgrab and a FireWire port. On this computer you can upscale, make covers and export tapes captured elsewhere.</p>
                 </div>
             </div>
-        </div>
-        
-        <!-- Postprocess Tab -->
-        <div id="postprocess" class="tab-content">
-            <div class="form-group">
-                <label>Upscaling-Profil</label>
-                <select id="profile-select">
-                    <!-- Wird dynamisch geladen -->
-                </select>
-            </div>
-            <div class="list-container" id="postprocess-list"></div>
-            <div class="form-group button-group" style="margin-top: 18px;">
-                <button class="btn-primary" onclick="processSelected()">
-                    <span>Ausgewählten verarbeiten</span>
-                </button>
-                <button onclick="processAll()"><span>Alle verarbeiten</span></button>
-                <button class="btn-danger" onclick="deleteSelectedPostprocessProject()" id="postprocess-delete-btn" disabled>
-                    <span>Projekt löschen (LowRes+HighRes)</span>
-                </button>
-            </div>
-            <div class="progress-bar" id="postprocess-progress" style="display: none;">
-                <div class="progress-fill" id="postprocess-progress-fill" style="width: 0%">0%</div>
-            </div>
-            <div class="status" id="postprocess-status">Bereit für Upscaling.</div>
-            <div class="log-container" id="postprocess-log"></div>
-        </div>
-        
-        <!-- Movie Mode Tab -->
-        <div id="movie" class="tab-content">
-            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
-                <div class="form-group">
-                    <label>Titel</label>
-                    <input type="text" id="movie-title" placeholder="Film-Titel eingeben...">
+
+            <div class="card" id="merge-mini" hidden>
+                <div class="card-head">
+                    <h2 class="label" data-i18n="queue.title">Merge queue</h2>
+                    <span class="muted small" id="merge-mini-pending"></span>
                 </div>
-                <div class="form-group">
-                    <label>Jahr</label>
-                    <input type="text" id="movie-year" placeholder="2024">
-                </div>
+                <div class="job" id="merge-mini-job"></div>
             </div>
-            <div class="list-container" id="movie-list"></div>
-            <div class="status" id="movie-storage-status" style="display:none;"></div>
-            <div class="form-group button-group" style="margin-top: 18px;">
-                <button class="btn-primary" onclick="mergeVideos()" id="merge-btn" disabled>
-                    <span>Videos mergen</span>
-                </button>
-                <button onclick="exportVideo()" id="export-btn" disabled>
-                    <span>Nach Plex exportieren</span>
-                </button>
-                <button class="btn-primary" onclick="exportAllVideos()" id="export-all-btn">
-                    <span>Export All</span>
-                </button>
-                <button class="btn-danger" onclick="deleteSelectedMovieProjects()" id="movie-delete-btn" disabled>
-                    <span>Projekt löschen (LowRes+HighRes)</span>
-                </button>
-            </div>
-            <div class="progress-bar" id="movie-export-progress" style="display: none;">
-                <div class="progress-fill" id="movie-export-progress-fill" style="width: 0%">0%</div>
-            </div>
-            <div class="status" id="movie-status">Wähle Videos zum Mergen oder Exportieren.</div>
-            <div class="log-container" id="movie-log"></div>
-        </div>
-        
-        <!-- Cover Tab -->
-        <div id="cover" class="tab-content">
-            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 12px;">
-                <h3 style="color: var(--plex-gold); margin: 0;">🖼️ Cover Gen</h3>
-            </div>
-            <div class="list-container" id="cover-video-list"></div>
-            <div class="form-group button-group" style="margin-top: 14px;">
-                <button class="btn-primary" onclick="generatePosterSelected()" id="generate-poster-selected-btn" disabled>
-                    <span>Ausgewählte Poster generieren</span>
-                </button>
-                <button class="btn-primary" onclick="generatePosterAll()" id="generate-poster-all-btn">
-                    <span>Alle Poster generieren</span>
-                </button>
-            </div>
-            <div class="progress-bar" id="cover-progress" style="display: none;">
-                <div class="progress-fill" id="cover-progress-fill" style="width: 0%">0%</div>
-            </div>
-            <div class="status" id="cover-status">Wähle Videos zum Generieren von Postern.</div>
-            <div class="log-container" id="cover-log"></div>
-        </div>
-        
-        <!-- Merge Queue Tab -->
-        <div id="queue" class="tab-content">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
-                <h3 style="color: var(--plex-gold);">🔄 Merge-Queue</h3>
-                <button onclick="loadMergeQueueStatus()"><span>🔄 Aktualisieren</span></button>
-            </div>
-            
-            <div id="queue-current" style="margin-bottom: 15px; display: none;">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+        </section>
+
+        <!-- Upscaling -->
+        <section class="panel" role="tabpanel" id="panel-postprocess" aria-labelledby="tab-postprocess" hidden>
+            <div class="card">
+                <div class="card-head">
                     <div>
-                        <div id="queue-current-title" style="font-weight: 700;"></div>
-                        <div id="queue-current-message" style="font-size: 12px; color: var(--plex-text-secondary);"></div>
+                        <h2 data-i18n="post.title">Upscaling</h2>
+                        <p class="sub" data-i18n="post.sub">Tapes that are captured but not upscaled yet.</p>
                     </div>
-                    <span id="queue-current-status" class="badge">-</span>
+                    <button type="button" class="btn icon" id="postprocess-refresh" aria-label="Refresh" data-i18n-aria-label="common.refresh"><svg aria-hidden="true"><use href="#i-refresh"/></svg></button>
                 </div>
-                <div class="progress-bar" style="height: 10px;">
-                    <div class="progress-fill" id="queue-progress-fill" style="width: 0%"></div>
+                <div class="field">
+                    <label for="profile-select" data-i18n="post.profile">Profile</label>
+                    <select id="profile-select" aria-describedby="profile-hint"></select>
+                    <p class="hint" id="profile-hint"></p>
                 </div>
+                <ul class="list" id="postprocess-list" aria-label="Tapes to upscale" data-i18n-aria-label="post.list_label"></ul>
+                <div class="actions">
+                    <button type="button" class="btn primary" id="postprocess-run" disabled data-i18n="post.process_selected">Upscale selected</button>
+                    <button type="button" class="btn" id="postprocess-run-all" data-i18n="post.process_all">Upscale all</button>
+                    <button type="button" class="btn danger quiet" id="postprocess-delete" disabled><svg aria-hidden="true"><use href="#i-trash"/></svg><span data-i18n="common.delete_project">Delete project</span></button>
+                </div>
+                <div class="progress" id="postprocess-progress" hidden>
+                    <div class="progress-row"><span id="postprocess-progress-name"></span><span id="postprocess-progress-value">0 %</span></div>
+                    <div class="bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-labelledby="postprocess-progress-name"><span></span></div>
+                </div>
+                <p class="status" id="postprocess-status" role="status"></p>
+                <details class="logbox"><summary data-i18n="common.log">Log</summary><pre class="log" id="postprocess-log"></pre></details>
             </div>
-            
-            <div id="queue-list" class="list-container">
-                <div style="color: var(--plex-text-secondary); padding: 12px;">Keine Jobs in der Queue.</div>
-            </div>
-        </div>
+        </section>
 
-        <!-- Video Player Tab -->
-        <div id="player" class="tab-content">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
-                <h3 style="color: var(--plex-gold); margin: 0;">▶ Video Player</h3>
-                <button onclick="showRenameModal()" id="player-rename-btn" style="display: none;">
-                    <span>✏️ Projekt umbenennen</span>
-                </button>
-            </div>
-            <div style="display: grid; grid-template-columns: 1.2fr 1fr; gap: 15px; align-items: start;">
-                <div class="list-container" id="player-project-list" style="max-height: 540px;"></div>
-                <div>
-                    <div class="preview-container" id="player-preview">
-                        <div class="preview-placeholder" id="player-placeholder">
-                            <div class="preview-placeholder-icon">▶</div>
-                            <div class="preview-placeholder-text">Keine Auswahl</div>
-                            <div class="preview-placeholder-hint">Wähle ein Video zum Abspielen</div>
-                        </div>
-                        <img id="player-poster" style="width: 100%; height: 100%; object-fit: contain; display: none;" alt="Poster">
-                        <video id="player-video" controls style="width: 100%; height: 100%; display: none;"></video>
+        <!-- Covers -->
+        <section class="panel" role="tabpanel" id="panel-cover" aria-labelledby="tab-cover" hidden>
+            <div class="card">
+                <div class="card-head">
+                    <div>
+                        <h2 data-i18n="cover.title">Covers</h2>
+                        <p class="sub" data-i18n="cover.sub">A poster for each upscaled film; Plex shows it in the library.</p>
                     </div>
-                    <div id="player-now-playing" style="margin-top: 8px; font-size: 12px; color: var(--plex-text-secondary);">Keine Auswahl</div>
+                    <button type="button" class="btn icon" id="cover-refresh" aria-label="Refresh" data-i18n-aria-label="common.refresh"><svg aria-hidden="true"><use href="#i-refresh"/></svg></button>
+                </div>
+                <ul class="list" id="cover-video-list" aria-label="Upscaled films" data-i18n-aria-label="cover.list_label"></ul>
+                <div class="actions">
+                    <button type="button" class="btn primary" id="generate-poster-selected-btn" disabled data-i18n="cover.generate_selected">Make posters for selected</button>
+                    <button type="button" class="btn" id="generate-poster-all-btn" data-i18n="cover.generate_missing">Make all missing posters</button>
+                </div>
+                <div class="progress" id="cover-progress" hidden>
+                    <div class="progress-row"><span id="cover-progress-name" data-i18n="cover.working">Making posters</span><span id="cover-progress-value">0 %</span></div>
+                    <div class="bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-labelledby="cover-progress-name"><span></span></div>
+                </div>
+                <p class="status" id="cover-status" role="status"></p>
+                <details class="logbox"><summary data-i18n="common.log">Log</summary><pre class="log" id="cover-log"></pre></details>
+            </div>
+        </section>
+
+        <!-- Plex export -->
+        <section class="panel" role="tabpanel" id="panel-movie" aria-labelledby="tab-movie" hidden>
+            <div class="card">
+                <div class="card-head">
+                    <div>
+                        <h2 data-i18n="movie.title">Plex export</h2>
+                        <p class="sub" data-i18n="movie.sub">Copy upscaled films into the Plex library, or join several into one film.</p>
+                    </div>
+                    <button type="button" class="btn icon" id="movie-refresh" aria-label="Refresh" data-i18n-aria-label="common.refresh"><svg aria-hidden="true"><use href="#i-refresh"/></svg></button>
+                </div>
+                <div class="storage" id="movie-storage" hidden>
+                    <div><span class="label" data-i18n="movie.library">Library</span><span class="mono ellipsis" id="storage-root"></span></div>
+                    <div><span class="label" data-i18n="movie.free">Free</span><span id="storage-free"></span></div>
+                    <div><span class="label" data-i18n="movie.needed">Needed</span><span id="storage-needed"></span></div>
+                    <div class="meter" aria-hidden="true"><span id="storage-meter"></span></div>
+                </div>
+                <ul class="list" id="movie-list" aria-label="Upscaled films" data-i18n-aria-label="cover.list_label"></ul>
+                <div class="actions">
+                    <button type="button" class="btn primary" id="export-btn" disabled data-i18n="movie.export_selected">Export selected</button>
+                    <button type="button" class="btn" id="export-all-btn" data-i18n="movie.export_all">Export all new</button>
+                    <button type="button" class="btn danger quiet" id="movie-delete-btn" disabled><svg aria-hidden="true"><use href="#i-trash"/></svg><span data-i18n="common.delete_project">Delete project</span></button>
+                </div>
+                <details class="merge-box" id="merge-box">
+                    <summary data-i18n="movie.merge_summary">Join several films into one</summary>
+                    <p class="hint" data-i18n="movie.merge_hint">Select two or more films above, give the result a title and year; it goes straight into the library.</p>
+                    <div class="grid two">
+                        <div class="field">
+                            <label for="movie-title" data-i18n="field.title">Title</label>
+                            <input type="text" id="movie-title" autocomplete="off">
+                        </div>
+                        <div class="field">
+                            <label for="movie-year" data-i18n="field.year">Year</label>
+                            <input type="text" id="movie-year" inputmode="numeric" maxlength="4" autocomplete="off" placeholder="2003">
+                        </div>
+                    </div>
+                    <button type="button" class="btn" id="merge-btn" disabled data-i18n="movie.merge">Join and export</button>
+                </details>
+                <div class="progress" id="movie-progress" hidden>
+                    <div class="progress-row"><span id="movie-progress-name"></span><span id="movie-progress-value">0 %</span></div>
+                    <div class="bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-labelledby="movie-progress-name"><span></span></div>
+                </div>
+                <p class="status" id="movie-status" role="status"></p>
+                <details class="logbox"><summary data-i18n="common.log">Log</summary><pre class="log" id="movie-log"></pre></details>
+            </div>
+        </section>
+
+        <!-- Merge queue -->
+        <section class="panel" role="tabpanel" id="panel-queue" aria-labelledby="tab-queue" hidden>
+            <div class="card">
+                <div class="card-head">
+                    <div>
+                        <h2 data-i18n="queue.title">Merge queue</h2>
+                        <p class="sub" data-i18n="queue.sub">After each capture the clips of the tape are joined into one film, one tape at a time.</p>
+                    </div>
+                    <button type="button" class="btn icon" id="queue-refresh" aria-label="Refresh" data-i18n-aria-label="common.refresh"><svg aria-hidden="true"><use href="#i-refresh"/></svg></button>
+                </div>
+                <div class="job current" id="queue-current" hidden></div>
+                <ul class="list plain" id="queue-list" aria-label="Merge jobs" data-i18n-aria-label="queue.list_label"></ul>
+            </div>
+        </section>
+
+        <!-- Video player -->
+        <section class="panel" role="tabpanel" id="panel-player" aria-labelledby="tab-player" hidden>
+            <div class="grid player-grid">
+                <div class="card">
+                    <div class="card-head">
+                        <h2 data-i18n="player.projects">Projects</h2>
+                        <button type="button" class="btn icon" id="player-refresh" aria-label="Refresh" data-i18n-aria-label="common.refresh"><svg aria-hidden="true"><use href="#i-refresh"/></svg></button>
+                    </div>
+                    <div class="project-list" id="player-project-list"></div>
+                </div>
+                <div class="card viewer-card">
+                    <div class="viewer" id="player-preview">
+                        <div class="empty" id="player-placeholder">
+                            <svg class="empty-icon" aria-hidden="true"><use href="#i-player"/></svg>
+                            <p class="empty-title" data-i18n="player.nothing">Nothing selected</p>
+                            <p class="empty-hint" data-i18n="player.nothing_hint">Choose a project to see its poster, or a file to play it.</p>
+                        </div>
+                        <img id="player-poster" hidden alt="">
+                        <video id="player-video" controls hidden preload="metadata"></video>
+                    </div>
+                    <div class="viewer-foot">
+                        <p class="muted" id="player-now-playing" aria-live="polite"></p>
+                        <button type="button" class="btn" id="player-rename-btn" hidden><svg aria-hidden="true"><use href="#i-edit"/></svg><span data-i18n="player.rename">Rename project</span></button>
+                    </div>
                 </div>
             </div>
+        </section>
+
+        <!-- Logs -->
+        <section class="panel" role="tabpanel" id="panel-logs" aria-labelledby="tab-logs" hidden>
+            <div class="card">
+                <div class="card-head wrap">
+                    <h2 data-i18n="logs.title">Log</h2>
+                    <div class="toolbar">
+                        <label class="visually-hidden" for="log-filter" data-i18n="logs.filter">Show</label>
+                        <select id="log-filter">
+                            <option value="" data-i18n="logs.all">All entries</option>
+                            <option value="capture" data-i18n="logs.capture">Capture</option>
+                            <option value="merge" data-i18n="logs.merge">Merge</option>
+                            <option value="postprocessing" data-i18n="logs.postprocessing">Upscaling</option>
+                            <option value="poster_generation" data-i18n="logs.poster">Posters</option>
+                            <option value="update" data-i18n="logs.update">Updates</option>
+                        </select>
+                        <button type="button" class="btn" id="logs-refresh"><svg aria-hidden="true"><use href="#i-refresh"/></svg><span data-i18n="common.refresh">Refresh</span></button>
+                        <button type="button" class="btn quiet" id="logs-clear"><svg aria-hidden="true"><use href="#i-trash"/></svg><span data-i18n="logs.clear">Clear</span></button>
+                    </div>
+                </div>
+                <ol class="loglist" id="system-logs" aria-label="Log entries" data-i18n-aria-label="logs.entries"></ol>
+                <p class="hint" id="logs-file"></p>
+            </div>
+        </section>
+
+        <!-- Settings -->
+        <section class="panel" role="tabpanel" id="panel-settings" aria-labelledby="tab-settings" hidden>
+            <form id="settings-form" novalidate>
+                <div class="card">
+                    <h2 data-i18n="settings.folders">Folders</h2>
+                    <div class="field">
+                        <label for="settings-plex-root" data-i18n="settings.plex_root">Plex movie library</label>
+                        <div class="path-row">
+                            <input type="text" id="settings-plex-root" spellcheck="false" aria-describedby="settings-plex-hint">
+                            <button type="button" class="btn icon" data-browse="settings-plex-root" aria-label="Choose folder" data-i18n-aria-label="settings.browse"><svg aria-hidden="true"><use href="#i-folder"/></svg></button>
+                            <button type="button" class="btn icon posix-only" data-chown="settings-plex-root" aria-label="Make this folder mine" data-i18n-aria-label="settings.chown"><svg aria-hidden="true"><use href="#i-lock"/></svg></button>
+                        </div>
+                        <p class="hint" id="settings-plex-hint" data-i18n="settings.plex_hint">Films are copied here as Title (Year)/Title (Year).mp4, the way Plex expects them.</p>
+                    </div>
+                    <div class="field">
+                        <label for="settings-dv-root" data-i18n="settings.dv_root">Import folder</label>
+                        <div class="path-row">
+                            <input type="text" id="settings-dv-root" spellcheck="false" aria-describedby="settings-dv-hint">
+                            <button type="button" class="btn icon" data-browse="settings-dv-root" aria-label="Choose folder" data-i18n-aria-label="settings.browse"><svg aria-hidden="true"><use href="#i-folder"/></svg></button>
+                            <button type="button" class="btn icon posix-only" data-chown="settings-dv-root" aria-label="Make this folder mine" data-i18n-aria-label="settings.chown"><svg aria-hidden="true"><use href="#i-lock"/></svg></button>
+                        </div>
+                        <p class="hint" id="settings-dv-hint" data-i18n="settings.dv_hint">Captures, merged and upscaled films. DV needs about 13 GB per hour of tape.</p>
+                    </div>
+                    <div class="field">
+                        <label for="settings-ffmpeg" data-i18n="settings.ffmpeg">ffmpeg</label>
+                        <div class="path-row">
+                            <input type="text" id="settings-ffmpeg" spellcheck="false" placeholder="ffmpeg" aria-describedby="settings-ffmpeg-hint">
+                            <button type="button" class="btn icon" data-browse="settings-ffmpeg" data-browse-files="1" aria-label="Choose file" data-i18n-aria-label="settings.browse_file"><svg aria-hidden="true"><use href="#i-file"/></svg></button>
+                        </div>
+                        <p class="hint" id="settings-ffmpeg-hint" data-i18n="settings.ffmpeg_hint">Empty uses the ffmpeg found on this computer.</p>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <h2 data-i18n="settings.automation">After a capture</h2>
+                    <label class="check"><input type="checkbox" id="settings-timestamp-overlay"><span data-i18n="settings.timestamp_overlay">Show the recording date at the start of each scene</span></label>
+                    <label class="check"><input type="checkbox" id="settings-auto-postprocess"><span data-i18n="settings.auto_postprocess">Continue automatically after the merge</span></label>
+                    <div class="sub-checks">
+                        <label class="check"><input type="checkbox" id="settings-auto-upscale"><span data-i18n="settings.auto_upscale">Upscale with the default profile</span></label>
+                        <label class="check"><input type="checkbox" id="settings-auto-export"><span data-i18n="settings.auto_export">Export to Plex when upscaled</span></label>
+                    </div>
+                    <div class="field">
+                        <label for="settings-default-profile" data-i18n="settings.default_profile">Default upscaling profile</label>
+                        <select id="settings-default-profile"></select>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <h2 data-i18n="settings.appearance">Appearance</h2>
+                    <div class="grid two">
+                        <div class="field">
+                            <label for="settings-language" data-i18n="settings.language">Language</label>
+                            <select id="settings-language">
+                                <option value="" data-i18n="settings.language_auto">Like the browser</option>
+                                <option value="en">English</option>
+                                <option value="de">Deutsch</option>
+                            </select>
+                        </div>
+                        <div class="field">
+                            <label for="settings-theme" data-i18n="settings.theme">Colours</label>
+                            <select id="settings-theme">
+                                <option value="auto" data-i18n="settings.theme_auto">Like the system</option>
+                                <option value="light" data-i18n="settings.theme_light">Light</option>
+                                <option value="dark" data-i18n="settings.theme_dark">Dark</option>
+                            </select>
+                        </div>
+                    </div>
+                    <label class="check"><input type="checkbox" id="settings-show-cover"><span data-i18n="settings.show_cover">Show the Covers tab</span></label>
+                </div>
+
+                <div class="card">
+                    <h2 data-i18n="settings.system">This installation</h2>
+                    <dl class="facts" id="system-facts"></dl>
+                    <div class="actions">
+                        <button type="button" class="btn posix-only" id="fix-config-btn"><svg aria-hidden="true"><use href="#i-lock"/></svg><span data-i18n="settings.fix_config">Fix settings folder owner</span></button>
+                        <button type="button" class="btn" id="wizard-open-btn" data-i18n="settings.wizard">Run the first-start assistant</button>
+                    </div>
+                </div>
+
+                <div class="card" id="updates-card">
+                    <h2 data-i18n="settings.updates">Updates</h2>
+                    <p class="status" id="update-status" role="status"></p>
+                    <label class="check"><input type="checkbox" id="settings-update-enabled"><span data-i18n="settings.update_enabled">Update automatically (git installations; checks every hour)</span></label>
+                    <div class="actions">
+                        <button type="button" class="btn" id="update-refresh-btn"><svg aria-hidden="true"><use href="#i-refresh"/></svg><span data-i18n="settings.update_check">Check now</span></button>
+                        <button type="button" class="btn" id="update-run-btn" data-i18n="settings.update_run">Update now</button>
+                    </div>
+                </div>
+
+                <div class="savebar">
+                    <p class="status" id="settings-status" role="status"></p>
+                    <div class="actions">
+                        <button type="button" class="btn" id="settings-reset" data-i18n="settings.reset">Discard changes</button>
+                        <button type="submit" class="btn primary" id="settings-save"><svg aria-hidden="true"><use href="#i-check"/></svg><span data-i18n="settings.save">Save settings</span></button>
+                    </div>
+                </div>
+            </form>
+        </section>
+    </main>
+
+    <footer class="foot">
+        <span class="mono" id="foot-version">DV2Plex</span>
+        <a href="https://github.com/FutureMan0/DV2Plex" target="_blank" rel="noopener">GitHub</a>
+        <a href="https://github.com/FutureMan0/DV2Plex/issues" target="_blank" rel="noopener" data-i18n="foot.report">Report a problem</a>
+    </footer>
+</div>
+
+<div class="toasts" id="toasts" role="status" aria-live="polite"></div>
+
+<!-- Folder browser -->
+<dialog class="dialog" id="browser-dialog" aria-labelledby="browser-title">
+    <form method="dialog" class="dialog-body">
+        <div class="dialog-head">
+            <h2 id="browser-title" data-i18n="browser.title">Choose a folder</h2>
+            <button type="submit" value="cancel" class="btn icon quiet" aria-label="Close" data-i18n-aria-label="common.close"><svg aria-hidden="true"><use href="#i-close"/></svg></button>
         </div>
-        
-        <!-- Logs Tab -->
-        <div id="logs" class="tab-content">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
-                <h3 style="color: var(--plex-gold);">📋 System-Logs</h3>
-                <div class="button-group">
-                    <button onclick="refreshLogs()"><span>🔄 Aktualisieren</span></button>
-                    <button onclick="clearLogs()"><span>🗑️ Löschen</span></button>
-                </div>
+        <p class="mono crumb" id="browser-current-path">/</p>
+        <ul class="list browser-list" id="browser-list" aria-label="Folders" data-i18n-aria-label="browser.folders"></ul>
+        <div class="dialog-foot">
+            <button type="submit" value="cancel" class="btn" data-i18n="common.cancel">Cancel</button>
+            <button type="button" class="btn primary" id="browser-select" data-i18n="browser.select">Use this folder</button>
+        </div>
+    </form>
+</dialog>
+
+<!-- Rename -->
+<dialog class="dialog" id="rename-dialog" aria-labelledby="rename-heading">
+    <form class="dialog-body" id="rename-form" novalidate>
+        <div class="dialog-head">
+            <h2 id="rename-heading" data-i18n="player.rename">Rename project</h2>
+            <button type="button" class="btn icon quiet" data-close aria-label="Close" data-i18n-aria-label="common.close"><svg aria-hidden="true"><use href="#i-close"/></svg></button>
+        </div>
+        <div class="field">
+            <label for="rename-title" data-i18n="field.title">Title</label>
+            <input type="text" id="rename-title" autocomplete="off" required>
+        </div>
+        <div class="field">
+            <label for="rename-year" data-i18n="field.year_optional">Year (optional)</label>
+            <input type="text" id="rename-year" inputmode="numeric" maxlength="4" autocomplete="off">
+        </div>
+        <p class="hint" data-i18n="player.rename_hint">The folder and its files are renamed. A film already in Plex keeps its old name there.</p>
+        <p class="error" id="rename-error" hidden></p>
+        <div class="dialog-foot">
+            <button type="button" class="btn" data-close data-i18n="common.cancel">Cancel</button>
+            <button type="submit" class="btn primary" data-i18n="player.rename_do">Rename</button>
+        </div>
+    </form>
+</dialog>
+
+<!-- API token -->
+<dialog class="dialog" id="token-dialog" aria-labelledby="token-heading">
+    <form class="dialog-body" id="token-form" novalidate>
+        <div class="dialog-head"><h2 id="token-heading" data-i18n="token.title">This server needs its access token</h2></div>
+        <p data-i18n="token.text">DV2Plex runs on another computer. Print its token there and paste it here once; this browser keeps it.</p>
+        <pre class="code">python -m dv2plex --show-token</pre>
+        <div class="field">
+            <label for="token-input" data-i18n="token.label">Token</label>
+            <input type="password" id="token-input" autocomplete="off" spellcheck="false" required>
+        </div>
+        <div class="dialog-foot">
+            <button type="button" class="btn" data-close data-i18n="common.cancel">Cancel</button>
+            <button type="submit" class="btn primary" data-i18n="token.save">Use token</button>
+        </div>
+    </form>
+</dialog>
+
+<!-- Confirmation -->
+<dialog class="dialog" id="confirm-dialog" aria-labelledby="confirm-heading" aria-describedby="confirm-text">
+    <form method="dialog" class="dialog-body">
+        <div class="dialog-head"><h2 id="confirm-heading"></h2></div>
+        <p id="confirm-text"></p>
+        <div class="dialog-foot">
+            <button type="submit" value="cancel" class="btn" data-i18n="common.cancel">Cancel</button>
+            <button type="submit" value="ok" class="btn primary" id="confirm-ok"></button>
+        </div>
+    </form>
+</dialog>
+
+<!-- First start -->
+<dialog class="dialog wide" id="wizard-dialog" aria-labelledby="wizard-heading">
+    <form class="dialog-body" id="wizard-form" novalidate>
+        <div class="dialog-head">
+            <div>
+                <p class="eyebrow" id="wizard-step-label"></p>
+                <h2 id="wizard-heading" data-i18n="wizard.title">Welcome to DV2Plex</h2>
             </div>
-            <div class="form-group">
-                <label>Filter</label>
-                <select id="log-filter" onchange="filterLogs()">
-                    <option value="">Alle Logs</option>
-                    <option value="capture">Capture</option>
-                    <option value="merge">Merge</option>
-                    <option value="general">Allgemein</option>
+            <button type="button" class="btn icon quiet" id="wizard-skip" aria-label="Skip the assistant" data-i18n-aria-label="wizard.skip"><svg aria-hidden="true"><use href="#i-close"/></svg></button>
+        </div>
+        <ol class="steps" aria-hidden="true"><li></li><li></li><li></li><li></li></ol>
+
+        <div class="wizard-step" data-step="1">
+            <p data-i18n="wizard.intro">Four short steps: language, where your films go, the camera, done. You can change everything later in the settings.</p>
+            <div class="field">
+                <label for="wizard-language" data-i18n="settings.language">Language</label>
+                <select id="wizard-language" autofocus>
+                    <option value="en">English</option>
+                    <option value="de">Deutsch</option>
                 </select>
             </div>
-            <div class="log-container" id="system-logs" style="max-height: 500px; overflow-y: auto; font-family: monospace; font-size: 12px;">
-                <div style="color: var(--plex-text-secondary); padding: 20px; text-align: center;">
-                    Logs werden geladen...
-                </div>
-            </div>
         </div>
-        
-        <!-- Settings Tab -->
-        <div id="settings" class="tab-content">
-            <div class="settings-section">
-                <h3>📁 Pfade</h3>
-                <div class="form-group">
-                    <label>Plex Movies Ordner</label>
-                    <div class="path-selector">
-                        <input type="text" id="settings-plex-root" placeholder="/home/user/Plex/Movies">
-                        <button onclick="browsePath('plex')"><span>📂</span></button>
-                        <button class="btn-primary" onclick="applyChown('plex')"><span>🔓</span></button>
-                    </div>
-                </div>
-                <div class="form-group">
-                    <label>DV Import Ordner</label>
-                    <div class="path-selector">
-                        <input type="text" id="settings-dv-root" placeholder="/home/user/DV_Import">
-                        <button onclick="browsePath('dv')"><span>📂</span></button>
-                        <button class="btn-primary" onclick="applyChown('dv')"><span>🔓</span></button>
-                    </div>
-                </div>
-                <div class="form-group">
-                    <label>FFmpeg Pfad (leer = System)</label>
-                    <div class="path-selector">
-                        <input type="text" id="settings-ffmpeg" placeholder="Leer für System-PATH">
-                        <button onclick="browsePath('ffmpeg')"><span>📂</span></button>
-                    </div>
-                </div>
-            </div>
-            
-            <div class="settings-section">
-                <h3>⚡ Automatisierung</h3>
-                <div class="form-group">
-                    <label style="display: flex; align-items: center; cursor: pointer; text-transform: none; font-size: 14px;">
-                        <input type="checkbox" id="settings-auto-postprocess">
-                        <span>Auto-Postprocessing nach Capture</span>
-                    </label>
-                </div>
-                <div class="form-group">
-                    <label style="display: flex; align-items: center; cursor: pointer; text-transform: none; font-size: 14px;">
-                        <input type="checkbox" id="settings-auto-upscale">
-                        <span>Auto-Upscaling aktivieren</span>
-                    </label>
-                </div>
-                <div class="form-group">
-                    <label style="display: flex; align-items: center; cursor: pointer; text-transform: none; font-size: 14px;">
-                        <input type="checkbox" id="settings-auto-export">
-                        <span>Auto-Export nach Plex</span>
-                    </label>
-                </div>
-            </div>
 
-            <div class="settings-section">
-                <h3>🎨 Design</h3>
-                <div class="form-group">
-                    <label>Farb-Theme</label>
-                    <select id="settings-theme">
-                        <option value="plex">Plex (Standard)</option>
-                        <option value="xbox360">Xbox 360 (Gelb/Blau/Rot/Grün)</option>
-                    </select>
+        <div class="wizard-step" data-step="2" hidden>
+            <div class="field">
+                <label for="wizard-plex-root" data-i18n="settings.plex_root">Plex movie library</label>
+                <div class="path-row">
+                    <input type="text" id="wizard-plex-root" spellcheck="false" required>
+                    <button type="button" class="btn icon" data-browse="wizard-plex-root" aria-label="Choose folder" data-i18n-aria-label="settings.browse"><svg aria-hidden="true"><use href="#i-folder"/></svg></button>
                 </div>
-                <div class="form-group">
-                    <label style="display: flex; align-items: center; cursor: pointer; text-transform: none; font-size: 14px;">
-                        <input type="checkbox" id="settings-show-cover">
-                        <span>Cover-Tab anzeigen (Experimental)</span>
-                    </label>
-                </div>
+                <p class="hint" data-i18n="wizard.plex_hint">The folder your Plex server reads films from. Plex needs to see it as a "Movies" library.</p>
             </div>
-            
-            <div class="settings-section">
-                <h3>🔧 System</h3>
-                <div class="button-group">
-                    <button onclick="fixConfigPermissions()">
-                        <span>🔓 Config-Berechtigungen korrigieren</span>
-                    </button>
+            <div class="field">
+                <label for="wizard-dv-root" data-i18n="settings.dv_root">Import folder</label>
+                <div class="path-row">
+                    <input type="text" id="wizard-dv-root" spellcheck="false" required>
+                    <button type="button" class="btn icon" data-browse="wizard-dv-root" aria-label="Choose folder" data-i18n-aria-label="settings.browse"><svg aria-hidden="true"><use href="#i-folder"/></svg></button>
                 </div>
+                <p class="hint" data-i18n="settings.dv_hint">Captures, merged and upscaled films. DV needs about 13 GB per hour of tape.</p>
             </div>
+            <p class="error" id="wizard-error" hidden></p>
+        </div>
 
-            <div class="settings-section">
-                <h3>⬆️ Updates</h3>
-                <div class="status" id="update-status">Update-Status wird geladen...</div>
-                <div class="button-group">
-                    <button onclick="refreshUpdateStatus()"><span>🔄 Status aktualisieren</span></button>
-                    <button class="btn-primary" onclick="runUpdate()" id="update-run-btn">
-                        <span>⬆️ Update jetzt</span>
-                    </button>
-                </div>
-            </div>
-            
-            <div class="button-group">
-                <button class="btn-primary" onclick="saveSettings()">
-                    <span>💾 Einstellungen speichern</span>
-                </button>
-                <button onclick="loadSettings()">
-                    <span>🔄 Zurücksetzen</span>
-                </button>
-            </div>
-            
-            <div class="status" id="settings-status">Einstellungen werden geladen...</div>
+        <div class="wizard-step" data-step="3" hidden>
+            <p data-i18n="wizard.camera_intro">Connect the camera over FireWire and switch it to playback (VCR).</p>
+            <div class="check-result" id="wizard-camera-result" role="status"></div>
+            <button type="button" class="btn" id="wizard-camera-check"><svg aria-hidden="true"><use href="#i-refresh"/></svg><span data-i18n="wizard.camera_check">Look for the camera again</span></button>
         </div>
-    </div>
-    
-    <!-- File Browser Modal -->
-    <div class="modal" id="browser-modal">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h2>📁 Verzeichnis wählen</h2>
-                <button class="close-btn" onclick="closeBrowser()">×</button>
-            </div>
-            <div class="current-path" id="browser-current-path">/</div>
-            <div class="browser-list list-container" id="browser-list"></div>
-            <div class="modal-footer">
-                <button onclick="closeBrowser()"><span>Abbrechen</span></button>
-                <button class="btn-primary" onclick="selectCurrentPath()"><span>✓ Auswählen</span></button>
-            </div>
+
+        <div class="wizard-step" data-step="4" hidden>
+            <p data-i18n="wizard.done_text">Ready. Put a tape in, enter its title and year on the Capture page and start the recording. The film reaches Plex through the Upscaling and Plex export pages, or by itself if you switch that on in the settings.</p>
+            <dl class="facts" id="wizard-summary"></dl>
         </div>
-    </div>
-    
-    <!-- Rename Project Modal -->
-    <div class="modal" id="rename-modal">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h2>✏️ Projekt umbenennen</h2>
-                <button class="close-btn" onclick="closeRenameModal()">×</button>
-            </div>
-            <div style="padding: 20px;">
-                <div class="form-group">
-                    <label>Neuer Titel</label>
-                    <input type="text" id="rename-title" placeholder="Film-Titel eingeben...">
-                </div>
-                <div class="form-group">
-                    <label>Jahr (optional)</label>
-                    <input type="text" id="rename-year" placeholder="2024">
-                </div>
-                <div style="font-size: 12px; color: var(--plex-text-secondary); margin-top: 10px;">
-                    Hinweis: Der Ordner und alle zugehörigen Dateien werden umbenannt.
-                </div>
-            </div>
-            <div class="modal-footer">
-                <button onclick="closeRenameModal()"><span>Abbrechen</span></button>
-                <button class="btn-primary" onclick="renamePlayerProject()"><span>✓ Umbenennen</span></button>
-            </div>
+
+        <div class="dialog-foot">
+            <button type="button" class="btn" id="wizard-back" data-i18n="wizard.back">Back</button>
+            <button type="submit" class="btn primary" id="wizard-next" data-i18n="wizard.next">Next</button>
         </div>
-    </div>
+    </form>
+</dialog>
 </body>
 </html>

@@ -53,6 +53,7 @@ def demo_settings(home: Path) -> Dict[str, Dict[str, object]]:
         "upscaling": {"default_profile": DEMO_PROFILE},
         "cover": {"poster_engine": "simple"},
         "update": {"enabled": False},
+        "ui": {"setup_done": True},
         "demo": {"enabled": True},
     }
 
@@ -308,6 +309,7 @@ def _seed_partial(title: str, year: str, aspect: str, state: str, say: Callable[
                        "DV2PLEX_DEMO_ASPECT": aspect, "DV2PLEX_DEMO_REALTIME": "0"})
     config = Config()
     config.set("capture.auto_postprocess", False)
+    config.set("capture.auto_export", False)
     merged: list = []
     capture = CaptureService(config, log_callback=lambda m: None, merge_finished_callback=merged.append)
     ok, error = capture.start_capture(title, year)

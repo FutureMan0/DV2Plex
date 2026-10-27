@@ -457,10 +457,15 @@ def get_html_interface() -> str:
         html = html_path.read_text(encoding="utf-8")
         css = css_path.read_text(encoding="utf-8")
         js = js_path.read_text(encoding="utf-8")
+        # Texts of the interface in English and German
+        i18n = (web_dir / "i18n.json").read_text(encoding="utf-8").replace("</", "<\\/")
 
         # Inline CSS/JS, damit wir ohne Static-Hosting auskommen.
         style_tag = f"<style>\n{css}\n</style>\n"
-        script_tag = f"<script>\n{js}\n</script>\n"
+        script_tag = (
+            f'<script id="i18n" type="application/json">{i18n}</script>\n'
+            f"<script>\n{js}\n</script>\n"
+        )
 
         if "</head>" in html:
             html = html.replace("</head>", f"{style_tag}</head>", 1)
@@ -476,7 +481,7 @@ def get_html_interface() -> str:
     except Exception as e:
         logger.exception("Konnte Web-Interface nicht laden")
         return f"""<!doctype html>
-<html lang="de">
+<html lang="en">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -487,8 +492,8 @@ def get_html_interface() -> str:
   </style>
 </head>
 <body>
-  <h2>Web-Interface konnte nicht geladen werden</h2>
-  <p>Prüfe ob <code>dv2plex/web/index.html</code>, <code>index.css</code> und <code>index.js</code> vorhanden sind.</p>
+  <h2>The interface could not be loaded</h2>
+  <p>Check that <code>dv2plex/web/</code> contains index.html, index.css, index.js and i18n.json.</p>
   <pre>{str(e)}</pre>
 </body>
 </html>"""

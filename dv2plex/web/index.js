@@ -1,20 +1,157 @@
-// API token. It arrives once as ?token=... (the desktop window opens the page that way),
-// is kept in localStorage and goes along with every API request. Where no header can be
-// set (video, image, WebSocket) it travels as ?token=... instead.
-const API_TOKEN_STORAGE_KEY = 'dv2plex_api_token';
-let apiToken = '';
-let apiTokenPromptShown = false;
+'use strict';
+/*
+ * DV2Plex interface. One page, eight tabs; everything talks to the local API and listens
+ * on the WebSocket for progress, log lines and preview frames.
+ *
+ * Text is set with textContent only (titles and file names come from users and disks).
+ * Every visible string goes through t(); the texts are in i18n.json (English and German).
+ */
 
-(function initApiToken() {
+// ------------------------------------------------------------------ texts
+
+const I18N = JSON.parse(document.getElementById('i18n').textContent);
+let lang = 'en';
+
+function pickLanguage(setting) {
+    if (setting === 'en' || setting === 'de') return setting;
+    const browser = (navigator.languages && navigator.languages[0]) || navigator.language || 'en';
+    return browser.toLowerCase().startsWith('de') ? 'de' : 'en';
+}
+
+function t(key, vars) {
+    let text = (I18N[lang] && I18N[lang][key]) ?? I18N.en[key] ?? key;
+    if (vars) text = text.replace(/\{(\w+)\}/g, (match, name) => (vars[name] ?? match));
+    return text;
+}
+
+function applyTranslations(root = document) {
+    root.querySelectorAll('[data-i18n]').forEach(el => { el.textContent = t(el.dataset.i18n); });
+    root.querySelectorAll('[data-i18n-placeholder]').forEach(el => { el.placeholder = t(el.dataset.i18nPlaceholder); });
+    root.querySelectorAll('[data-i18n-aria-label]').forEach(el => { el.setAttribute('aria-label', t(el.dataset.i18nAriaLabel)); });
+    root.querySelectorAll('[data-i18n-alt]').forEach(el => { el.alt = t(el.dataset.i18nAlt); });
+    document.documentElement.lang = lang;
+}
+
+function setLanguage(next) {
+    lang = next;
+    try { localStorage.setItem('dv2plex_language', next); } catch (_) { /* private mode */ }
+    applyTranslations();
+    renderEverything();
+}
+
+// ------------------------------------------------------------------ small helpers
+
+const $ = (id) => document.getElementById(id);
+
+function h(tag, attrs, ...children) {
+    const el = document.createElement(tag);
+    for (const [key, value] of Object.entries(attrs || {})) {
+        if (value === null || value === undefined || value === false) continue;
+        if (key === 'class') el.className = value;
+        else if (key === 'text') el.textContent = value;
+        else if (key.startsWith('on') && typeof value === 'function') el.addEventListener(key.slice(2), value);
+        else if (key === 'checked' || key === 'disabled') el[key] = Boolean(value);
+        else el.setAttribute(key, value === true ? '' : value);
+    }
+    for (const child of children.flat()) {
+        if (child === null || child === undefined || child === false) continue;
+        el.append(child instanceof Node ? child : document.createTextNode(String(child)));
+    }
+    return el;
+}
+
+function icon(name) {
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('aria-hidden', 'true');
+    const use = document.createElementNS('http://www.w3.org/2000/svg', 'use');
+    use.setAttribute('href', `#i-${name}`);
+    svg.append(use);
+    return svg;
+}
+
+function emptyState(iconName, title, hint, action) {
+    return h('div', {class: 'empty'},
+        icon(iconName === 'tape' ? 'tape' : iconName),
+        h('p', {class: 'empty-title', text: title}),
+        hint ? h('p', {class: 'empty-hint', text: hint}) : null,
+        action || null);
+}
+
+function formatBytes(bytes) {
+    if (bytes === null || bytes === undefined || Number.isNaN(Number(bytes))) return '—';
+    const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+    let value = Number(bytes);
+    let i = 0;
+    while (value >= 1024 && i < units.length - 1) { value /= 1024; i += 1; }
+    return `${value.toLocaleString(lang, {maximumFractionDigits: i === 0 ? 0 : 1})} ${units[i]}`;
+}
+
+function formatClock(date) {
+    return date.toLocaleTimeString(lang === 'de' ? 'de-DE' : 'en-GB', {hour12: false});
+}
+
+function formatElapsed(ms) {
+    const total = Math.max(0, Math.floor(ms / 1000));
+    const pad = (n) => String(n).padStart(2, '0');
+    return `${pad(Math.floor(total / 3600))}:${pad(Math.floor((total % 3600) / 60))}:${pad(total % 60)}`;
+}
+
+function setStatus(el, text, kind = '') {
+    if (typeof el === 'string') el = $(el);
+    if (!el) return;
+    el.textContent = text || '';
+    el.className = `status ${kind}`.trim();
+}
+
+function setProgress(prefix, value, name) {
+    const box = $(`${prefix}-progress`);
+    if (!box) return;
+    const pct = Math.max(0, Math.min(100, Math.round(Number(value) || 0)));
+    box.hidden = false;
+    box.querySelector('.bar > span').style.width = `${pct}%`;
+    box.querySelector('.bar').setAttribute('aria-valuenow', String(pct));
+    $(`${prefix}-progress-value`).textContent = `${pct} %`;
+    if (name !== undefined) $(`${prefix}-progress-name`).textContent = name;
+}
+
+function hideProgress(prefix) {
+    const box = $(`${prefix}-progress`);
+    if (box) box.hidden = true;
+}
+
+function appendLog(id, message) {
+    const log = $(id);
+    if (!log) return;
+    const time = formatClock(new Date());
+    log.textContent += `[${time}] ${message}\n`;
+    if (log.textContent.length > 60000) log.textContent = log.textContent.slice(-50000);
+    log.scrollTop = log.scrollHeight;
+}
+
+function toast(text, kind = 'info', ms = 6000) {
+    const box = $('toasts');
+    const item = h('div', {class: `toast ${kind}`}, h('span', {text}));
+    box.append(item);
+    setTimeout(() => item.remove(), ms);
+}
+
+function validYear(text) {
+    return /^\d{4}$/.test(text) && Number(text) >= 1900 && Number(text) <= 2100;
+}
+
+// ------------------------------------------------------------------ API token and requests
+
+const TOKEN_KEY = 'dv2plex_api_token';
+let apiToken = '';
+
+(function initToken() {
     const params = new URLSearchParams(window.location.search);
     const fromUrl = params.get('token') || '';
     let stored = '';
     try {
-        if (fromUrl) localStorage.setItem(API_TOKEN_STORAGE_KEY, fromUrl);
-        stored = localStorage.getItem(API_TOKEN_STORAGE_KEY) || '';
-    } catch (e) {
-        // No localStorage: keep the token in the URL
-    }
+        if (fromUrl) localStorage.setItem(TOKEN_KEY, fromUrl);
+        stored = localStorage.getItem(TOKEN_KEY) || '';
+    } catch (_) { /* no storage: keep it in the URL */ }
     apiToken = fromUrl || stored;
     if (fromUrl && stored === fromUrl) {
         params.delete('token');
@@ -23,2011 +160,1390 @@ let apiTokenPromptShown = false;
     }
 })();
 
-function withApiToken(url) {
+function withToken(url) {
     if (!apiToken) return url;
     return `${url}${url.includes('?') ? '&' : '?'}token=${encodeURIComponent(apiToken)}`;
 }
 
-function askForApiToken() {
-    // Once per page load; a reload asks again
-    if (apiTokenPromptShown) return;
-    apiTokenPromptShown = true;
-    const entered = window.prompt(
-        'This DV2Plex server needs its API token.\n' +
-        'Print it on the server with: python -m dv2plex --show-token'
-    );
-    if (entered && entered.trim()) {
-        const params = new URLSearchParams(window.location.search);
-        params.set('token', entered.trim());
-        window.location.search = params.toString();
-    }
+class ApiError extends Error {
+    constructor(message, status) { super(message); this.status = status; }
 }
 
-const nativeFetch = window.fetch.bind(window);
-window.fetch = async (input, init = {}) => {
-    const url = typeof input === 'string' ? input : input.url;
-    const isApi = url.startsWith('/api/');
-    if (isApi && apiToken) {
-        const headers = new Headers(init.headers || {});
-        headers.set('X-DV2Plex-Token', apiToken);
-        init = {...init, headers};
+function detailText(data) {
+    if (!data) return '';
+    if (typeof data.detail === 'string') return data.detail;
+    if (Array.isArray(data.detail)) return data.detail.map(d => d.msg || '').filter(Boolean).join('; ');
+    return data.message || '';
+}
+
+async function api(path, {method = 'GET', body} = {}) {
+    const headers = {};
+    if (apiToken) headers['X-DV2Plex-Token'] = apiToken;
+    if (body !== undefined) headers['Content-Type'] = 'application/json';
+    let response;
+    try {
+        response = await fetch(path, {method, headers, body: body === undefined ? undefined : JSON.stringify(body)});
+    } catch (_) {
+        throw new ApiError(t('error.network'), 0);
     }
-    const response = await nativeFetch(input, init);
-    if (isApi && response.status === 401) askForApiToken();
-    return response;
+    let data = null;
+    try { data = await response.json(); } catch (_) { /* empty body */ }
+    if (response.status === 401) {
+        askForToken();
+        throw new ApiError(t('error.token'), 401);
+    }
+    if (!response.ok) throw new ApiError(detailText(data) || t('error.http', {status: response.status}), response.status);
+    return data;
+}
+
+let tokenDialogShown = false;
+function askForToken() {
+    if (tokenDialogShown) return;
+    tokenDialogShown = true;
+    $('token-input').value = '';
+    $('token-dialog').showModal();
+}
+
+// ------------------------------------------------------------------ dialogs
+
+function confirmDialog({title, text, ok, danger = false}) {
+    const dialog = $('confirm-dialog');
+    $('confirm-heading').textContent = title;
+    $('confirm-text').textContent = text;
+    const okButton = $('confirm-ok');
+    okButton.textContent = ok || t('common.ok');
+    okButton.className = `btn ${danger ? 'danger' : 'primary'}`;
+    return new Promise(resolve => {
+        dialog.addEventListener('close', () => resolve(dialog.returnValue === 'ok'), {once: true});
+        dialog.returnValue = '';
+        dialog.showModal();
+        okButton.focus();
+    });
+}
+
+document.querySelectorAll('dialog [data-close]').forEach(button => {
+    button.addEventListener('click', () => button.closest('dialog').close());
+});
+
+// ------------------------------------------------------------------ state
+
+const state = {
+    info: null,
+    settings: null,
+    status: null,
+    capture: {running: false, stopping: false, startedAt: null},
+    postprocess: {movies: [], selected: null, running: false, logTarget: false},
+    cover: {videos: [], selected: new Set()},
+    movie: {videos: [], storage: null, selected: new Set(), busy: false},
+    queue: null,
+    player: {projects: [], selected: null, playing: null},
+    logs: [],
+    profiles: {names: [], default: null},
+    settingsDirty: false,
+    activeTab: 'capture',
 };
 
-let ws = null;
-let selectedPostprocessMovie = null;
-let selectedMovieVideos = [];
-let movieItemsByPath = {};
-let movieExportAllRunning = false;
-let movieExportSingleRunning = false;
-let movieMergeRunning = false;
-let selectedCoverVideo = null;
-let extractedFrames = [];
-let selectedFrameIndex = null;
-let selectedCoverTitle = null;
-let selectedCoverYear = null;
-let extractingFrames = false;
-let captureStartedAtIso = null;
-const COVER_FRAME_COUNT = 8; // mehr zufällige Frames
-
-const THEME_STORAGE_KEY = 'dv2plex_theme';
-
-function normalizeThemeName(theme) {
-    return theme === 'xbox360' ? 'xbox360' : 'plex';
-}
+// ------------------------------------------------------------------ theme
 
 function applyTheme(theme) {
-    const normalized = normalizeThemeName(theme);
-    document.body.classList.toggle('theme-xbox360', normalized === 'xbox360');
-    try {
-        localStorage.setItem(THEME_STORAGE_KEY, normalized);
-    } catch (_) {
-        // ignore (private mode / disabled storage)
-    }
+    const value = theme === 'light' || theme === 'dark' ? theme : 'auto';
+    if (value === 'auto') document.documentElement.removeAttribute('data-theme');
+    else document.documentElement.setAttribute('data-theme', value);
+    try { localStorage.setItem('dv2plex_theme', value); } catch (_) { /* ignore */ }
 }
 
-function getStoredTheme() {
-    try {
-        return normalizeThemeName(localStorage.getItem(THEME_STORAGE_KEY));
-    } catch (_) {
-        return 'plex';
+// ------------------------------------------------------------------ tabs
+
+const TABS = ['capture', 'postprocess', 'cover', 'movie', 'queue', 'player', 'logs', 'settings'];
+
+function tabButtons() { return TABS.map(name => $(`tab-${name}`)).filter(b => b && !b.hidden); }
+
+function activateTab(name, focus = false) {
+    if (!TABS.includes(name) || $(`tab-${name}`).hidden) name = 'capture';
+    state.activeTab = name;
+    for (const tab of TABS) {
+        const button = $(`tab-${tab}`);
+        const panel = $(`panel-${tab}`);
+        const active = tab === name;
+        button.setAttribute('aria-selected', String(active));
+        button.tabIndex = active ? 0 : -1;
+        panel.hidden = !active;
     }
+    if (focus) $(`tab-${name}`).focus();
+    // On narrow screens the tab strip scrolls; keep the active tab in sight
+    $(`tab-${name}`).scrollIntoView({block: 'nearest', inline: 'nearest'});
+    history.replaceState(null, '', `${window.location.pathname}${window.location.search}#${name}`);
+    loadTab(name);
 }
 
-function formatElapsed(ms) {
-    const total = Math.max(0, Math.floor(ms / 1000));
-    const h = Math.floor(total / 3600);
-    const m = Math.floor((total % 3600) / 60);
-    const s = total % 60;
-    return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+function loadTab(name) {
+    if (name === 'postprocess') loadPostprocessList();
+    else if (name === 'cover') loadCoverList();
+    else if (name === 'movie') loadMovieList();
+    else if (name === 'queue') loadMergeQueue();
+    else if (name === 'player') loadPlayerProjects();
+    else if (name === 'logs') loadLogs();
+    else if (name === 'settings') loadSettings();
 }
 
-function setCaptureStartedAt(isoString) {
-    captureStartedAtIso = isoString || null;
+$('tab-capture').parentElement.addEventListener('click', (event) => {
+    const button = event.target.closest('[role="tab"]');
+    if (button) activateTab(button.dataset.tab);
+});
+
+$('tab-capture').parentElement.addEventListener('keydown', (event) => {
+    const buttons = tabButtons();
+    const index = buttons.indexOf(document.activeElement);
+    if (index < 0) return;
+    let next = null;
+    if (event.key === 'ArrowRight') next = buttons[(index + 1) % buttons.length];
+    else if (event.key === 'ArrowLeft') next = buttons[(index - 1 + buttons.length) % buttons.length];
+    else if (event.key === 'Home') next = buttons[0];
+    else if (event.key === 'End') next = buttons[buttons.length - 1];
+    if (next) {
+        event.preventDefault();
+        activateTab(next.dataset.tab, true);
+    }
+});
+
+function setCoverTabVisible(show) {
+    $('tab-cover').hidden = !show;
+    if (!show && state.activeTab === 'cover') activateTab('capture');
 }
 
-function updateCaptureTimeUI() {
-    const clockEl = document.getElementById('capture-clock');
-    if (clockEl) {
-        clockEl.textContent = new Date().toLocaleTimeString('de-DE');
-    }
+// ------------------------------------------------------------------ live connection
 
-    const elapsedEl = document.getElementById('capture-elapsed');
-    if (!elapsedEl) return;
+let socket = null;
+let reconnectDelay = 1000;
 
-    if (!captureStartedAtIso) {
-        elapsedEl.textContent = '--:--:--';
-        return;
-    }
+const chipKeys = {'chip-camera': 'chip.camera_unknown', 'chip-connection': 'chip.connecting'};
 
-    const start = new Date(captureStartedAtIso);
-    if (isNaN(start.getTime())) {
-        elapsedEl.textContent = '--:--:--';
-        return;
-    }
-    elapsedEl.textContent = formatElapsed(Date.now() - start.getTime());
+function setChip(id, stateName, key) {
+    chipKeys[id] = key;
+    $(id).dataset.state = stateName;
+    $(`${id}-text`).textContent = t(key);
 }
 
-// WebSocket connection
 function connectWebSocket() {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    ws = new WebSocket(withApiToken(`${protocol}//${window.location.host}/ws`));
-    
-    ws.onmessage = (event) => {
-        const data = JSON.parse(event.data);
-        handleWebSocketMessage(data);
+    socket = new WebSocket(withToken(`${protocol}//${window.location.host}/ws`));
+    socket.onopen = () => {
+        reconnectDelay = 1000;
+        setChip('chip-connection', 'ok', 'chip.connected');
     };
-    
-    ws.onerror = (error) => {
-        console.error('WebSocket error:', error);
+    socket.onmessage = (event) => {
+        try { handleMessage(JSON.parse(event.data)); } catch (e) { console.error(e); }
     };
-    
-    ws.onclose = () => {
-        console.log('WebSocket closed, reconnecting...');
-        setTimeout(connectWebSocket, 3000);
+    socket.onclose = () => {
+        setChip('chip-connection', 'bad', 'chip.disconnected');
+        setTimeout(connectWebSocket, reconnectDelay);
+        reconnectDelay = Math.min(reconnectDelay * 2, 15000);
     };
 }
 
-function handleWebSocketMessage(data) {
-    switch(data.type) {
-        case 'preview_frame':
-            updatePreview(data.data);
-            break;
-        case 'progress':
-            updateProgress(data.value, data.operation);
-            break;
-        case 'status':
-            updateStatus(data.status, data.operation, data.data);
-            break;
-        case 'log':
-            addLog(data.message, data.operation);
-            addToSystemLogs(data.message);
-            break;
-        case 'postprocessing_finished':
-            handlePostprocessingFinished(data);
-            break;
-        case 'cover_generation_finished':
-            handleCoverGenerationFinished(data);
-            break;
-        case 'poster_generation_finished':
-            handlePosterGenerationFinished(data);
-            break;
-        case 'merge_progress':
-            updateMergeQueue(data.job);
-            break;
+function handleMessage(data) {
+    switch (data.type) {
+        case 'preview_frame': showPreviewFrame(data.data); break;
+        case 'progress': handleProgress(data); break;
+        case 'status': handleStatus(data); break;
+        case 'log': handleLogLine(data.message); break;
+        case 'postprocessing_finished': handlePostprocessFinished(data); break;
+        case 'poster_generation_finished': handlePosterFinished(data); break;
+        case 'cover_generation_finished': handlePosterFinished(data); break;
+        case 'merge_progress': handleMergeProgress(data.job); break;
+        default: break;
     }
 }
 
-function updatePreview(imageData) {
-    const preview = document.getElementById('preview');
-    // Prüfe ob bereits ein img-Element existiert
-    let img = preview.querySelector('img');
-    if (img) {
-        // Nur src aktualisieren für flüssigere Updates
-        img.src = imageData;
-    } else {
-        // Erstes Bild - ersetze Placeholder
-        preview.innerHTML = `<img src="${imageData}" alt="Preview">`;
+function handleLogLine(message) {
+    if (!message) return;
+    state.logs.push({timestamp: new Date().toISOString(), message, category: 'live'});
+    if (state.logs.length > 800) state.logs.splice(0, state.logs.length - 800);
+    if (state.activeTab === 'logs' && !$('log-filter').value) appendLogEntry(state.logs[state.logs.length - 1]);
+    if (state.postprocess.logTarget) appendLog('postprocess-log', message);
+    if (state.movie.busy) appendLog('movie-log', message);
+    if (state.cover.busy) appendLog('cover-log', message);
+}
+
+function handleProgress(data) {
+    const op = data.operation;
+    if (op === 'postprocessing') {
+        state.postprocess.running = true;
+        setProgress('postprocess', data.value, data.project || $('postprocess-progress-name').textContent);
+    } else if (op === 'poster_generation' || op === 'poster_generation_batch' || op === 'cover_generation') {
+        setProgress('cover', data.value);
+    } else if (op === 'movie_export_all' || op === 'movie_export_single' || op === 'movie_merge') {
+        setProgress('movie', data.value);
     }
 }
 
-function updateProgress(value, operation) {
-    if (operation === 'postprocessing') {
-        const progress = document.getElementById('postprocess-progress');
-        const fill = document.getElementById('postprocess-progress-fill');
-        progress.style.display = 'block';
-        fill.style.width = value + '%';
-        fill.textContent = value + '%';
-    } else if (operation === 'cover_generation' || operation === 'poster_generation' || operation === 'poster_generation_batch') {
-        const progress = document.getElementById('cover-progress');
-        const fill = document.getElementById('cover-progress-fill');
-        progress.style.display = 'block';
-        fill.style.width = value + '%';
-        fill.textContent = value + '%';
-    } else if (operation === 'movie_export_all') {
-        const progress = document.getElementById('movie-export-progress');
-        const fill = document.getElementById('movie-export-progress-fill');
-        if (progress && fill) {
-            progress.style.display = 'block';
-            fill.style.width = value + '%';
-            fill.textContent = value + '%';
-        }
-    } else if (operation === 'movie_export_single' || operation === 'movie_merge') {
-        const progress = document.getElementById('movie-export-progress');
-        const fill = document.getElementById('movie-export-progress-fill');
-        if (progress && fill) {
-            progress.style.display = 'block';
-            fill.style.width = value + '%';
-            fill.textContent = value + '%';
-        }
-    }
-}
-
-let captureStopPoll = null;
-
-function startCaptureStopPoll() {
-    if (captureStopPoll) {
-        clearInterval(captureStopPoll);
-    }
-    captureStopPoll = setInterval(async () => {
-        try {
-            const resp = await fetch('/api/status');
-            const data = await resp.json();
-            if (!data.capture_running) {
-                updateStatus('capture_stopped');
-                clearInterval(captureStopPoll);
-                captureStopPoll = null;
-            }
-        } catch (e) {
-            console.error('Status-Poll fehlgeschlagen:', e);
-        }
-    }, 2000);
-}
-
-function updateStatus(status, operation, payload = null) {
-    const startBtn = document.getElementById('capture-start-btn');
-    const stopBtn = document.getElementById('capture-stop-btn');
-    const captureStatus = document.getElementById('capture-status');
-
+function handleStatus(data) {
+    const status = data.status;
     if (status === 'capture_started') {
-        startBtn.disabled = true;
-        stopBtn.disabled = false;
-        stopBtn.classList.add('btn-danger');
-        captureStatus.textContent = 'Aufnahme läuft...';
-        if (payload && payload.started_at) {
-            setCaptureStartedAt(payload.started_at);
-        }
-        if (captureStopPoll) {
-            clearInterval(captureStopPoll);
-            captureStopPoll = null;
-        }
-        
-        if (payload) {
-            if (payload.title) {
-                document.getElementById('capture-title').value = payload.title;
-            }
-            if (payload.year) {
-                document.getElementById('capture-year').value = payload.year;
-            }
-        }
-    } else if (status === 'capture_stopping') {
-        startBtn.disabled = true;
-        stopBtn.disabled = true;
-        stopBtn.classList.add('btn-danger');
-        captureStatus.textContent = 'Stoppe Aufnahme... Abschluss läuft.';
+        setCaptureRunning(true, data.data);
     } else if (status === 'capture_stopped') {
-        startBtn.disabled = false;
-        stopBtn.disabled = true;
-        stopBtn.classList.remove('btn-danger');
-        captureStatus.textContent = 'Fertig! Du kannst das nächste Video digitalisieren.';
-        setCaptureStartedAt(null);
-        if (captureStopPoll) {
-            clearInterval(captureStopPoll);
-            captureStopPoll = null;
-        }
-    }
-    
-    if (operation === 'postprocessing') {
-        const statusEl = document.getElementById('postprocess-status');
-        statusEl.textContent = status;
-    } else if (operation === 'cover_generation') {
-        const statusEl = document.getElementById('cover-status');
-        statusEl.textContent = status;
-    }
-
-    // Movie Export All status handling
-    if (operation === 'movie_export_all') {
-        const exportAllBtn = document.getElementById('export-all-btn');
-        const movieStatus = document.getElementById('movie-status');
-        const progress = document.getElementById('movie-export-progress');
-        if (status === 'movie_export_all_started') {
-            movieExportAllRunning = true;
-            if (exportAllBtn) exportAllBtn.disabled = true;
-            if (progress) progress.style.display = 'block';
-            if (movieStatus) {
-                movieStatus.textContent = `Export All gestartet (${payload?.total ?? '?'} Videos)...`;
-                movieStatus.className = 'status';
-            }
-        } else if (status === 'movie_export_all_finished') {
-            movieExportAllRunning = false;
-            if (exportAllBtn) exportAllBtn.disabled = false;
-            if (movieStatus) {
-                movieStatus.textContent = `Export All fertig. Skipped: ${payload?.skipped ?? 0}, Fehler: ${payload?.failed ?? 0}`;
-                movieStatus.className = 'status success';
-            }
-            // Refresh list so exported badges are correct
-            loadMovieList();
-        } else if (status === 'movie_export_all_failed') {
-            movieExportAllRunning = false;
-            if (exportAllBtn) exportAllBtn.disabled = false;
-            if (movieStatus) {
-                movieStatus.textContent = `Export All fehlgeschlagen: ${payload?.error ?? 'Unbekannter Fehler'}`;
-                movieStatus.className = 'status error';
-            }
-        } else if (status === 'movie_export_item_started') {
-            markMovieItem(payload?.video_path, 'running');
-        } else if (status === 'movie_export_item_done') {
-            markMovieItem(payload?.video_path, 'exported');
-        } else if (status === 'movie_export_item_skipped') {
-            markMovieItem(payload?.video_path, 'exported');
-        } else if (status === 'movie_export_item_failed') {
-            markMovieItem(payload?.video_path, 'failed', payload?.error);
-        }
-    }
-
-    // Single export handling (async)
-    if (operation === 'movie_export_single') {
-        const exportBtn = document.getElementById('export-btn');
-        const exportAllBtn = document.getElementById('export-all-btn');
-        const movieStatus = document.getElementById('movie-status');
-        if (status === 'movie_export_single_started') {
-            movieExportSingleRunning = true;
-            if (exportBtn) exportBtn.disabled = true;
-            if (exportAllBtn) exportAllBtn.disabled = true;
-            if (movieStatus) {
-                movieStatus.textContent = 'Export gestartet (läuft im Hintergrund)...';
-                movieStatus.className = 'status';
-            }
-            markMovieItem(payload?.video_path, 'running');
-            updateMovieButtons();
-        } else if (status === 'movie_export_single_done') {
-            movieExportSingleRunning = false;
-            if (exportBtn) exportBtn.disabled = false;
-            if (exportAllBtn) exportAllBtn.disabled = false;
-            if (movieStatus) {
-                movieStatus.textContent = 'Export fertig.';
-                movieStatus.className = 'status success';
-            }
-            markMovieItem(payload?.video_path, 'exported');
-            updateMovieButtons();
-            loadMovieList();
-        } else if (status === 'movie_export_single_failed') {
-            movieExportSingleRunning = false;
-            if (exportBtn) exportBtn.disabled = false;
-            if (exportAllBtn) exportAllBtn.disabled = false;
-            if (movieStatus) {
-                movieStatus.textContent = `Export fehlgeschlagen: ${payload?.error ?? 'Unbekannter Fehler'}`;
-                movieStatus.className = 'status error';
-            }
-            markMovieItem(payload?.video_path, 'failed', payload?.error);
-            updateMovieButtons();
-        }
-    }
-
-    // Merge handling (async)
-    if (operation === 'movie_merge') {
-        const mergeBtn = document.getElementById('merge-btn');
-        const movieStatus = document.getElementById('movie-status');
-        if (status === 'movie_merge_started') {
-            movieMergeRunning = true;
-            if (mergeBtn) mergeBtn.disabled = true;
-            if (movieStatus) {
-                movieStatus.textContent = `Merge gestartet (${payload?.count ?? '?'} Videos) – läuft im Hintergrund...`;
-                movieStatus.className = 'status';
-            }
-            updateMovieButtons();
-        } else if (status === 'movie_merge_finished') {
-            movieMergeRunning = false;
-            if (movieStatus) {
-                movieStatus.textContent = 'Merge + Export fertig.';
-                movieStatus.className = 'status success';
-            }
-            updateMovieButtons();
-            loadMovieList();
-        } else if (status === 'movie_merge_failed') {
-            movieMergeRunning = false;
-            if (movieStatus) {
-                movieStatus.textContent = `Merge fehlgeschlagen: ${payload?.error ?? 'Unbekannter Fehler'}`;
-                movieStatus.className = 'status error';
-            }
-            updateMovieButtons();
-        }
+        setCaptureRunning(false);
+    } else if (data.operation === 'postprocessing') {
+        setStatus('postprocess-status', status, 'busy');
+    } else if (data.operation === 'poster_generation' || data.operation === 'poster_generation_batch') {
+        setStatus('cover-status', status, 'busy');
+    } else if (data.operation && data.operation.startsWith('movie_')) {
+        handleMovieStatus(status, data.data || {});
     }
 }
 
-function markMovieItem(videoPath, state, errorMessage = null) {
-    if (!videoPath) return;
-    const el = movieItemsByPath[videoPath];
-    if (!el) return;
-    const badge = el.querySelector('.badge');
-    if (!badge) return;
-    if (state === 'exported') {
-        badge.textContent = 'Exportiert';
-        badge.style.background = 'rgba(40, 167, 69, 0.9)';
-        badge.style.color = '#000';
-        badge.title = '';
-    } else if (state === 'running') {
-        badge.textContent = 'Export...';
-        badge.style.background = 'rgba(229, 160, 13, 0.9)';
-        badge.style.color = '#000';
-        badge.title = '';
-    } else if (state === 'failed') {
-        badge.textContent = 'Fehler';
-        badge.style.background = 'rgba(220, 53, 69, 0.9)';
-        badge.style.color = '#000';
-        badge.title = errorMessage || 'Export fehlgeschlagen';
+// ------------------------------------------------------------------ status and info
+
+async function loadInfo() {
+    try {
+        state.info = await api('/api/info');
+    } catch (e) {
+        return;
     }
-}
-
-function formatBytes(bytes) {
-    if (bytes === null || bytes === undefined || isNaN(bytes)) return '—';
-    const units = ['B', 'KB', 'MB', 'GB', 'TB'];
-    let v = Number(bytes);
-    let i = 0;
-    while (v >= 1024 && i < units.length - 1) {
-        v /= 1024;
-        i++;
-    }
-    return `${v.toFixed(i === 0 ? 0 : 2)} ${units[i]}`;
-}
-
-function updateMovieStorageStatus(storage) {
-    const el = document.getElementById('movie-storage-status');
-    if (!el || !storage) return;
-    el.style.display = 'block';
-
-    const free = storage.free_bytes;
-    const req = storage.required_bytes;
-    const fitsAll = storage.fits_all;
-
-    const freeTxt = free == null ? '—' : formatBytes(free);
-    const reqTxt = req == null ? '—' : formatBytes(req);
-    const countTxt = storage.required_count ?? 0;
-    const rootTxt = storage.plex_root || '';
-
-    el.textContent = `Ziel: ${rootTxt} · Frei: ${freeTxt} · Benötigt (nicht exportiert): ${reqTxt} (${countTxt} Videos) · ${fitsAll ? 'Passt ✅' : 'Zu wenig Speicher ❌'}`;
-    el.className = 'status ' + (fitsAll ? 'success' : 'error');
+    const info = state.info;
+    $('foot-version').textContent = `DV2Plex ${info.version}`;
+    $('chip-demo').hidden = !info.demo;
+    $('demo-banner').hidden = !info.demo;
+    const unsupported = !info.capture.supported;
+    $('capture-unsupported').hidden = !unsupported;
+    for (const id of ['capture-start-btn', 'cam-rewind', 'cam-play', 'cam-pause']) $(id).disabled = unsupported;
+    document.querySelectorAll('.posix-only').forEach(el => { el.hidden = info.platform === 'win32'; });
+    renderSystemFacts();
 }
 
 async function loadStatus() {
     try {
-        const response = await fetch('/api/status');
-        const data = await response.json();
-        
-        if (data.capture_running) {
-            updateStatus('capture_started', null, data.active_capture || null);
-            // Starte Polling, um zu erkennen wenn dvgrab von selbst beendet wird
-            // (z.B. Band zu Ende, Signal verloren)
-            startCaptureStopPoll();
-        } else {
-            updateStatus('capture_stopped');
-        }
-        
-        if (data.active_capture) {
-            if (data.active_capture.title) {
-                document.getElementById('capture-title').value = data.active_capture.title;
-            }
-            if (data.active_capture.year) {
-                document.getElementById('capture-year').value = data.active_capture.year;
-            }
-            if (data.active_capture.started_at) {
-                setCaptureStartedAt(data.active_capture.started_at);
-            }
-        }
-    } catch (error) {
-        console.error('Status konnte nicht geladen werden:', error);
+        state.status = await api('/api/status');
+    } catch (_) {
+        return;
     }
+    const s = state.status;
+    if (state.info && !state.info.capture.supported) setChip('chip-camera', 'unknown', 'chip.no_capture');
+    else if (s.device_available) setChip('chip-camera', 'ok', 'chip.camera_ready');
+    else setChip('chip-camera', 'bad', 'chip.camera_missing');
+    if (s.capture_running && !state.capture.running) setCaptureRunning(true, s.active_capture);
+    if (!s.capture_running && state.capture.running && !state.capture.stopping) setCaptureRunning(false);
+    if (state.capture.stopping && !s.capture_running) setCaptureRunning(false);
 }
 
-function addLog(message, operation) {
-    let logId = 'movie-log'; // Default
-    if (operation === 'postprocessing') {
-        logId = 'postprocess-log';
-    } else if (operation === 'cover_generation' || operation === 'poster_generation' || operation === 'poster_generation_batch') {
-        logId = 'cover-log';
-    }
-    
-    const log = document.getElementById(logId);
-    if (log) {
-        const timestamp = new Date().toLocaleTimeString();
-        log.innerHTML += `[${timestamp}] ${message}\n`;
-        log.scrollTop = log.scrollHeight;
-    }
-    
-    // Auch in die System-Logs schreiben
-    console.log(`[${operation}] ${message}`);
-}
+// ------------------------------------------------------------------ capture
 
-function handlePostprocessingFinished(data) {
-    document.getElementById('postprocess-progress').style.display = 'none';
-    const status = document.getElementById('postprocess-status');
-    status.textContent = data.success ? 'Erfolgreich!' : 'Fehler!';
-    status.className = 'status ' + (data.success ? 'success' : 'error');
-    loadPostprocessList();
-}
-
-function handlePosterGenerationFinished(data) {
-    const statusEl = document.getElementById('cover-status');
-    const progressEl = document.getElementById('cover-progress');
-    const progressFillEl = document.getElementById('cover-progress-fill');
-    
-    if (data.success) {
-        statusEl.textContent = '✓ Poster erfolgreich generiert!';
-        statusEl.className = 'status success';
-        if (progressFillEl) progressFillEl.style.width = '100%';
-        addLog(`Poster erfolgreich generiert: ${data.message || ''}`, 'poster_generation');
-        
-        // Aktualisiere Liste nach kurzer Verzögerung (damit Dateisystem aktualisiert ist)
-        setTimeout(() => {
-            loadCoverVideoList();
-            // Aktualisiere auch Video Player, falls aktiv
-            if (currentPlayerProject) {
-                loadPlayerProjects();
-            }
-        }, 500);
+function setCaptureRunning(running, data) {
+    state.capture.running = running;
+    $('capture-rec').hidden = !running;
+    if (running) {
+        state.capture.stopping = false;
+        state.capture.startedAt = (data && data.started_at) || state.capture.startedAt || new Date().toISOString();
+        if (data && data.title) $('capture-title').value = data.title;
+        if (data && data.year) $('capture-year').value = data.year;
+        setStatus('capture-status', t('capture.running'), 'busy');
     } else {
-        statusEl.textContent = '❌ Fehler: ' + (data.message || 'Unbekannter Fehler');
-        statusEl.className = 'status error';
-        addLog(`Poster-Generierung fehlgeschlagen: ${data.message || 'Unbekannter Fehler'}`, 'poster_generation');
+        const wasStopping = state.capture.stopping || state.capture.startedAt;
+        state.capture.stopping = false;
+        state.capture.startedAt = null;
+        if (wasStopping) setStatus('capture-status', t('capture.finished'), 'ok');
+        $('preview-img').hidden = true;
+        $('preview-empty').hidden = false;
+        loadMergeQueue();
     }
+    const supported = !state.info || state.info.capture.supported;
+    $('capture-start-btn').disabled = running || !supported;
+    $('capture-stop-btn').disabled = !running || state.capture.stopping;
+    $('capture-title').disabled = running;
+    $('capture-year').disabled = running;
 }
 
-function handleCoverGenerationFinished(data) {
-    document.getElementById('cover-progress').style.display = 'none';
-    const status = document.getElementById('cover-status');
-    status.textContent = data.success ? 'Erfolgreich!' : 'Fehler!';
-    status.className = 'status ' + (data.success ? 'success' : 'error');
-    if (data.message) {
-        addLog(data.message, 'cover_generation');
-    }
+function fieldError(inputId, errorId, message) {
+    const input = $(inputId);
+    const error = $(errorId);
+    input.setAttribute('aria-invalid', message ? 'true' : 'false');
+    error.textContent = message || '';
+    error.hidden = !message;
+    return !message;
 }
 
-// Tab switching
-function switchTab(tabName) {
-    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-    document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
-    event.target.closest('.tab').classList.add('active');
-    document.getElementById(tabName).classList.add('active');
-    
-    if (tabName === 'postprocess') {
-        loadPostprocessList();
-    } else if (tabName === 'movie') {
-        loadMovieList();
-    } else if (tabName === 'cover') {
-        loadCoverVideoList();
-        // Stelle sicher, dass Buttons korrekt aktualisiert werden
-        setTimeout(() => updateCoverButtons(), 100);
-    } else if (tabName === 'player') {
-        loadPlayerProjects();
-        // Zeige Cover wenn kein Video abgespielt wird
-        const video = document.getElementById('player-video');
-        if (video && video.style.display === 'none' && !currentPlayerProject) {
-            // Wird nach loadPlayerProjects automatisch gemacht
-        }
-    } else if (tabName === 'settings') {
-        loadSettings();
-    }
-}
+$('capture-form').addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const title = $('capture-title').value.trim();
+    const year = $('capture-year').value.trim();
+    const titleOk = fieldError('capture-title', 'capture-title-error', title ? '' : t('validation.title'));
+    const yearOk = fieldError('capture-year', 'capture-year-error', validYear(year) ? '' : t('validation.year'));
+    if (!titleOk) { $('capture-title').focus(); return; }
+    if (!yearOk) { $('capture-year').focus(); return; }
 
-function applyCoverTabVisibility(show) {
-    const tab = document.getElementById('tab-cover');
-    const content = document.getElementById('cover');
-    if (tab) tab.style.display = show ? '' : 'none';
-    if (content) content.style.display = show ? '' : 'none';
-
-    // Wenn Cover gerade aktiv ist und wir es ausblenden, auf Capture zurückschalten.
-    if (!show && content && content.classList.contains('active')) {
-        const captureTab = document.getElementById('tab-capture');
-        if (captureTab) captureTab.click();
-    }
-}
-
-// Capture functions
-async function startCapture() {
-    const title = document.getElementById('capture-title').value;
-    const year = document.getElementById('capture-year').value;
-    const autoRewind = document.getElementById('auto-rewind').checked;
-    
-    if (!title || !year) {
-        alert('Bitte Titel und Jahr eingeben');
-        return;
-    }
-    
+    $('capture-start-btn').disabled = true;
+    setStatus('capture-status', t('capture.starting'), 'busy');
     try {
-        const response = await fetch('/api/capture/start', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({title, year, auto_rewind_play: autoRewind})
-        });
-        
-        const data = await response.json();
-        if (response.ok) {
-            updateStatus('capture_started', null, {title, year});
-            // Starte Polling, um zu erkennen wenn dvgrab von selbst beendet wird
-            // (z.B. Band zu Ende, Signal verloren, Inaktivitätsmonitor)
-            startCaptureStopPoll();
-        } else {
-            alert(data.detail || 'Fehler beim Starten der Aufnahme');
-        }
-    } catch (error) {
-        alert('Fehler: ' + error.message);
+        await api('/api/capture/start', {method: 'POST', body: {title, year, auto_rewind_play: $('auto-rewind').checked}});
+        setCaptureRunning(true, {title, year, started_at: new Date().toISOString()});
+    } catch (e) {
+        setStatus('capture-status', e.message, 'bad');
+        $('capture-start-btn').disabled = false;
     }
-}
+});
 
-async function stopCapture() {
+$('capture-stop-btn').addEventListener('click', async () => {
+    $('capture-stop-btn').disabled = true;
+    state.capture.stopping = true;
+    setStatus('capture-status', t('capture.stopping'), 'busy');
     try {
-        const response = await fetch('/api/capture/stop', {method: 'POST'});
-        const data = await response.json();
-        if (response.ok) {
-            updateStatus('capture_stopping');
-            if (data.message) {
-                document.getElementById('capture-status').textContent = data.message;
-            }
-            startCaptureStopPoll();
-        } else {
-            alert(data.detail || 'Fehler beim Stoppen der Aufnahme');
+        await api('/api/capture/stop', {method: 'POST'});
+    } catch (e) {
+        state.capture.stopping = false;
+        $('capture-stop-btn').disabled = false;
+        setStatus('capture-status', e.message, 'bad');
+    }
+});
+
+for (const action of ['rewind', 'play', 'pause']) {
+    $(`cam-${action}`).addEventListener('click', async () => {
+        try {
+            await api(`/api/capture/${action}`, {method: 'POST'});
+            setStatus('capture-status', t(`capture.sent_${action}`));
+        } catch (e) {
+            toast(e.message, 'bad');
         }
-    } catch (error) {
-        alert('Fehler: ' + error.message);
-    }
-}
-
-async function rewindCamera() {
-    await fetch('/api/capture/rewind', {method: 'POST'});
-}
-
-async function playCamera() {
-    await fetch('/api/capture/play', {method: 'POST'});
-}
-
-async function pauseCamera() {
-    await fetch('/api/capture/pause', {method: 'POST'});
-}
-
-// Load upscaling profiles
-async function loadUpscalingProfiles() {
-    try {
-        const response = await fetch('/api/upscaling/profiles');
-        const data = await response.json();
-        const select = document.getElementById('profile-select');
-        select.innerHTML = '';
-        
-        data.profiles.forEach(profile => {
-            const option = document.createElement('option');
-            option.value = profile;
-            option.textContent = profile;
-            if (profile === data.default_profile) {
-                option.selected = true;
-            }
-            select.appendChild(option);
-        });
-    } catch (error) {
-        console.error('Fehler beim Laden der Profile:', error);
-        // Fallback
-        const select = document.getElementById('profile-select');
-        select.innerHTML = '<option value="realesrgan_2x">realesrgan_2x</option>';
-    }
-}
-
-// Postprocess functions
-async function loadPostprocessList() {
-    try {
-        const response = await fetch('/api/postprocess/list');
-        const data = await response.json();
-        const list = document.getElementById('postprocess-list');
-        list.innerHTML = '';
-        selectedPostprocessMovie = null;
-        const delBtn = document.getElementById('postprocess-delete-btn');
-        if (delBtn) delBtn.disabled = true;
-        
-        if (data.movies.length === 0) {
-            list.innerHTML = '<div class="list-item">Keine offenen Projekte 🎉</div>';
-            return;
-        }
-        
-        data.movies.forEach(movie => {
-            const item = document.createElement('div');
-            item.className = 'list-item';
-            item.textContent = movie.display;
-            item.onclick = () => {
-                document.querySelectorAll('#postprocess-list .list-item').forEach(i => i.classList.remove('selected'));
-                item.classList.add('selected');
-                selectedPostprocessMovie = movie.path;
-                const delBtn = document.getElementById('postprocess-delete-btn');
-                if (delBtn) delBtn.disabled = !selectedPostprocessMovie;
-            };
-            list.appendChild(item);
-        });
-    } catch (error) {
-        console.error('Fehler beim Laden der Liste:', error);
-    }
-}
-
-async function deleteSelectedPostprocessProject() {
-    if (!selectedPostprocessMovie) {
-        alert('Bitte ein Projekt auswählen');
-        return;
-    }
-    if (!confirm('Wirklich löschen? Es werden LowRes und HighRes dieses Projekts entfernt.')) {
-        return;
-    }
-    try {
-        const response = await fetch('/api/project/delete', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({paths: [selectedPostprocessMovie]})
-        });
-        const data = await response.json();
-        if (!response.ok) {
-            alert(data.detail || 'Fehler beim Löschen');
-            return;
-        }
-        addLog('Projekt gelöscht', 'postprocessing');
-        await loadPostprocessList();
-        await loadMovieList();
-    } catch (error) {
-        alert('Fehler: ' + error.message);
-    }
-}
-
-async function processSelected() {
-    if (!selectedPostprocessMovie) {
-        alert('Bitte einen Film auswählen');
-        return;
-    }
-    
-    const profile = document.getElementById('profile-select').value;
-    
-    try {
-        const response = await fetch('/api/postprocess/process', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({movie_dir: selectedPostprocessMovie, profile_name: profile})
-        });
-        
-        const data = await response.json();
-        if (response.ok) {
-            document.getElementById('postprocess-status').textContent = 'Postprocessing gestartet...';
-            document.getElementById('postprocess-log').innerHTML = '';
-        } else {
-            alert(data.detail || 'Fehler beim Starten des Postprocessings');
-        }
-    } catch (error) {
-        alert('Fehler: ' + error.message);
-    }
-}
-
-async function processAll() {
-    // Similar to processSelected but for all movies
-    const response = await fetch('/api/postprocess/list');
-    const data = await response.json();
-    if (data.movies.length === 0) {
-        alert('Keine Filme zu verarbeiten');
-        return;
-    }
-    
-    if (!confirm(`Es werden ${data.movies.length} Filme verarbeitet. Fortfahren?`)) {
-        return;
-    }
-    
-    const profile = document.getElementById('profile-select').value;
-    for (const movie of data.movies) {
-        await fetch('/api/postprocess/process', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({movie_dir: movie.path, profile_name: profile})
-        });
-        await new Promise(resolve => setTimeout(resolve, 1000));
-    }
-}
-
-// Movie Mode functions
-async function loadMovieList() {
-    try {
-        const response = await fetch('/api/movie/list');
-        const data = await response.json();
-        const list = document.getElementById('movie-list');
-        list.innerHTML = '';
-        movieItemsByPath = {};
-        updateMovieStorageStatus(data.storage);
-        
-        data.videos.forEach(video => {
-            const item = document.createElement('div');
-            item.className = 'list-item';
-            const exported = !!video.exported;
-            const badgeText = exported ? 'Exportiert' : 'Nicht exportiert';
-            const badgeBg = exported ? 'rgba(40, 167, 69, 0.9)' : 'rgba(153, 153, 153, 0.9)';
-            const sizeTxt = formatBytes(video.size_bytes);
-            const fitsNow = (video.fits_now === undefined || video.fits_now === null) ? true : !!video.fits_now;
-            const fitsIcon = exported ? '✅' : (fitsNow ? '✅' : '❌');
-            const fitsTitle = exported
-                ? 'Bereits exportiert'
-                : (fitsNow ? 'Passt auf die Platte (Stand jetzt)' : 'Zu wenig freier Speicher (Stand jetzt)');
-            item.innerHTML = `
-                <span class="icon">🎞️</span>
-                <span class="name" title="${video.display}">${video.display}</span>
-                <span class="badge" style="background: rgba(0,0,0,0.25); border: 1px solid rgba(255,255,255,0.12); color: var(--plex-text);" title="${fitsTitle}">${fitsIcon} ${sizeTxt}</span>
-                <span class="badge" style="background:${badgeBg}; color:#000;" title="${video.expected_target || ''}">${badgeText}</span>
-            `;
-            item.onclick = () => {
-                if (item.classList.contains('selected')) {
-                    item.classList.remove('selected');
-                    selectedMovieVideos = selectedMovieVideos.filter(v => v !== video.path);
-                } else {
-                    item.classList.add('selected');
-                    selectedMovieVideos.push(video.path);
-                }
-                updateMovieButtons();
-            };
-            list.appendChild(item);
-            movieItemsByPath[video.path] = item;
-        });
-    } catch (error) {
-        console.error('Fehler beim Laden der Liste:', error);
-    }
-}
-
-function updateMovieButtons() {
-    const mergeBtn = document.getElementById('merge-btn');
-    const exportBtn = document.getElementById('export-btn');
-    const exportAllBtn = document.getElementById('export-all-btn');
-    const deleteBtn = document.getElementById('movie-delete-btn');
-    mergeBtn.disabled = selectedMovieVideos.length < 2;
-    exportBtn.disabled = selectedMovieVideos.length !== 1;
-    if (mergeBtn) mergeBtn.disabled = (selectedMovieVideos.length < 2) || movieMergeRunning;
-    if (exportBtn) exportBtn.disabled = (selectedMovieVideos.length !== 1) || movieExportSingleRunning || movieExportAllRunning;
-    if (exportAllBtn) exportAllBtn.disabled = movieExportAllRunning || movieExportSingleRunning || movieMergeRunning;
-    if (deleteBtn) deleteBtn.disabled = (selectedMovieVideos.length < 1) || movieMergeRunning || movieExportSingleRunning || movieExportAllRunning;
-}
-
-async function deleteSelectedMovieProjects() {
-    if (!selectedMovieVideos || selectedMovieVideos.length < 1) {
-        alert('Bitte mindestens ein Video auswählen');
-        return;
-    }
-    if (!confirm(`Wirklich löschen? Es werden LowRes und HighRes der ausgewählten Projekt(e) entfernt (${selectedMovieVideos.length} Auswahl).`)) {
-        return;
-    }
-    try {
-        const response = await fetch('/api/project/delete', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({paths: selectedMovieVideos})
-        });
-        const data = await response.json();
-        if (!response.ok) {
-            alert(data.detail || 'Fehler beim Löschen');
-            return;
-        }
-        selectedMovieVideos = [];
-        updateMovieButtons();
-        await loadMovieList();
-        addLog('Projekt(e) gelöscht', 'movie');
-    } catch (error) {
-        alert('Fehler: ' + error.message);
-    }
-}
-
-async function exportAllVideos() {
-    if (movieExportAllRunning) return;
-    if (!confirm('Alle HighRes-Videos werden nach Plex exportiert. Fortfahren?')) {
-        return;
-    }
-    const btn = document.getElementById('export-all-btn');
-    if (btn) btn.disabled = true;
-    movieExportAllRunning = true;
-    updateMovieButtons();
-    try {
-        const response = await fetch('/api/movie/export-all', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({skip_existing: true})
-        });
-        const data = await response.json();
-        if (!response.ok) {
-            movieExportAllRunning = false;
-            if (btn) btn.disabled = false;
-            updateMovieButtons();
-            alert(data.detail || 'Fehler beim Export All');
-            return;
-        }
-        document.getElementById('movie-status').textContent = data.message || 'Export All gestartet...';
-        document.getElementById('movie-status').className = 'status';
-        addLog(data.message || 'Export All gestartet', 'movie');
-    } catch (error) {
-        movieExportAllRunning = false;
-        if (btn) btn.disabled = false;
-        updateMovieButtons();
-        alert('Fehler: ' + error.message);
-    }
-}
-
-async function mergeVideos() {
-    if (selectedMovieVideos.length < 2) {
-        alert('Bitte mindestens 2 Videos auswählen');
-        return;
-    }
-    
-    const title = document.getElementById('movie-title').value;
-    const year = document.getElementById('movie-year').value;
-    
-    if (!title || !year) {
-        alert('Bitte Titel und Jahr eingeben');
-        return;
-    }
-    
-    if (!confirm(`Es werden ${selectedMovieVideos.length} Videos zu '${title} (${year})' gemerged. Fortfahren?`)) {
-        return;
-    }
-    
-    try {
-        const response = await fetch('/api/movie/merge', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({video_paths: selectedMovieVideos, title, year})
-        });
-        
-        const data = await response.json();
-        if (response.ok) {
-            document.getElementById('movie-status').textContent = data.message || 'Merge gestartet...';
-            document.getElementById('movie-status').className = 'status';
-            addLog(data.message || 'Merge gestartet', 'movie');
-            movieMergeRunning = true;
-            updateMovieButtons();
-        } else {
-            alert(data.detail || 'Fehler beim Mergen');
-        }
-    } catch (error) {
-        alert('Fehler: ' + error.message);
-    }
-}
-
-async function exportVideo() {
-    if (selectedMovieVideos.length !== 1) {
-        alert('Bitte genau ein Video auswählen');
-        return;
-    }
-    
-    if (!confirm('Video wird nach PlexMovies exportiert. Fortfahren?')) {
-        return;
-    }
-    
-    try {
-        const response = await fetch('/api/movie/export', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({video_path: selectedMovieVideos[0]})
-        });
-        
-        const data = await response.json();
-        if (response.ok) {
-            document.getElementById('movie-status').textContent = data.message || 'Export gestartet...';
-            document.getElementById('movie-status').className = 'status';
-            addLog(data.message || 'Export gestartet', 'movie');
-            movieExportSingleRunning = true;
-            updateMovieButtons();
-        } else {
-            alert(data.detail || 'Fehler beim Exportieren');
-        }
-    } catch (error) {
-        alert('Fehler: ' + error.message);
-    }
-}
-
-// Video Player functions
-async function loadPlayerProjects() {
-    const list = document.getElementById('player-project-list');
-    list.innerHTML = '<div style="padding: 14px; color: var(--plex-text-secondary);">Lade Projekte...</div>';
-    try {
-        const response = await fetch('/api/player/projects');
-        const data = await response.json();
-        renderPlayerProjects(data.projects || []);
-    } catch (error) {
-        console.error('Fehler beim Laden der Projekte:', error);
-        list.innerHTML = '<div style="padding: 14px; color: var(--plex-text-secondary);">Fehler beim Laden.</div>';
-    }
-}
-
-let currentPlayerProject = null;
-
-function renderPlayerProjects(projects) {
-    const list = document.getElementById('player-project-list');
-    list.innerHTML = '';
-    if (!projects.length) {
-        list.innerHTML = '<div style="padding: 14px; color: var(--plex-text-secondary);">Keine Projekte gefunden. Prüfe den DV_Import-Ordner.</div>';
-        showPlayerCover(null); // Zeige kein Cover wenn keine Projekte
-        return;
-    }
-
-    projects.forEach(project => {
-        const card = document.createElement('div');
-        card.className = 'player-card';
-
-        const title = document.createElement('h4');
-        title.style.fontWeight = '700';
-        title.textContent = project.title;
-        card.appendChild(title);
-        
-        // Speichere Poster-Info für später
-        card.dataset.posterPath = project.poster_path || '';
-        card.dataset.hasPoster = project.has_poster || false;
-
-        const lowresSection = document.createElement('div');
-        lowresSection.className = 'player-section';
-        lowresSection.innerHTML = '<small>LowRes</small>';
-        if (project.lowres && project.lowres.length) {
-            project.lowres.forEach(file => {
-                const chip = document.createElement('div');
-                chip.className = 'player-chip';
-                chip.textContent = file.name;
-                chip.onclick = () => {
-                    playVideo(file.path, `${project.title} · LowRes · ${file.name}`);
-                    currentPlayerProject = project;
-                };
-                lowresSection.appendChild(chip);
-            });
-        } else {
-            const empty = document.createElement('div');
-            empty.style.fontSize = '12px';
-            empty.style.color = 'var(--plex-text-secondary)';
-            empty.textContent = 'Keine LowRes-Dateien';
-            lowresSection.appendChild(empty);
-        }
-        card.appendChild(lowresSection);
-
-        const highresSection = document.createElement('div');
-        highresSection.className = 'player-section';
-        highresSection.innerHTML = '<small>HighRes</small>';
-        if (project.highres && project.highres.length) {
-            project.highres.forEach(file => {
-                const chip = document.createElement('div');
-                chip.className = 'player-chip';
-                chip.textContent = file.name;
-                chip.onclick = () => {
-                    playVideo(file.path, `${project.title} · HighRes · ${file.name}`);
-                    currentPlayerProject = project;
-                };
-                highresSection.appendChild(chip);
-            });
-        } else {
-            const empty = document.createElement('div');
-            empty.style.fontSize = '12px';
-            empty.style.color = 'var(--plex-text-secondary)';
-            empty.textContent = 'Keine HighRes-Dateien';
-            highresSection.appendChild(empty);
-        }
-        card.appendChild(highresSection);
-
-        list.appendChild(card);
-        
-        // Speichere Projekt-Pfad für Umbenennung
-        card.dataset.projectPath = project.title; // Der Titel ist der Ordnername
-        
-        // Zeige Cover wenn Projekt ausgewählt wird (Klick auf Card)
-        card.onclick = (e) => {
-            // Nur wenn nicht auf einen Chip geklickt wurde
-            if (!e.target.classList.contains('player-chip')) {
-                currentPlayerProject = project;
-                showPlayerCover(project);
-                updateRenameButton();
-            }
-        };
     });
-    
-    // Zeige Cover vom ersten Projekt wenn vorhanden
-    if (projects.length > 0 && projects[0].has_poster) {
-        showPlayerCover(projects[0]);
-        currentPlayerProject = projects[0];
-    }
-    
-    // Aktualisiere Rename-Button
-    updateRenameButton();
 }
 
-function showPlayerCover(project) {
-    const video = document.getElementById('player-video');
-    const poster = document.getElementById('player-poster');
-    const placeholder = document.getElementById('player-placeholder');
-    const nowPlaying = document.getElementById('player-now-playing');
-    
-    // Verstecke Video
-    if (video) {
-        video.style.display = 'none';
-        video.src = '';
-        video.pause();
+function showPreviewFrame(dataUrl) {
+    const img = $('preview-img');
+    img.src = dataUrl;
+    img.hidden = false;
+    $('preview-empty').hidden = true;
+}
+
+function tickClock() {
+    $('capture-clock').textContent = formatClock(new Date());
+    const started = state.capture.startedAt ? new Date(state.capture.startedAt) : null;
+    $('capture-elapsed').textContent = started && !Number.isNaN(started.getTime())
+        ? formatElapsed(Date.now() - started.getTime()) : '--:--:--';
+}
+
+// ------------------------------------------------------------------ merge queue
+
+function jobBadge(status) {
+    const kind = {completed: 'ok', failed: 'bad', running: 'busy'}[status] || '';
+    return h('span', {class: `badge ${kind}`, text: t(`job.${status}`)});
+}
+
+function jobView(job, withBar) {
+    return h('div', {class: 'job'},
+        h('div', {class: 'job-head'},
+            h('span', {class: 'job-title', text: job.year ? `${job.title} (${job.year})` : job.title}),
+            jobBadge(job.status)),
+        job.message ? h('p', {class: 'job-msg', text: job.message}) : null,
+        withBar ? h('div', {class: 'bar', role: 'progressbar', 'aria-valuemin': '0', 'aria-valuemax': '100',
+            'aria-valuenow': String(job.progress || 0), 'aria-label': t('queue.progress')},
+        h('span', {style: `width:${job.progress || 0}%`})) : null);
+}
+
+function handleMergeProgress(job) {
+    if (!job) return;
+    if (!state.queue) state.queue = {jobs: [], pending_count: 0, current_job: null};
+    if (job.status === 'running') state.queue.current_job = job;
+    else if (state.queue.current_job && state.queue.current_job.title === job.title) state.queue.current_job = null;
+    const known = state.queue.jobs.find(j => j.title === job.title && j.year === job.year);
+    if (known) Object.assign(known, job); else state.queue.jobs.push(job);
+    renderMergeQueue();
+    if (job.status === 'completed') toast(t('queue.merged', {name: `${job.title} (${job.year})`}), 'ok');
+    if (job.status === 'failed') toast(t('queue.failed', {name: `${job.title} (${job.year})`}), 'bad');
+}
+
+async function loadMergeQueue() {
+    try {
+        state.queue = await api('/api/merge/queue');
+    } catch (_) {
+        return;
     }
-    
-    if (project && project.has_poster && project.poster_path) {
-        // Zeige Poster
-        if (placeholder) placeholder.style.display = 'none';
-        if (poster) {
-            poster.src = withApiToken(`/api/player/poster?path=${encodeURIComponent(project.poster_path)}`);
-            poster.style.display = 'block';
+    renderMergeQueue();
+}
+
+function renderMergeQueue() {
+    const q = state.queue;
+    if (!q) return;
+    const current = q.current_job;
+    const mini = $('merge-mini');
+    mini.hidden = !current && !q.pending_count;
+    $('merge-mini-job').replaceChildren(current ? jobView(current, true) : '');
+    $('merge-mini-pending').textContent = q.pending_count ? t('queue.waiting', {count: q.pending_count}) : '';
+
+    const box = $('queue-current');
+    box.hidden = !current;
+    box.replaceChildren(current ? jobView(current, true) : '');
+    const list = $('queue-list');
+    const jobs = (q.jobs || []).slice().reverse().filter(j => !current || j !== current);
+    if (!jobs.length && !current) {
+        list.replaceChildren(h('li', {}, emptyState('queue', t('queue.empty'), t('queue.empty_hint'))));
+        return;
+    }
+    list.replaceChildren(...jobs.map(job => h('li', {}, h('div', {class: 'row static'}, jobView(job, false)))));
+}
+
+// ------------------------------------------------------------------ upscaling
+
+const PROFILE_HINTS = ['realesrgan_4x_hq', 'realesrgan_4x_balanced', 'realesrgan_4x_fast', 'realesrgan_2x', 'ffmpeg_hd', 'ffmpeg_fast'];
+
+function profileLabel(name) {
+    return PROFILE_HINTS.includes(name) ? `${name} · ${t(`profile.${name}`)}` : name;
+}
+
+async function loadProfiles() {
+    try {
+        const data = await api('/api/upscaling/profiles');
+        state.profiles = {names: data.profiles || [], default: data.default_profile};
+    } catch (_) { /* keep the old list */ }
+    renderProfiles();
+}
+
+function profileAvailable(name) {
+    const entry = state.info && state.info.upscaling.profiles.find(p => p.name === name);
+    return !entry || entry.available;
+}
+
+function renderProfiles() {
+    for (const id of ['profile-select', 'settings-default-profile']) {
+        const select = $(id);
+        const previous = select.value;
+        select.replaceChildren(...state.profiles.names.map(name => h('option', {
+            value: name,
+            disabled: !profileAvailable(name),
+            text: profileAvailable(name) ? profileLabel(name) : `${profileLabel(name)} · ${t('profile.unavailable')}`,
+        })));
+        const wanted = id === 'settings-default-profile' && state.settings ? state.settings.default_profile : previous;
+        select.value = state.profiles.names.includes(wanted) ? wanted : (state.profiles.default || '');
+        if (!profileAvailable(select.value)) {
+            const first = state.profiles.names.find(profileAvailable);
+            if (first) select.value = first;
         }
-        if (nowPlaying) nowPlaying.textContent = project.title;
+    }
+    updateProfileHint();
+}
+
+function updateProfileHint() {
+    const name = $('profile-select').value;
+    const reason = state.info && state.info.upscaling.realesrgan_reason;
+    $('profile-hint').textContent = !profileAvailable(name) && reason ? reason : (name ? t(`profile.${name}.detail`) : '');
+    if ($('profile-hint').textContent.startsWith('profile.')) $('profile-hint').textContent = '';
+}
+$('profile-select').addEventListener('change', updateProfileHint);
+
+async function loadPostprocessList() {
+    const list = $('postprocess-list');
+    if (!state.postprocess.movies.length) list.replaceChildren(h('li', {}, h('p', {class: 'empty', text: t('common.loading')})));
+    try {
+        const data = await api('/api/postprocess/list');
+        state.postprocess.movies = data.movies || [];
+    } catch (e) {
+        list.replaceChildren(h('li', {}, emptyState('upscale', t('error.load'), e.message,
+            h('button', {class: 'btn', type: 'button', onclick: loadPostprocessList, text: t('common.retry')}))));
+        return;
+    }
+    renderPostprocessList();
+}
+
+function renderPostprocessList() {
+    const list = $('postprocess-list');
+    const movies = state.postprocess.movies;
+    if (!movies.some(m => m.path === state.postprocess.selected)) state.postprocess.selected = null;
+    if (!movies.length) {
+        list.replaceChildren(h('li', {}, emptyState('upscale', t('post.empty'), t('post.empty_hint'),
+            h('button', {class: 'btn', type: 'button', onclick: () => activateTab('capture', true), text: t('post.to_capture')}))));
     } else {
-        // Zeige Placeholder
-        if (placeholder) placeholder.style.display = 'block';
-        if (poster) poster.style.display = 'none';
-        if (nowPlaying) nowPlaying.textContent = 'Keine Auswahl';
+        list.replaceChildren(...movies.map(movie => {
+            const id = `pp-${btoa(unescape(encodeURIComponent(movie.path))).replace(/[^a-zA-Z0-9]/g, '')}`;
+            const badges = [];
+            if (movie.merging) badges.push(h('span', {class: 'badge busy', text: t('post.merging')}));
+            else if (movie.needs_merge) badges.push(h('span', {class: 'badge', text: t('post.needs_merge')}));
+            return h('li', {},
+                h('label', {class: 'row', for: id},
+                    h('input', {type: 'radio', name: 'postprocess-movie', id, value: movie.path,
+                        checked: movie.path === state.postprocess.selected,
+                        onchange: () => { state.postprocess.selected = movie.path; updatePostprocessButtons(); }}),
+                    h('span', {class: 'name', text: movie.display}),
+                    ...badges));
+        }));
     }
+    updatePostprocessButtons();
 }
 
-function playVideo(path, label) {
-    const video = document.getElementById('player-video');
-    const poster = document.getElementById('player-poster');
-    const nowPlaying = document.getElementById('player-now-playing');
-    const placeholder = document.getElementById('player-placeholder');
-    if (!path || !video) return;
-    
-    // Verstecke Placeholder und Poster
-    if (placeholder) placeholder.style.display = 'none';
-    if (poster) poster.style.display = 'none';
-    
-    // Zeige Video
-    video.style.display = 'block';
-    video.src = withApiToken(`/api/player/stream?path=${encodeURIComponent(path)}`);
-    video.play().catch(() => {});
-    nowPlaying.textContent = `Spielt: ${label}`;
-    
-    // Wenn Video endet, zeige wieder Cover
-    video.onended = () => {
-        if (currentPlayerProject) {
-            showPlayerCover(currentPlayerProject);
-        }
-    };
-    
-    // Aktualisiere Rename-Button
-    updateRenameButton();
+function updatePostprocessButtons() {
+    const selected = state.postprocess.movies.find(m => m.path === state.postprocess.selected);
+    $('postprocess-run').disabled = !selected || Boolean(selected.merging);
+    $('postprocess-delete').disabled = !selected;
+    $('postprocess-run-all').disabled = !state.postprocess.movies.length;
 }
 
-function updateRenameButton() {
-    const renameBtn = document.getElementById('player-rename-btn');
-    if (renameBtn) {
-        renameBtn.style.display = currentPlayerProject ? 'block' : 'none';
+async function startUpscale(movie) {
+    const profile = $('profile-select').value;
+    await api('/api/postprocess/process', {method: 'POST', body: {movie_dir: movie.path, profile_name: profile}});
+}
+
+$('postprocess-run').addEventListener('click', async () => {
+    const movie = state.postprocess.movies.find(m => m.path === state.postprocess.selected);
+    if (!movie) return;
+    try {
+        state.postprocess.logTarget = true;
+        await startUpscale(movie);
+        setStatus('postprocess-status', t('post.queued', {name: movie.display}), 'busy');
+        setProgress('postprocess', 0, movie.display);
+    } catch (e) {
+        setStatus('postprocess-status', e.message, 'bad');
     }
+});
+
+$('postprocess-run-all').addEventListener('click', async () => {
+    const movies = state.postprocess.movies.filter(m => !m.merging);
+    if (!movies.length) return;
+    const ok = await confirmDialog({title: t('post.all_title'), text: t('post.all_text', {count: movies.length}), ok: t('post.process_all')});
+    if (!ok) return;
+    state.postprocess.logTarget = true;
+    let queued = 0;
+    for (const movie of movies) {
+        try { await startUpscale(movie); queued += 1; } catch (e) { appendLog('postprocess-log', `${movie.display}: ${e.message}`); }
+    }
+    setStatus('postprocess-status', t('post.queued_many', {count: queued}), 'busy');
+});
+
+$('postprocess-delete').addEventListener('click', async () => {
+    const movie = state.postprocess.movies.find(m => m.path === state.postprocess.selected);
+    if (movie) await deleteProjects([movie.path], [movie.display]);
+});
+
+$('postprocess-refresh').addEventListener('click', loadPostprocessList);
+
+function handlePostprocessFinished(data) {
+    setStatus('postprocess-status', data.message || '', data.success ? 'ok' : 'bad');
+    toast(data.message || (data.success ? t('post.done') : t('post.failed')), data.success ? 'ok' : 'bad');
+    if (!(state.status && state.status.postprocessing_queued)) hideProgress('postprocess');
+    loadPostprocessList();
+    if (state.activeTab === 'movie') loadMovieList();
 }
 
-function showRenameModal() {
-    if (!currentPlayerProject) {
-        alert('Bitte wähle zuerst ein Projekt aus');
+// ------------------------------------------------------------------ deleting projects
+
+async function deleteProjects(paths, names) {
+    const ok = await confirmDialog({
+        title: t('delete.title'),
+        text: t('delete.text', {names: names.join(', ')}),
+        ok: t('delete.confirm'),
+        danger: true,
+    });
+    if (!ok) return;
+    try {
+        await api('/api/project/delete', {method: 'POST', body: {paths}});
+        toast(t('delete.done', {count: paths.length}), 'ok');
+    } catch (e) {
+        toast(e.message, 'bad');
+    }
+    loadPostprocessList();
+    if (state.activeTab === 'movie') loadMovieList();
+}
+
+// ------------------------------------------------------------------ covers
+
+async function loadCoverList() {
+    const list = $('cover-video-list');
+    try {
+        const data = await api('/api/cover/videos');
+        state.cover.videos = data.videos || [];
+    } catch (e) {
+        list.replaceChildren(h('li', {}, emptyState('cover', t('error.load'), e.message)));
         return;
     }
-    
-    // Parse Titel und Jahr aus dem Projektnamen
-    const projectTitle = currentPlayerProject.title;
-    const match = projectTitle.match(/^(.+?)\s*\((\d{4})\)$/);
-    
-    const titleInput = document.getElementById('rename-title');
-    const yearInput = document.getElementById('rename-year');
-    
-    if (match) {
-        titleInput.value = match[1].trim();
-        yearInput.value = match[2];
+    const paths = new Set(state.cover.videos.map(v => v.path));
+    state.cover.selected = new Set([...state.cover.selected].filter(p => paths.has(p)));
+    renderCoverList();
+}
+
+function renderCoverList() {
+    const list = $('cover-video-list');
+    if (!state.cover.videos.length) {
+        list.replaceChildren(h('li', {}, emptyState('cover', t('cover.empty'), t('cover.empty_hint'))));
     } else {
-        titleInput.value = projectTitle;
-        yearInput.value = '';
+        list.replaceChildren(...state.cover.videos.map((video, index) => {
+            const id = `cv-${index}`;
+            const thumb = video.has_poster && video.poster_path
+                ? h('img', {src: withToken(`/api/player/poster?path=${encodeURIComponent(video.poster_path)}`), alt: '', width: '30', height: '45', class: 'thumb', loading: 'lazy'})
+                : null;
+            return h('li', {},
+                h('label', {class: 'row', for: id},
+                    h('input', {type: 'checkbox', id, checked: state.cover.selected.has(video.path),
+                        onchange: (event) => {
+                            if (event.target.checked) state.cover.selected.add(video.path);
+                            else state.cover.selected.delete(video.path);
+                            updateCoverButtons();
+                        }}),
+                    thumb,
+                    h('span', {class: 'name', text: video.display}),
+                    h('span', {class: `badge ${video.has_poster ? 'ok' : ''}`, text: video.has_poster ? t('cover.has_poster') : t('cover.no_poster')})));
+        }));
     }
-    
-    document.getElementById('rename-modal').classList.add('active');
-}
-
-function closeRenameModal() {
-    document.getElementById('rename-modal').classList.remove('active');
-}
-
-async function renamePlayerProject() {
-    if (!currentPlayerProject) {
-        alert('Kein Projekt ausgewählt');
-        return;
-    }
-    
-    const titleInput = document.getElementById('rename-title');
-    const yearInput = document.getElementById('rename-year');
-    
-    const newTitle = titleInput.value.trim();
-    const newYear = yearInput.value.trim();
-    
-    if (!newTitle) {
-        alert('Bitte einen Titel eingeben');
-        return;
-    }
-    
-    // Erstelle Projekt-Pfad (der Titel ist der Ordnername)
-    // Der Backend erwartet den vollständigen Pfad zum Projektordner
-    const dvRoot = await getDvImportRoot();
-    const projectPath = `${dvRoot}/${currentPlayerProject.title}`;
-    
-    try {
-        const response = await fetch('/api/player/rename', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({
-                project_path: projectPath,
-                new_title: newTitle,
-                new_year: newYear || null
-            })
-        });
-        
-        const data = await response.json();
-        
-        if (response.ok) {
-            alert(data.message || 'Projekt erfolgreich umbenannt');
-            closeRenameModal();
-            
-            // Setze currentPlayerProject zurück, damit es neu geladen wird
-            currentPlayerProject = null;
-            
-            // Lade Projekte neu
-            await loadPlayerProjects();
-            
-            // Versuche das umbenannte Projekt wieder auszuwählen
-            if (data.new_name) {
-                setTimeout(async () => {
-                    const projects = await fetch('/api/player/projects').then(r => r.json());
-                    const renamedProject = projects.projects.find(p => p.title === data.new_name);
-                    if (renamedProject) {
-                        currentPlayerProject = renamedProject;
-                        showPlayerCover(renamedProject);
-                        updateRenameButton();
-                    }
-                }, 500);
-            }
-        } else {
-            alert(data.detail || 'Fehler beim Umbenennen');
-        }
-    } catch (error) {
-        alert('Fehler: ' + error.message);
-        console.error('Fehler beim Umbenennen:', error);
-    }
-}
-
-async function getDvImportRoot() {
-    try {
-        const response = await fetch('/api/settings');
-        const data = await response.json();
-        return data.dv_import_root || '';
-    } catch (error) {
-        console.error('Fehler beim Laden der Einstellungen:', error);
-        return '';
-    }
-}
-
-// Cover functions
-let selectedCoverVideos = [];
-
-async function loadCoverVideoList() {
-    try {
-        const response = await fetch('/api/cover/videos');
-        const data = await response.json();
-        const list = document.getElementById('cover-video-list');
-        list.innerHTML = '';
-        
-        // Behalte die Auswahl, setze sie nicht zurück
-        const previouslySelected = [...selectedCoverVideos];
-        
-        data.videos.forEach(video => {
-            const item = document.createElement('div');
-            item.className = 'list-item';
-            const hasPoster = video.has_poster || false;
-            const posterBadge = hasPoster 
-                ? '<span class="badge" style="background: rgba(40, 167, 69, 0.9); color: #000;">✓ Poster</span>'
-                : '<span class="badge" style="background: rgba(153, 153, 153, 0.9); color: #000;">Kein Poster</span>';
-            item.innerHTML = `
-                <span class="icon">🎬</span>
-                <span class="name" title="${video.display}">${video.display}</span>
-                ${posterBadge}
-            `;
-            
-            // Prüfe ob dieses Video bereits ausgewählt war
-            const isSelected = previouslySelected.includes(video.path);
-            if (isSelected) {
-                item.classList.add('selected');
-                // Stelle sicher, dass es in selectedCoverVideos ist
-                if (!selectedCoverVideos.includes(video.path)) {
-                    selectedCoverVideos.push(video.path);
-                }
-            }
-            
-            item.onclick = (e) => {
-                e.stopPropagation(); // Verhindere Event-Bubbling
-                
-                const isCurrentlySelected = item.classList.contains('selected');
-                
-                if (isCurrentlySelected) {
-                    // Entferne Auswahl
-                    item.classList.remove('selected');
-                    selectedCoverVideos = selectedCoverVideos.filter(v => v !== video.path);
-                } else {
-                    // Füge Auswahl hinzu
-                    item.classList.add('selected');
-                    if (!selectedCoverVideos.includes(video.path)) {
-                        selectedCoverVideos.push(video.path);
-                    }
-                }
-                
-                // Aktualisiere Button sofort
-                updateCoverButtons();
-            };
-            list.appendChild(item);
-        });
-        
-        // Aktualisiere selectedCoverVideos: entferne Pfade die nicht mehr existieren
-        selectedCoverVideos = selectedCoverVideos.filter(path => 
-            data.videos.some(v => v.path === path)
-        );
-        
-        // Stelle sicher, dass Buttons korrekt aktualisiert werden
-        // Verwende setTimeout, damit DOM vollständig gerendert ist
-        setTimeout(() => {
-            updateCoverButtons();
-        }, 50);
-    } catch (error) {
-        console.error('Fehler beim Laden der Liste:', error);
-    }
+    updateCoverButtons();
 }
 
 function updateCoverButtons() {
-    const selectedBtn = document.getElementById('generate-poster-selected-btn');
-    const allBtn = document.getElementById('generate-poster-all-btn');
-    
-    if (!selectedBtn) {
-        console.error('Button generate-poster-selected-btn nicht gefunden!');
+    $('generate-poster-selected-btn').disabled = state.cover.selected.size === 0;
+    $('generate-poster-all-btn').disabled = !state.cover.videos.some(v => !v.has_poster);
+}
+
+async function generatePosters(paths) {
+    if (!paths.length) return;
+    state.cover.busy = true;
+    state.cover.pending = paths.length;
+    setProgress('cover', 0, t('cover.working_count', {count: paths.length}));
+    try {
+        const data = await api('/api/poster/generate-batch', {method: 'POST', body: {video_paths: paths}});
+        setStatus('cover-status', t('cover.queued', {count: data.count}), 'busy');
+    } catch (e) {
+        state.cover.busy = false;
+        hideProgress('cover');
+        setStatus('cover-status', e.message, 'bad');
+    }
+}
+
+$('generate-poster-selected-btn').addEventListener('click', () => generatePosters([...state.cover.selected]));
+$('generate-poster-all-btn').addEventListener('click', async () => {
+    const missing = state.cover.videos.filter(v => !v.has_poster).map(v => v.path);
+    const ok = await confirmDialog({title: t('cover.all_title'), text: t('cover.all_text', {count: missing.length}), ok: t('cover.generate_missing')});
+    if (ok) generatePosters(missing);
+});
+$('cover-refresh').addEventListener('click', loadCoverList);
+
+function handlePosterFinished(data) {
+    state.cover.pending = Math.max(0, (state.cover.pending || 1) - 1);
+    if (!data.success) toast(data.message || t('cover.failed'), 'bad');
+    if (!state.cover.pending) {
+        state.cover.busy = false;
+        hideProgress('cover');
+        setStatus('cover-status', data.success ? t('cover.done') : (data.message || t('cover.failed')), data.success ? 'ok' : 'bad');
+        if (data.success) toast(t('cover.done'), 'ok');
+    }
+    loadCoverList();
+    if (state.activeTab === 'player') loadPlayerProjects();
+}
+
+// ------------------------------------------------------------------ Plex export
+
+async function loadMovieList() {
+    const list = $('movie-list');
+    try {
+        const data = await api('/api/movie/list');
+        state.movie.videos = data.videos || [];
+        state.movie.storage = data.storage || null;
+    } catch (e) {
+        list.replaceChildren(h('li', {}, emptyState('export', t('error.load'), e.message)));
         return;
     }
-    
-    const hasSelection = selectedCoverVideos && selectedCoverVideos.length > 0;
-    selectedBtn.disabled = !hasSelection;
-    
-    // Entferne disabled-Attribut aus HTML falls vorhanden
-    if (hasSelection) {
-        selectedBtn.removeAttribute('disabled');
+    const paths = new Set(state.movie.videos.map(v => v.path));
+    state.movie.selected = new Set([...state.movie.selected].filter(p => paths.has(p)));
+    renderMovieList();
+}
+
+function renderStorage() {
+    const s = state.movie.storage;
+    const box = $('movie-storage');
+    if (!s) { box.hidden = true; return; }
+    box.hidden = false;
+    $('storage-root').textContent = s.plex_root;
+    $('storage-root').title = s.plex_root;
+    $('storage-free').textContent = formatBytes(s.free_bytes);
+    $('storage-needed').textContent = s.required_count
+        ? t('movie.needed_value', {size: formatBytes(s.required_bytes), count: s.required_count}) : t('movie.nothing_new');
+    box.classList.toggle('short', !s.fits_all);
+    const used = s.total_bytes ? Math.min(100, ((s.used_bytes || 0) + (s.required_bytes || 0)) / s.total_bytes * 100) : 0;
+    $('storage-meter').style.width = `${used}%`;
+}
+
+function renderMovieList() {
+    renderStorage();
+    const list = $('movie-list');
+    if (!state.movie.videos.length) {
+        list.replaceChildren(h('li', {}, emptyState('export', t('movie.empty'), t('movie.empty_hint'),
+            h('button', {class: 'btn', type: 'button', onclick: () => activateTab('postprocess', true), text: t('movie.to_upscaling')}))));
     } else {
-        selectedBtn.setAttribute('disabled', 'disabled');
+        list.replaceChildren(...state.movie.videos.map((video, index) => {
+            const id = `mv-${index}`;
+            const fits = video.exported || video.fits_now !== false;
+            return h('li', {},
+                h('label', {class: 'row', for: id, 'data-path': video.path},
+                    h('input', {type: 'checkbox', id, checked: state.movie.selected.has(video.path),
+                        onchange: (event) => {
+                            if (event.target.checked) state.movie.selected.add(video.path);
+                            else state.movie.selected.delete(video.path);
+                            updateMovieButtons();
+                        }}),
+                    h('span', {class: 'name', text: video.display, title: video.expected_target}),
+                    h('span', {class: 'meta', text: formatBytes(video.size_bytes)}),
+                    !fits ? h('span', {class: 'badge bad', text: t('movie.no_space')}) : null,
+                    h('span', {class: `badge ${video.exported ? 'ok' : ''}`, 'data-badge': '1',
+                        text: video.exported ? t('movie.in_library') : t('movie.not_exported')})));
+        }));
     }
-    
-    if (allBtn) {
-        allBtn.disabled = false; // Immer aktiv
-        allBtn.removeAttribute('disabled');
+    updateMovieButtons();
+}
+
+function updateMovieButtons() {
+    const count = state.movie.selected.size;
+    const busy = state.movie.busy;
+    $('export-btn').disabled = count !== 1 || busy;
+    $('export-btn').title = count > 1 ? t('movie.one_at_a_time') : '';
+    $('merge-btn').disabled = count < 2 || busy;
+    $('movie-delete-btn').disabled = count < 1 || busy;
+    $('export-all-btn').disabled = busy || !state.movie.videos.some(v => !v.exported);
+}
+
+function markMovie(path, kind, text) {
+    const row = document.querySelector(`#movie-list label[data-path="${CSS.escape(path || '')}"]`);
+    const badge = row && row.querySelector('[data-badge]');
+    if (!badge) return;
+    badge.className = `badge ${kind}`;
+    badge.textContent = text;
+}
+
+$('export-btn').addEventListener('click', async () => {
+    const path = [...state.movie.selected][0];
+    const video = state.movie.videos.find(v => v.path === path);
+    if (!video) return;
+    if (video.exported) {
+        const ok = await confirmDialog({title: t('movie.overwrite_title'), text: t('movie.overwrite_text', {name: video.display}), ok: t('movie.overwrite')});
+        if (!ok) return;
+    }
+    try {
+        state.movie.busy = true;
+        updateMovieButtons();
+        await api('/api/movie/export', {method: 'POST', body: {video_path: path}});
+    } catch (e) {
+        state.movie.busy = false;
+        updateMovieButtons();
+        setStatus('movie-status', e.message, 'bad');
+    }
+});
+
+$('export-all-btn').addEventListener('click', async () => {
+    const count = state.movie.videos.filter(v => !v.exported).length;
+    const ok = await confirmDialog({title: t('movie.all_title'), text: t('movie.all_text', {count}), ok: t('movie.export_all')});
+    if (!ok) return;
+    try {
+        state.movie.busy = true;
+        updateMovieButtons();
+        await api('/api/movie/export-all', {method: 'POST', body: {skip_existing: true}});
+    } catch (e) {
+        state.movie.busy = false;
+        updateMovieButtons();
+        setStatus('movie-status', e.message, 'bad');
+    }
+});
+
+$('merge-btn').addEventListener('click', async () => {
+    const title = $('movie-title').value.trim();
+    const year = $('movie-year').value.trim();
+    if (!title) { toast(t('validation.title'), 'bad'); $('movie-title').focus(); return; }
+    if (!validYear(year)) { toast(t('validation.year'), 'bad'); $('movie-year').focus(); return; }
+    const paths = [...state.movie.selected];
+    const ok = await confirmDialog({title: t('movie.merge_title'), text: t('movie.merge_text', {count: paths.length, name: `${title} (${year})`}), ok: t('movie.merge')});
+    if (!ok) return;
+    try {
+        state.movie.busy = true;
+        updateMovieButtons();
+        await api('/api/movie/merge', {method: 'POST', body: {video_paths: paths, title, year}});
+    } catch (e) {
+        state.movie.busy = false;
+        updateMovieButtons();
+        setStatus('movie-status', e.message, 'bad');
+    }
+});
+
+$('movie-delete-btn').addEventListener('click', async () => {
+    const videos = state.movie.videos.filter(v => state.movie.selected.has(v.path));
+    if (videos.length) await deleteProjects(videos.map(v => v.path), videos.map(v => v.display));
+    state.movie.selected.clear();
+});
+
+$('movie-refresh').addEventListener('click', loadMovieList);
+
+function handleMovieStatus(status, payload) {
+    const finished = ['movie_export_all_finished', 'movie_export_all_failed', 'movie_export_single_done',
+        'movie_export_single_failed', 'movie_merge_finished', 'movie_merge_failed'];
+    switch (status) {
+        case 'movie_export_all_started':
+            setStatus('movie-status', t('movie.all_started', {count: payload.total ?? '?'}), 'busy');
+            setProgress('movie', 0, t('movie.exporting'));
+            break;
+        case 'movie_export_single_started':
+            setStatus('movie-status', t('movie.single_started'), 'busy');
+            setProgress('movie', 0, t('movie.exporting'));
+            markMovie(payload.video_path, 'busy', t('movie.exporting'));
+            break;
+        case 'movie_merge_started':
+            setStatus('movie-status', t('movie.merge_started', {count: payload.count ?? '?'}), 'busy');
+            setProgress('movie', 0, t('movie.merging'));
+            break;
+        case 'movie_export_item_started': markMovie(payload.video_path, 'busy', t('movie.exporting')); break;
+        case 'movie_export_item_done':
+        case 'movie_export_item_skipped': markMovie(payload.video_path, 'ok', t('movie.in_library')); break;
+        case 'movie_export_item_failed': markMovie(payload.video_path, 'bad', t('movie.failed_short')); break;
+        case 'movie_export_all_finished':
+            setStatus('movie-status', t('movie.all_done', {skipped: payload.skipped ?? 0, failed: payload.failed ?? 0}), payload.failed ? 'bad' : 'ok');
+            break;
+        case 'movie_export_single_done': setStatus('movie-status', t('movie.single_done'), 'ok'); toast(t('movie.single_done'), 'ok'); break;
+        case 'movie_merge_finished': setStatus('movie-status', t('movie.merge_done'), 'ok'); toast(t('movie.merge_done'), 'ok'); break;
+        case 'movie_export_all_failed':
+        case 'movie_export_single_failed':
+        case 'movie_merge_failed':
+            setStatus('movie-status', `${t('movie.failed')}: ${payload.error || ''}`, 'bad');
+            if (payload.video_path) markMovie(payload.video_path, 'bad', t('movie.failed_short'));
+            break;
+        default: break;
+    }
+    if (finished.includes(status)) {
+        state.movie.busy = false;
+        hideProgress('movie');
+        loadMovieList();
     }
 }
 
-async function extractFrames() {
-    if (extractingFrames) return;
-    if (!selectedCoverVideo) {
-        alert('Bitte ein Video auswählen');
+// ------------------------------------------------------------------ video player
+
+async function loadPlayerProjects() {
+    const box = $('player-project-list');
+    try {
+        const data = await api('/api/player/projects');
+        state.player.projects = data.projects || [];
+    } catch (e) {
+        box.replaceChildren(emptyState('player', t('error.load'), e.message));
         return;
     }
-    
-    extractingFrames = true;
-    document.getElementById('extract-frames-btn').disabled = true;
-    document.getElementById('cover-status').textContent = 'Extrahiere Frames...';
-    document.getElementById('cover-status').className = 'status';
-    
-    try {
-        const response = await fetch('/api/cover/extract', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({video_path: selectedCoverVideo, count: COVER_FRAME_COUNT})
-        });
-        
-        const data = await response.json();
-        if (response.ok) {
-            extractedFrames = data.frames;
-            displayFrames(data.frames);
-            document.getElementById('cover-status').textContent = `${data.frames.length} Frames extrahiert`;
-            document.getElementById('cover-status').className = 'status success';
-        } else {
-            alert(data.detail || 'Fehler bei Frame-Extraktion');
-            document.getElementById('cover-status').textContent = 'Fehler bei Frame-Extraktion';
-            document.getElementById('cover-status').className = 'status error';
-        }
-    } catch (error) {
-        alert('Fehler: ' + error.message);
-        document.getElementById('cover-status').textContent = 'Fehler: ' + error.message;
-        document.getElementById('cover-status').className = 'status error';
-    } finally {
-        extractingFrames = false;
-        document.getElementById('extract-frames-btn').disabled = false;
-    }
+    renderPlayerProjects();
 }
 
-function displayFrames(frames) {
-    const grid = document.getElementById('frame-grid');
-    grid.innerHTML = '';
-    
-    frames.forEach((frame, index) => {
-        const item = document.createElement('div');
-        item.className = 'frame-item';
-        item.innerHTML = `<img src="${frame.data}" alt="Frame ${index + 1}">`;
-        item.onclick = () => {
-            document.querySelectorAll('.frame-item').forEach(f => f.classList.remove('selected'));
-            item.classList.add('selected');
-            selectedFrameIndex = index;
-            document.getElementById('generate-cover-btn').disabled = false;
-        };
-        grid.appendChild(item);
-    });
-}
-
-async function generateCover() {
-    if (selectedFrameIndex === null || !extractedFrames[selectedFrameIndex]) {
-        alert('Bitte einen Frame auswählen');
+function renderPlayerProjects() {
+    const box = $('player-project-list');
+    const projects = state.player.projects;
+    if (!projects.length) {
+        box.replaceChildren(emptyState('player', t('player.empty'), t('player.empty_hint')));
+        showViewer(null);
         return;
     }
-    
-    const title = selectedCoverTitle || (selectedCoverVideo ? selectedCoverVideo.split('/').pop() : '');
-    const year = selectedCoverYear || null;
-    
-    try {
-        const response = await fetch('/api/cover/generate', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({
-                frame_path: extractedFrames[selectedFrameIndex].path,
-                title,
-                year
-            })
-        });
-        
-        const data = await response.json();
-        if (response.ok) {
-            document.getElementById('cover-status').textContent = 'Generiere Cover...';
-            document.getElementById('cover-progress').style.display = 'block';
-        } else {
-            alert(data.detail || 'Fehler bei Cover-Generierung');
-        }
-    } catch (error) {
-        alert('Fehler: ' + error.message);
+    if (state.player.selected && !projects.some(p => p.path === state.player.selected.path)) state.player.selected = null;
+    box.replaceChildren(...projects.map(project => {
+        const selected = state.player.selected && state.player.selected.path === project.path;
+        const files = (label, items) => h('div', {class: 'files'},
+            h('span', {class: 'label', text: label}),
+            items.length
+                ? h('div', {class: 'file-chips'}, ...items.map(file => h('button', {
+                    type: 'button', class: 'file-chip',
+                    'aria-pressed': String(state.player.playing === file.path),
+                    onclick: () => playVideo(project, file),
+                }, icon('play'), h('span', {text: file.name}))))
+                : h('span', {class: 'muted small', text: t('player.no_files')}));
+        return h('div', {class: `project${selected ? ' selected' : ''}`},
+            h('div', {class: 'project-head'},
+                h('button', {type: 'button', 'aria-pressed': String(Boolean(selected)), text: project.title,
+                    onclick: () => { state.player.selected = project; state.player.playing = null; renderPlayerProjects(); showViewer(project); }}),
+                project.has_poster ? h('span', {class: 'badge ok', text: t('cover.has_poster')}) : null),
+            files(t('player.lowres'), project.lowres || []),
+            files(t('player.highres'), project.highres || []));
+    }));
+    if (!state.player.playing) showViewer(state.player.selected || projects.find(p => p.has_poster) || null);
+    $('player-rename-btn').hidden = !state.player.selected;
+}
+
+function showViewer(project) {
+    const video = $('player-video');
+    const poster = $('player-poster');
+    video.pause();
+    video.removeAttribute('src');
+    video.hidden = true;
+    if (project && project.has_poster && project.poster_path) {
+        poster.src = withToken(`/api/player/poster?path=${encodeURIComponent(project.poster_path)}`);
+        poster.alt = t('player.poster_alt', {name: project.title});
+        poster.hidden = false;
+        $('player-placeholder').hidden = true;
+        $('player-now-playing').textContent = project.title;
+    } else {
+        poster.hidden = true;
+        $('player-placeholder').hidden = false;
+        $('player-now-playing').textContent = project ? project.title : '';
     }
 }
 
-async function generatePosterSelected() {
-    if (!selectedCoverVideos || selectedCoverVideos.length === 0) {
-        alert('Bitte mindestens ein Video auswählen');
-        return;
-    }
-    
-    if (!confirm(`${selectedCoverVideos.length} Poster werden generiert. Fortfahren?`)) {
-        return;
-    }
-    
-    const statusEl = document.getElementById('cover-status');
-    const progressEl = document.getElementById('cover-progress');
-    const progressFillEl = document.getElementById('cover-progress-fill');
-    
-    try {
-        statusEl.textContent = 'Sende Anfrage...';
-        statusEl.className = 'status';
-        progressEl.style.display = 'block';
-        progressFillEl.style.width = '0%';
-        
-        const response = await fetch('/api/poster/generate-batch', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({video_paths: selectedCoverVideos})
-        });
-        
-        const data = await response.json();
-        if (response.ok) {
-            statusEl.textContent = `${data.count} Poster-Generierungs-Jobs zur Queue hinzugefügt`;
-            statusEl.className = 'status success';
-            progressFillEl.style.width = '10%';
-            addLog(`${data.count} Poster-Generierungs-Jobs gestartet`, 'poster_generation');
-        } else {
-            statusEl.textContent = 'Fehler: ' + (data.detail || 'Unbekannter Fehler');
-            statusEl.className = 'status error';
-            alert(data.detail || 'Fehler bei Poster-Generierung');
-        }
-    } catch (error) {
-        statusEl.textContent = 'Fehler: ' + error.message;
-        statusEl.className = 'status error';
-        alert('Fehler: ' + error.message);
-        console.error('Fehler bei generatePosterSelected:', error);
-    }
+function playVideo(project, file) {
+    state.player.selected = project;
+    state.player.playing = file.path;
+    const video = $('player-video');
+    $('player-poster').hidden = true;
+    $('player-placeholder').hidden = true;
+    video.hidden = false;
+    video.src = withToken(`/api/player/stream?path=${encodeURIComponent(file.path)}`);
+    video.play().catch(() => { /* the user starts it */ });
+    $('player-now-playing').textContent = t('player.playing', {name: `${project.title} · ${file.name}`});
+    video.onended = () => { state.player.playing = null; showViewer(project); renderPlayerProjects(); };
+    renderPlayerProjects();
 }
 
-async function generatePosterAll() {
+$('player-refresh').addEventListener('click', loadPlayerProjects);
+
+$('player-rename-btn').addEventListener('click', () => {
+    const project = state.player.selected;
+    if (!project) return;
+    const match = project.title.match(/^(.+?)\s*\((\d{4})\)$/);
+    $('rename-title').value = match ? match[1].trim() : project.title;
+    $('rename-year').value = match ? match[2] : '';
+    $('rename-error').hidden = true;
+    $('rename-dialog').showModal();
+    $('rename-title').focus();
+});
+
+$('rename-form').addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const project = state.player.selected;
+    const title = $('rename-title').value.trim();
+    const year = $('rename-year').value.trim();
+    const showError = (text) => { $('rename-error').textContent = text; $('rename-error').hidden = false; };
+    if (!title) return showError(t('validation.title'));
+    if (year && !validYear(year)) return showError(t('validation.year'));
     try {
-        const response = await fetch('/api/cover/videos');
-        const data = await response.json();
-        
-        if (data.videos.length === 0) {
-            alert('Keine Videos gefunden');
+        const data = await api('/api/player/rename', {method: 'POST', body: {project_path: project.path, new_title: title, new_year: year || null}});
+        $('rename-dialog').close();
+        toast(t('player.renamed', {name: data.new_name}), 'ok');
+        state.player.selected = {path: data.new_path};
+        await loadPlayerProjects();
+        state.player.selected = state.player.projects.find(p => p.path === data.new_path) || null;
+        renderPlayerProjects();
+    } catch (e) {
+        showError(e.message);
+    }
+});
+
+// ------------------------------------------------------------------ logs
+
+const LOG_CATEGORIES = ['capture', 'merge', 'postprocessing', 'poster_generation', 'update', 'player', 'movie', 'general', 'live'];
+
+function appendLogEntry(entry, list = $('system-logs')) {
+    const time = new Date(entry.timestamp);
+    const failed = /fehl|error|failed|fehler/i.test(entry.message);
+    const cat = LOG_CATEGORIES.includes(entry.category) ? t(`logcat.${entry.category}`) : entry.category;
+    const item = h('li', {'data-cat': entry.category, class: failed ? 'bad' : ''},
+        h('time', {datetime: entry.timestamp, text: Number.isNaN(time.getTime()) ? '' : formatClock(time)}),
+        h('span', {class: 'cat', text: cat}),
+        h('span', {class: 'msg', text: entry.message}));
+    const nearBottom = list.scrollHeight - list.scrollTop - list.clientHeight < 60;
+    const empty = list.querySelector('.empty');
+    if (empty) empty.remove();
+    list.append(item);
+    if (nearBottom) list.scrollTop = list.scrollHeight;
+}
+
+async function loadLogs() {
+    const list = $('system-logs');
+    const category = $('log-filter').value;
+    let entries = [];
+    try {
+        const data = await api(`/api/logs?limit=500${category ? `&category=${encodeURIComponent(category)}` : ''}`);
+        entries = data.logs || [];
+    } catch (e) {
+        list.replaceChildren(h('li', {class: 'empty'}, emptyState('logs', t('error.load'), e.message)));
+        return;
+    }
+    list.replaceChildren();
+    if (!entries.length) {
+        list.append(h('li', {class: 'empty'}, emptyState('logs', t('logs.empty'), t('logs.empty_hint'))));
+    } else {
+        entries.forEach(entry => appendLogEntry(entry, list));
+        list.scrollTop = list.scrollHeight;
+    }
+    if (state.info) $('logs-file').textContent = t('logs.file', {path: state.info.paths.logs});
+}
+
+$('log-filter').addEventListener('change', loadLogs);
+$('logs-refresh').addEventListener('click', loadLogs);
+$('logs-clear').addEventListener('click', async () => {
+    const ok = await confirmDialog({title: t('logs.clear_title'), text: t('logs.clear_text'), ok: t('logs.clear')});
+    if (!ok) return;
+    try { await api('/api/logs/clear', {method: 'POST'}); } catch (e) { toast(e.message, 'bad'); }
+    loadLogs();
+});
+
+// ------------------------------------------------------------------ settings
+
+const SETTING_FIELDS = {
+    'settings-plex-root': 'plex_movies_root',
+    'settings-dv-root': 'dv_import_root',
+    'settings-ffmpeg': 'ffmpeg_path',
+};
+const SETTING_CHECKS = {
+    'settings-timestamp-overlay': 'timestamp_overlay',
+    'settings-auto-postprocess': 'auto_postprocess',
+    'settings-auto-upscale': 'auto_upscale',
+    'settings-auto-export': 'auto_export',
+    'settings-show-cover': 'show_cover_tab',
+    'settings-update-enabled': 'update_enabled',
+};
+
+async function loadSettings(force = false) {
+    if (state.settingsDirty && !force) return;
+    try {
+        state.settings = await api('/api/settings');
+    } catch (e) {
+        setStatus('settings-status', e.message, 'bad');
+        return;
+    }
+    fillSettings();
+    loadUpdateStatus();
+}
+
+function fillSettings() {
+    const s = state.settings;
+    if (!s) return;
+    for (const [id, key] of Object.entries(SETTING_FIELDS)) $(id).value = s[key] || '';
+    for (const [id, key] of Object.entries(SETTING_CHECKS)) $(id).checked = Boolean(s[key]);
+    $('settings-language').value = ['en', 'de'].includes(s.ui_language) ? s.ui_language : '';
+    $('settings-theme').value = ['light', 'dark'].includes(s.ui_theme) ? s.ui_theme : 'auto';
+    renderProfiles();
+    updateSubChecks();
+    state.settingsDirty = false;
+    setStatus('settings-status', '');
+}
+
+function updateSubChecks() {
+    const on = $('settings-auto-postprocess').checked;
+    $('settings-auto-upscale').disabled = !on;
+    $('settings-auto-export').disabled = !on;
+}
+
+$('settings-form').addEventListener('input', () => {
+    state.settingsDirty = true;
+    setStatus('settings-status', t('settings.unsaved'));
+});
+$('settings-form').addEventListener('change', (event) => {
+    state.settingsDirty = true;
+    setStatus('settings-status', t('settings.unsaved'));
+    if (event.target.id === 'settings-auto-postprocess') updateSubChecks();
+    if (event.target.id === 'settings-language') setLanguage(pickLanguage(event.target.value));
+    if (event.target.id === 'settings-theme') applyTheme(event.target.value);
+    if (event.target.id === 'settings-show-cover') setCoverTabVisible(event.target.checked);
+});
+
+$('settings-form').addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const body = {};
+    for (const [id, key] of Object.entries(SETTING_FIELDS)) body[key] = $(id).value.trim();
+    for (const [id, key] of Object.entries(SETTING_CHECKS)) body[key] = $(id).checked;
+    body.ui_language = $('settings-language').value;
+    body.ui_theme = $('settings-theme').value;
+    body.default_profile = $('settings-default-profile').value || undefined;
+    if (!body.plex_movies_root || !body.dv_import_root) {
+        setStatus('settings-status', t('settings.folders_required'), 'bad');
+        return;
+    }
+    try {
+        await api('/api/settings', {method: 'POST', body});
+        state.settingsDirty = false;
+        setStatus('settings-status', t('settings.saved'), 'ok');
+        toast(t('settings.saved'), 'ok');
+        await loadInfo();
+        await loadSettings(true);
+        loadProfiles();
+    } catch (e) {
+        setStatus('settings-status', e.message, 'bad');
+    }
+});
+
+$('settings-reset').addEventListener('click', async () => {
+    await loadSettings(true);
+    setLanguage(pickLanguage(state.settings ? state.settings.ui_language : ''));
+    applyTheme(state.settings ? state.settings.ui_theme : 'auto');
+    setCoverTabVisible(state.settings ? state.settings.show_cover_tab !== false : true);
+    setStatus('settings-status', t('settings.discarded'));
+});
+
+function renderSystemFacts() {
+    const info = state.info;
+    const facts = $('system-facts');
+    if (!info) return;
+    const rows = [
+        [t('facts.version'), `${info.version} · ${t(`facts.mode_${info.mode}`)}${info.demo ? ` · ${t('chip.demo')}` : ''}`, ''],
+        [t('facts.ffmpeg'), info.ffmpeg.found ? (info.ffmpeg.version || info.ffmpeg.path) : t('facts.missing'), info.ffmpeg.found ? '' : 'bad'],
+        [t('facts.overlay'), info.ffmpeg.drawtext ? t('facts.yes') : t('facts.no_drawtext'), info.ffmpeg.drawtext ? '' : 'bad'],
+        [t('facts.capture'), info.capture.supported ? t('facts.capture_ok') : t('facts.capture_no'), info.capture.supported ? '' : 'bad'],
+        [t('facts.realesrgan'), info.upscaling.realesrgan ? t('facts.yes') : (info.upscaling.realesrgan_reason || t('facts.no')), info.upscaling.realesrgan ? '' : 'bad'],
+        [t('facts.poster'), info.poster.full ? t('facts.poster_full') : t('facts.poster_simple'), ''],
+        [t('facts.settings_file'), info.paths.settings, ''],
+        [t('facts.logs'), info.paths.logs, ''],
+    ];
+    facts.replaceChildren(...rows.flatMap(([label, value, kind]) => [h('dt', {text: label}), h('dd', {class: kind, text: value})]));
+}
+
+async function loadUpdateStatus(refresh = false) {
+    setStatus('update-status', t('update.checking'), 'busy');
+    try {
+        const data = await api(`/api/update/status${refresh ? '?refresh=true' : ''}`);
+        const s = data.status || {};
+        if (s.error) {
+            setStatus('update-status', s.error, 'bad');
+            $('update-run-btn').disabled = true;
             return;
         }
-        
-        // Filtere Videos ohne Poster
-        const videosWithoutPoster = data.videos
-            .filter(v => !v.has_poster)
-            .map(v => v.path);
-        
-        if (videosWithoutPoster.length === 0) {
-            alert('Alle Videos haben bereits Poster');
+        const local = s.local ? s.local.slice(0, 7) : '?';
+        if (s.blocked_reason) setStatus('update-status', t('update.blocked', {reason: s.blocked_reason}), 'bad');
+        else if (s.behind > 0) setStatus('update-status', t('update.available', {count: s.behind, local}), 'busy');
+        else setStatus('update-status', t('update.current', {local}), 'ok');
+        $('update-run-btn').disabled = !(s.behind > 0);
+    } catch (e) {
+        setStatus('update-status', e.message, 'bad');
+    }
+}
+
+$('update-refresh-btn').addEventListener('click', () => loadUpdateStatus(true));
+$('update-run-btn').addEventListener('click', async () => {
+    const ok = await confirmDialog({title: t('update.run_title'), text: t('update.run_text'), ok: t('settings.update_run')});
+    if (!ok) return;
+    setStatus('update-status', t('update.running'), 'busy');
+    try {
+        const data = await api('/api/update/run', {method: 'POST'});
+        setStatus('update-status', data.message || t('update.done'), 'ok');
+    } catch (e) {
+        setStatus('update-status', e.message, 'bad');
+    }
+});
+
+$('fix-config-btn').addEventListener('click', async () => {
+    const ok = await confirmDialog({title: t('settings.fix_config'), text: t('settings.fix_config_text'), ok: t('common.continue')});
+    if (!ok) return;
+    try {
+        const data = await api('/api/fix-config-permissions', {method: 'POST'});
+        toast(data.message || t('common.done'), 'ok');
+    } catch (e) {
+        toast(e.message, 'bad');
+    }
+});
+
+document.querySelectorAll('[data-chown]').forEach(button => button.addEventListener('click', async () => {
+    const path = $(button.dataset.chown).value.trim();
+    if (!path) return;
+    const ok = await confirmDialog({title: t('settings.chown'), text: t('settings.chown_text', {path}), ok: t('common.continue')});
+    if (!ok) return;
+    try {
+        const data = await api('/api/chown', {method: 'POST', body: {path}});
+        toast(data.message || t('common.done'), 'ok');
+    } catch (e) {
+        toast(e.message, 'bad');
+    }
+}));
+
+// ------------------------------------------------------------------ folder browser
+
+const browser = {target: null, path: '/', files: false};
+
+document.querySelectorAll('[data-browse]').forEach(button => button.addEventListener('click', () => {
+    browser.target = button.dataset.browse;
+    browser.files = Boolean(button.dataset.browseFiles);
+    const current = $(browser.target).value.trim();
+    let start = current || (state.info && state.info.platform === 'win32' ? 'C:\\' : '/');
+    if (browser.files && current) start = current.replace(/[\\/][^\\/]*$/, '') || '/';
+    $('browser-dialog').showModal();
+    loadBrowser(start);
+}));
+
+async function loadBrowser(path) {
+    const list = $('browser-list');
+    list.replaceChildren(h('li', {}, h('p', {class: 'empty', text: t('common.loading')})));
+    let data;
+    try {
+        data = await api(`/api/browse?path=${encodeURIComponent(path)}`);
+    } catch (e) {
+        if (path !== '/' && e.status === 404) return loadBrowser('/');
+        list.replaceChildren(h('li', {}, h('p', {class: 'empty', text: e.message})));
+        return;
+    }
+    browser.path = data.current_path;
+    $('browser-current-path').textContent = data.current_path;
+    const rows = [];
+    if (data.parent_path) {
+        rows.push(h('li', {}, h('button', {type: 'button', class: 'row', style: 'width:100%;border:0;background:none;color:inherit;font:inherit;text-align:left',
+            onclick: () => loadBrowser(data.parent_path)}, icon('folder'), h('span', {class: 'name', text: '..'}))));
+    }
+    for (const entry of data.entries) {
+        if (!entry.is_dir && !browser.files) continue;
+        rows.push(h('li', {}, h('button', {
+            type: 'button', class: 'row', style: 'width:100%;border:0;background:none;color:inherit;font:inherit;text-align:left',
+            onclick: () => {
+                if (entry.is_dir) loadBrowser(entry.path);
+                else { $(browser.target).value = entry.path; $(browser.target).dispatchEvent(new Event('input', {bubbles: true})); $('browser-dialog').close(); }
+            },
+        }, icon(entry.is_dir ? 'folder' : 'file'), h('span', {class: 'name', text: entry.name}))));
+    }
+    if (!rows.length || (rows.length === 1 && data.parent_path)) rows.push(h('li', {}, h('p', {class: 'empty', text: t('browser.empty')})));
+    list.replaceChildren(...rows);
+}
+
+$('browser-select').addEventListener('click', () => {
+    if (browser.files) return;
+    const input = $(browser.target);
+    input.value = browser.path;
+    input.dispatchEvent(new Event('input', {bubbles: true}));
+    $('browser-dialog').close();
+});
+
+// ------------------------------------------------------------------ token dialog
+
+$('token-form').addEventListener('submit', (event) => {
+    event.preventDefault();
+    const value = $('token-input').value.trim();
+    if (!value) return;
+    const params = new URLSearchParams(window.location.search);
+    params.set('token', value);
+    window.location.search = params.toString();
+});
+$('token-dialog').addEventListener('close', () => { tokenDialogShown = false; });
+
+// ------------------------------------------------------------------ first-start assistant
+
+const wizard = {step: 1, steps: 4};
+
+function showWizardStep(step) {
+    wizard.step = step;
+    document.querySelectorAll('.wizard-step').forEach(el => { el.hidden = Number(el.dataset.step) !== step; });
+    document.querySelectorAll('.steps li').forEach((li, i) => li.classList.toggle('done', i < step));
+    $('wizard-step-label').textContent = t('wizard.step', {step, count: wizard.steps});
+    $('wizard-back').hidden = step === 1;
+    $('wizard-next').textContent = step === wizard.steps ? t('wizard.finish') : t('wizard.next');
+    if (step === 3) wizardCameraCheck();
+    if (step === 4) {
+        const rows = [
+            [t('settings.language'), $('wizard-language').value === 'de' ? 'Deutsch' : 'English'],
+            [t('settings.plex_root'), $('wizard-plex-root').value],
+            [t('settings.dv_root'), $('wizard-dv-root').value],
+        ];
+        $('wizard-summary').replaceChildren(...rows.flatMap(([a, b]) => [h('dt', {text: a}), h('dd', {text: b})]));
+    }
+}
+
+async function openWizard() {
+    if (!state.settings) await loadSettings(true);
+    $('wizard-language').value = lang;
+    $('wizard-plex-root').value = (state.settings && state.settings.plex_movies_root) || '';
+    $('wizard-dv-root').value = (state.settings && state.settings.dv_import_root) || '';
+    $('wizard-error').hidden = true;
+    showWizardStep(1);
+    if (!$('wizard-dialog').open) $('wizard-dialog').showModal();
+}
+
+async function wizardCameraCheck() {
+    const box = $('wizard-camera-result');
+    box.className = 'check-result';
+    box.textContent = t('wizard.camera_looking');
+    await loadInfo();
+    await loadStatus();
+    if (state.info && !state.info.capture.supported) {
+        box.className = 'check-result bad';
+        box.textContent = t('wizard.camera_unsupported');
+    } else if (state.status && state.status.device_available) {
+        box.className = 'check-result ok';
+        box.textContent = state.info && state.info.demo ? t('wizard.camera_demo') : t('wizard.camera_found');
+    } else {
+        box.className = 'check-result bad';
+        box.textContent = t('wizard.camera_missing');
+    }
+}
+
+$('wizard-language').addEventListener('change', (event) => { setLanguage(event.target.value); showWizardStep(wizard.step); });
+$('wizard-camera-check').addEventListener('click', wizardCameraCheck);
+$('wizard-back').addEventListener('click', () => showWizardStep(Math.max(1, wizard.step - 1)));
+$('wizard-skip').addEventListener('click', async () => {
+    try { await api('/api/settings', {method: 'POST', body: {setup_done: true}}); } catch (_) { /* ask again next time */ }
+    $('wizard-dialog').close();
+});
+
+$('wizard-form').addEventListener('submit', async (event) => {
+    event.preventDefault();
+    if (wizard.step === 2) {
+        const plex = $('wizard-plex-root').value.trim();
+        const dv = $('wizard-dv-root').value.trim();
+        if (!plex || !dv) {
+            $('wizard-error').textContent = t('settings.folders_required');
+            $('wizard-error').hidden = false;
             return;
         }
-        
-        if (!confirm(`${videosWithoutPoster.length} Poster werden generiert. Fortfahren?`)) {
-            return;
-        }
-        
-        const statusEl = document.getElementById('cover-status');
-        const progressEl = document.getElementById('cover-progress');
-        const progressFillEl = document.getElementById('cover-progress-fill');
-        
-        statusEl.textContent = 'Sende Anfrage...';
-        statusEl.className = 'status';
-        progressEl.style.display = 'block';
-        progressFillEl.style.width = '0%';
-        
-        const batchResponse = await fetch('/api/poster/generate-batch', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({video_paths: videosWithoutPoster})
-        });
-        
-        const batchData = await batchResponse.json();
-        if (batchResponse.ok) {
-            statusEl.textContent = `${batchData.count} Poster-Generierungs-Jobs zur Queue hinzugefügt`;
-            statusEl.className = 'status success';
-            progressFillEl.style.width = '10%';
-            addLog(`${batchData.count} Poster-Generierungs-Jobs gestartet`, 'poster_generation');
-        } else {
-            statusEl.textContent = 'Fehler: ' + (batchData.detail || 'Unbekannter Fehler');
-            statusEl.className = 'status error';
-            alert(batchData.detail || 'Fehler bei Poster-Generierung');
-        }
-    } catch (error) {
-        const statusEl = document.getElementById('cover-status');
-        statusEl.textContent = 'Fehler: ' + error.message;
-        statusEl.className = 'status error';
-        alert('Fehler: ' + error.message);
-        console.error('Fehler bei generatePosterAll:', error);
+        $('wizard-error').hidden = true;
     }
-}
-
-// Settings functions
-let currentBrowserTarget = null;
-let currentBrowserPath = '/';
-
-async function fixConfigPermissions() {
-    if (!confirm('Config-Berechtigungen korrigieren?\\n\\nDies führt "sudo chown" auf den Config-Ordner aus.')) {
-        return;
-    }
-    
-    document.getElementById('settings-status').textContent = 'Korrigiere Berechtigungen...';
-    document.getElementById('settings-status').className = 'status';
-    
+    if (wizard.step < wizard.steps) { showWizardStep(wizard.step + 1); return; }
     try {
-        const response = await fetch('/api/fix-config-permissions', {
-            method: 'POST'
-        });
-        
-        const data = await response.json();
-        if (response.ok) {
-            document.getElementById('settings-status').textContent = '✓ Berechtigungen korrigiert! Versuche erneut zu speichern.';
-            document.getElementById('settings-status').className = 'status success';
-        } else {
-            throw new Error(data.detail || 'Fehler');
-        }
-    } catch (error) {
-        document.getElementById('settings-status').textContent = 'Fehler: ' + error.message;
-        document.getElementById('settings-status').className = 'status error';
-    }
-}
-
-async function loadSettings() {
-    try {
-        const response = await fetch('/api/settings');
-        const data = await response.json();
-        
-        document.getElementById('settings-plex-root').value = data.plex_movies_root || '';
-        document.getElementById('settings-dv-root').value = data.dv_import_root || '';
-        document.getElementById('settings-ffmpeg').value = data.ffmpeg_path || '';
-        document.getElementById('settings-auto-postprocess').checked = data.auto_postprocess || false;
-        document.getElementById('settings-auto-upscale').checked = data.auto_upscale || false;
-        document.getElementById('settings-auto-export').checked = data.auto_export || false;
-        const showCover = (data.show_cover_tab === undefined || data.show_cover_tab === null) ? true : !!data.show_cover_tab;
-        const coverCb = document.getElementById('settings-show-cover');
-        if (coverCb) {
-            coverCb.checked = showCover;
-            coverCb.onchange = () => applyCoverTabVisibility(coverCb.checked);
-        }
-        applyCoverTabVisibility(showCover);
-
-        const themeSelect = document.getElementById('settings-theme');
-        if (themeSelect) {
-            const theme = normalizeThemeName(data.ui_theme || getStoredTheme() || 'plex');
-            themeSelect.value = theme;
-            applyTheme(theme);
-            themeSelect.onchange = () => applyTheme(themeSelect.value);
-        }
-        
-        document.getElementById('settings-status').textContent = 'Einstellungen geladen.';
-        document.getElementById('settings-status').className = 'status';
-        refreshUpdateStatus();
-    } catch (error) {
-        console.error('Fehler beim Laden der Einstellungen:', error);
-        document.getElementById('settings-status').textContent = 'Fehler beim Laden!';
-        document.getElementById('settings-status').className = 'status error';
-    }
-}
-
-async function saveSettings() {
-    const settings = {
-        plex_movies_root: document.getElementById('settings-plex-root').value,
-        dv_import_root: document.getElementById('settings-dv-root').value,
-        ffmpeg_path: document.getElementById('settings-ffmpeg').value,
-        auto_postprocess: document.getElementById('settings-auto-postprocess').checked,
-        auto_upscale: document.getElementById('settings-auto-upscale').checked,
-        auto_export: document.getElementById('settings-auto-export').checked,
-        ui_theme: normalizeThemeName(document.getElementById('settings-theme')?.value || getStoredTheme() || 'plex'),
-        show_cover_tab: document.getElementById('settings-show-cover')?.checked ?? true
-    };
-
-    applyTheme(settings.ui_theme);
-    applyCoverTabVisibility(!!settings.show_cover_tab);
-    
-    try {
-        const response = await fetch('/api/settings', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify(settings)
-        });
-        
-        const data = await response.json();
-        if (response.ok) {
-            document.getElementById('settings-status').textContent = '✓ Einstellungen gespeichert!';
-            document.getElementById('settings-status').className = 'status success';
-        } else {
-            throw new Error(data.detail || 'Fehler beim Speichern');
-        }
-    } catch (error) {
-        document.getElementById('settings-status').textContent = 'Fehler: ' + error.message;
-        document.getElementById('settings-status').className = 'status error';
-    }
-}
-
-function setUpdateStatus(text, kind = 'normal') {
-    const el = document.getElementById('update-status');
-    el.textContent = text;
-    el.className = 'status';
-    if (kind === 'success') el.classList.add('success');
-    if (kind === 'error') el.classList.add('error');
-}
-
-async function refreshUpdateStatus() {
-    try {
-        setUpdateStatus('Lade Update-Status...');
-        const response = await fetch('/api/update/status');
-        const data = await response.json();
-        if (!response.ok) {
-            throw new Error(data.detail || 'Fehler beim Laden des Update-Status');
-        }
-        const status = data.status || {};
-        const blocked = status.blocked_reason ? ` (blockiert: ${status.blocked_reason})` : '';
-        const behind = typeof status.behind === 'number' ? status.behind : '?';
-        const remote = status.remote ? status.remote.slice(0, 7) : 'unbekannt';
-        const local = status.local ? status.local.slice(0, 7) : 'unbekannt';
-        setUpdateStatus(`Local ${local} | Remote ${remote} | Behind ${behind}${blocked}`, 'success');
-    } catch (error) {
-        console.error(error);
-        setUpdateStatus('Fehler beim Laden des Update-Status: ' + error.message, 'error');
-    }
-}
-
-async function runUpdate() {
-    const btn = document.getElementById('update-run-btn');
-    btn.disabled = true;
-    setUpdateStatus('Update wird ausgeführt...');
-    try {
-        const response = await fetch('/api/update/run', {method: 'POST'});
-        const data = await response.json();
-        if (!response.ok) {
-            throw new Error(data.detail || data.error || 'Update fehlgeschlagen');
-        }
-        const msg = data.message || (data.success ? 'Update erfolgreich' : 'Kein Update nötig');
-        setUpdateStatus(msg, data.success ? 'success' : 'normal');
-    } catch (error) {
-        setUpdateStatus('Fehler: ' + error.message, 'error');
-    } finally {
-        btn.disabled = false;
-        refreshUpdateStatus();
-    }
-}
-
-async function applyChown(target) {
-    let path;
-    if (target === 'plex') {
-        path = document.getElementById('settings-plex-root').value;
-    } else if (target === 'dv') {
-        path = document.getElementById('settings-dv-root').value;
-    }
-    
-    if (!path) {
-        alert('Bitte zuerst einen Pfad angeben');
-        return;
-    }
-    
-    if (!confirm(`Berechtigungen für "${path}" ändern?\\n\\nDies führt "sudo chown -R" aus.`)) {
-        return;
-    }
-    
-    document.getElementById('settings-status').textContent = 'Ändere Berechtigungen...';
-    document.getElementById('settings-status').className = 'status';
-    
-    try {
-        const response = await fetch('/api/chown', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({path: path})
-        });
-        
-        const data = await response.json();
-        if (response.ok) {
-            document.getElementById('settings-status').textContent = '✓ Berechtigungen erfolgreich geändert!';
-            document.getElementById('settings-status').className = 'status success';
-        } else {
-            throw new Error(data.detail || 'Fehler bei chown');
-        }
-    } catch (error) {
-        document.getElementById('settings-status').textContent = 'Fehler: ' + error.message;
-        document.getElementById('settings-status').className = 'status error';
-    }
-}
-
-function browsePath(target) {
-    currentBrowserTarget = target;
-    
-    // Start path based on current value or default
-    let startPath = '/';
-    if (target === 'plex') {
-        startPath = document.getElementById('settings-plex-root').value || '/home';
-    } else if (target === 'dv') {
-        startPath = document.getElementById('settings-dv-root').value || '/home';
-    } else if (target === 'ffmpeg') {
-        startPath = document.getElementById('settings-ffmpeg').value || '/usr/bin';
-    }
-    
-    // Navigate to parent if it's a file
-    if (startPath && !startPath.endsWith('/')) {
-        const parts = startPath.split('/');
-        parts.pop();
-        startPath = parts.join('/') || '/';
-    }
-    
-    loadBrowserDirectory(startPath);
-    document.getElementById('browser-modal').classList.add('active');
-}
-
-async function loadBrowserDirectory(path) {
-    try {
-        const response = await fetch(`/api/browse?path=${encodeURIComponent(path)}`);
-        const data = await response.json();
-        
-        currentBrowserPath = data.current_path;
-        document.getElementById('browser-current-path').textContent = data.current_path;
-        
-        const list = document.getElementById('browser-list');
-        list.innerHTML = '';
-        
-        // Parent directory entry
-        if (data.parent_path) {
-            const parentItem = document.createElement('div');
-            parentItem.className = 'browser-item folder';
-            parentItem.innerHTML = '<span class="icon">📁</span><span class="name">..</span>';
-            parentItem.onclick = () => loadBrowserDirectory(data.parent_path);
-            list.appendChild(parentItem);
-        }
-        
-        // Directory entries
-        data.entries.forEach(entry => {
-            const item = document.createElement('div');
-            item.className = 'browser-item' + (entry.is_dir ? ' folder' : '');
-            item.innerHTML = `<span class="icon">${entry.is_dir ? '📁' : '📄'}</span><span class="name">${entry.name}</span>`;
-            
-            if (entry.is_dir) {
-                item.onclick = () => loadBrowserDirectory(entry.path);
-            }
-            
-            list.appendChild(item);
-        });
-        
-        if (data.entries.length === 0) {
-            list.innerHTML += '<div class="browser-item" style="color: var(--plex-text-secondary);">Leeres Verzeichnis</div>';
-        }
-    } catch (error) {
-        console.error('Fehler beim Laden:', error);
-        document.getElementById('browser-list').innerHTML = '<div class="browser-item error">Fehler: ' + error.message + '</div>';
-    }
-}
-
-function closeBrowser() {
-    document.getElementById('browser-modal').classList.remove('active');
-}
-
-function selectCurrentPath() {
-    if (currentBrowserTarget === 'plex') {
-        document.getElementById('settings-plex-root').value = currentBrowserPath;
-    } else if (currentBrowserTarget === 'dv') {
-        document.getElementById('settings-dv-root').value = currentBrowserPath;
-    } else if (currentBrowserTarget === 'ffmpeg') {
-        document.getElementById('settings-ffmpeg').value = currentBrowserPath;
-    }
-    closeBrowser();
-}
-
-// Merge Queue Functions
-function updateMergeQueue(job) {
-    const container = document.getElementById('merge-queue-container');
-    const current = document.getElementById('merge-queue-current');
-    const title = document.getElementById('merge-current-title');
-    const status = document.getElementById('merge-current-status');
-    const progress = document.getElementById('merge-progress-fill');
-    const message = document.getElementById('merge-current-message');
-    
-    if (job) {
-        container.style.display = 'block';
-        current.style.display = 'block';
-        title.textContent = `${job.title} (${job.year})`;
-        status.textContent = job.status;
-        status.className = 'badge badge-' + job.status;
-        progress.style.width = job.progress + '%';
-        message.textContent = job.message;
-        
-        // Update status badge color
-        if (job.status === 'completed') {
-            status.style.background = '#2ecc71';
-        } else if (job.status === 'failed') {
-            status.style.background = '#e74c3c';
-        } else if (job.status === 'running') {
-            status.style.background = 'var(--plex-gold)';
-        } else {
-            status.style.background = 'var(--plex-text-secondary)';
-        }
-    }
-}
-
-async function loadMergeQueueStatus() {
-    try {
-        const response = await fetch('/api/merge/queue');
-        const data = await response.json();
-        
-        // Capture-Tab Mini-Widget
-        const container = document.getElementById('merge-queue-container');
-        const pending = document.getElementById('merge-queue-pending');
-        
-        if (data.current_job || data.pending_count > 0) {
-            container.style.display = 'block';
-            
-            if (data.current_job) {
-                updateMergeQueue(data.current_job);
-            }
-            
-            if (data.pending_count > 0) {
-                pending.textContent = `${data.pending_count} Job(s) in der Warteschlange`;
-            } else {
-                pending.textContent = '';
-            }
-        } else {
-            container.style.display = 'none';
-        }
-
-        // Queue-Tab
-        const currentBlock = document.getElementById('queue-current');
-        const currentTitle = document.getElementById('queue-current-title');
-        const currentStatus = document.getElementById('queue-current-status');
-        const currentMessage = document.getElementById('queue-current-message');
-        const currentProgress = document.getElementById('queue-progress-fill');
-        const list = document.getElementById('queue-list');
-
-        if (data.current_job) {
-            currentBlock.style.display = 'block';
-            currentTitle.textContent = `${data.current_job.title} (${data.current_job.year})`;
-            currentStatus.textContent = data.current_job.status;
-            currentStatus.className = 'badge badge-' + data.current_job.status;
-            currentMessage.textContent = data.current_job.message || '';
-            currentProgress.style.width = data.current_job.progress + '%';
-        } else {
-            currentBlock.style.display = 'none';
-        }
-
-        if (data.jobs && data.jobs.length > 0) {
-            list.innerHTML = data.jobs.map(j => {
-                const color = j.status === 'completed' ? '#2ecc71' :
-                              j.status === 'failed' ? '#e74c3c' :
-                              j.status === 'running' ? 'var(--plex-gold)' : '#999';
-                return `<div style="padding: 10px; border-bottom: 1px solid rgba(255,255,255,0.06); display: flex; justify-content: space-between; align-items: center;">
-                    <div>
-                        <div style="font-weight: 600;">${j.title} (${j.year})</div>
-                        <div style="font-size: 12px; color: var(--plex-text-secondary);">${j.message || ''}</div>
-                    </div>
-                    <div style="text-align: right;">
-                        <div class="badge" style="background: ${color}; color: #000;">${j.status}</div>
-                        <div style="font-size: 11px; color: var(--plex-text-secondary);">${j.progress}%</div>
-                    </div>
-                </div>`;
-            }).join('');
-        } else {
-            list.innerHTML = '<div style="color: var(--plex-text-secondary); padding: 12px;">Keine Jobs in der Queue.</div>';
-        }
+        await api('/api/settings', {method: 'POST', body: {
+            ui_language: $('wizard-language').value,
+            plex_movies_root: $('wizard-plex-root').value.trim(),
+            dv_import_root: $('wizard-dv-root').value.trim(),
+            setup_done: true,
+        }});
+        $('wizard-dialog').close();
+        toast(t('wizard.saved'), 'ok');
+        await loadSettings(true);
+        loadInfo();
     } catch (e) {
-        console.error('Merge-Queue-Status konnte nicht geladen werden:', e);
+        $('wizard-error').textContent = e.message;
+        $('wizard-error').hidden = false;
+        showWizardStep(2);
     }
+});
+
+$('wizard-open-btn').addEventListener('click', openWizard);
+
+// ------------------------------------------------------------------ start
+
+function renderEverything() {
+    for (const [id, key] of Object.entries(chipKeys)) $(`${id}-text`).textContent = t(key);
+    if (state.info) renderSystemFacts();
+    renderProfiles();
+    renderPostprocessList();
+    if (state.cover.videos.length) renderCoverList();
+    if (state.movie.videos.length || state.movie.storage) renderMovieList();
+    renderMergeQueue();
+    if (state.player.projects.length) renderPlayerProjects();
+    if (state.activeTab === 'logs') loadLogs();
+    tickClock();
+    if (state.status) loadStatus();
+    if ($('wizard-dialog').open) showWizardStep(wizard.step);
+    setCaptureRunning(state.capture.running);
+    if (!state.capture.running) setStatus('capture-status', t('capture.ready'));
 }
 
-// Logs Functions
-let allLogs = [];
-
-async function refreshLogs() {
+async function start() {
+    let storedLang = '';
+    let storedTheme = 'auto';
     try {
-        const response = await fetch('/api/logs?limit=200');
-        const data = await response.json();
-        allLogs = data.logs;
-        filterLogs();
-    } catch (e) {
-        console.error('Logs konnten nicht geladen werden:', e);
+        storedLang = localStorage.getItem('dv2plex_language') || '';
+        storedTheme = localStorage.getItem('dv2plex_theme') || 'auto';
+    } catch (_) { /* ignore */ }
+    lang = pickLanguage(storedLang);
+    applyTheme(storedTheme);
+    applyTranslations();
+    tickClock();
+    setInterval(tickClock, 1000);
+
+    connectWebSocket();
+    await loadInfo();
+    try { state.settings = await api('/api/settings'); } catch (_) { /* token dialog or offline */ }
+    if (state.settings) {
+        lang = pickLanguage(state.settings.ui_language);
+        applyTheme(state.settings.ui_theme);
+        applyTranslations();
+        setCoverTabVisible(state.settings.show_cover_tab !== false);
+        fillSettings();
     }
+    await loadProfiles();
+    await loadStatus();
+    loadMergeQueue();
+    loadPostprocessList();
+    renderEverything();
+
+    const initial = window.location.hash.slice(1);
+    activateTab(TABS.includes(initial) ? initial : 'capture');
+
+    setInterval(loadStatus, 4000);
+    setInterval(loadMergeQueue, 6000);
+    if (state.settings && state.settings.setup_done === false && !(state.info && state.info.demo)) openWizard();
 }
 
-function filterLogs() {
-    const filter = document.getElementById('log-filter').value;
-    const container = document.getElementById('system-logs');
-    
-    let filteredLogs = allLogs;
-    if (filter) {
-        filteredLogs = allLogs.filter(l => l.category === filter);
-    }
-    
-    if (filteredLogs.length === 0) {
-        container.innerHTML = '<div style="color: var(--plex-text-secondary); padding: 20px; text-align: center;">Keine Logs vorhanden</div>';
-        return;
-    }
-    
-    container.innerHTML = filteredLogs.map(log => {
-        const time = new Date(log.timestamp).toLocaleTimeString('de-DE');
-        const categoryColor = log.category === 'merge' ? 'var(--plex-gold)' : 
-                             log.category === 'capture' ? 'var(--plex-orange)' : '#999';
-        return `<div style="margin-bottom: 4px; border-left: 3px solid ${categoryColor}; padding-left: 8px;">
-            <span style="color: var(--plex-text-secondary); font-size: 10px;">[${time}]</span>
-            <span>${log.message}</span>
-        </div>`;
-    }).join('');
-    
-    // Scroll to bottom
-    container.scrollTop = container.scrollHeight;
-}
-
-function addToSystemLogs(message) {
-    const container = document.getElementById('system-logs');
-    const time = new Date().toLocaleTimeString('de-DE');
-    
-    // Add to allLogs
-    allLogs.push({
-        timestamp: new Date().toISOString(),
-        message: message,
-        category: 'general'
-    });
-    
-    // Keep only last 200
-    if (allLogs.length > 200) {
-        allLogs = allLogs.slice(-200);
-    }
-    
-    // Add to DOM
-    const div = document.createElement('div');
-    div.style.marginBottom = '4px';
-    div.style.borderLeft = '3px solid #999';
-    div.style.paddingLeft = '8px';
-    div.innerHTML = `<span style="color: var(--plex-text-secondary); font-size: 10px;">[${time}]</span>
-        <span>${message}</span>`;
-    container.appendChild(div);
-    
-    // Scroll to bottom
-    container.scrollTop = container.scrollHeight;
-}
-
-async function clearLogs() {
-    try {
-        await fetch('/api/logs/clear', { method: 'POST' });
-        allLogs = [];
-        document.getElementById('system-logs').innerHTML = 
-            '<div style="color: var(--plex-text-secondary); padding: 20px; text-align: center;">Logs gelöscht</div>';
-    } catch (e) {
-        console.error('Logs konnten nicht gelöscht werden:', e);
-    }
-}
-
-// Periodic status updates
-setInterval(() => {
-    loadMergeQueueStatus();
-}, 5000);
-
-// Clock/Dauer im Digitalisieren-Tab
-setInterval(() => {
-    updateCaptureTimeUI();
-}, 1000);
-
-// Initialize
-applyTheme(getStoredTheme());
-connectWebSocket();
-loadStatus();
-updateCaptureTimeUI();
-loadUpscalingProfiles();
-loadPostprocessList();
-loadSettings();
-loadMergeQueueStatus();
-refreshLogs();
+window.dv2plex = {openWizard, activateTab, setLanguage, applyTheme};
+start();
