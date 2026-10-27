@@ -79,8 +79,8 @@ Documentation improvements are always welcome:
 
 ```bash
 # Clone repository
-git clone https://github.com/yourusername/dv2plex.git
-cd dv2plex
+git clone https://github.com/FutureMan0/DV2Plex.git
+cd DV2Plex
 
 # Create virtual environment
 python -m venv venv

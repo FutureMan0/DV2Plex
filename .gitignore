@@ -1,38 +1,81 @@
-# Windows / general
-Thumbs.db
-ehthumbs.db
-Desktop.ini
-*.lnk
-*.DS_Store
-*.tmp
-*.log
-~$*
-
 # Python
 __pycache__/
 *.py[cod]
-*.pyo
-*.pyd
-*.egg-info/
+*$py.class
+*.so
 *.egg
+*.egg-info/
 .Python
 build/
 dist/
-.venv/
-venv/
-ENV/
-env/
-.pytest_cache/
-.coverage
-.mypy_cache/
+*.exe
 
-# VSCode / IDE
+# Virtual environments
+venv/
+.venv/
+.venv
+env/
+ENV/
+
+# Tooling caches
+.pytest_cache/
+.mypy_cache/
+.coverage
+*.cache
+
+# Editors and IDEs
 .vscode/
 .idea/
-*.code-workspace
 .cursor/
+*.code-workspace
+*.swp
+*.swo
+*~
 
-# Visual Studio / MSBuild
+# Operating systems
+.DS_Store
+*.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+desktop.ini
+*.lnk
+
+# Local settings. Note: settings.json is still tracked from an earlier commit,
+# so this rule has no effect until it is removed from the index.
+dv2plex/config/settings.json
+
+# Third-party binaries and model weights
+dv2plex/bin/ffmpeg.exe
+dv2plex/bin/ffmpeg/bin/
+dv2plex/bin/ffmpeg/lib/
+dv2plex/bin/realesrgan/weights/
+dv2plex/bin/video2x/
+
+# Captures, generated media and work folders
+DV/
+dv2plex/DV_Import/
+dv2plex/PlexMovies/
+*.avi
+*.mp4
+# Note: this also matches dv2plex/bin/realesrgan/assets/, whose files are tracked anyway.
+assets/
+
+# Logs and leftovers
+dv2plex/logs/
+*.log
+*.tmp
+*.bak
+*.old
+~$*
+
+# Windows capture bridge (WinDV) and Visual Studio build output
+dv2plex/bin/windv/Debug/
+dv2plex/bin/windv/Release/
+dv2plex/bin/windv/WinDVCaptureBridge/Debug/
+dv2plex/bin/windv/WinDVCaptureBridge/Release/
+dv2plex/bin/windv/windv_build.log
+.vs/
 *.suo
 *.user
 *.userosscache
@@ -49,8 +92,6 @@ env/
 *.res
 *.exp
 *.lib
-*.log
-*.cache
 *.aps
 *.ncb
 *.sbr
@@ -61,76 +102,3 @@ env/
 *.opensdf
 *.sdf
 *.opendb
-.vs/
-
-# DirectShow BaseClasses / WinDV build outputs
-dv2plex/bin/windv/Debug/
-dv2plex/bin/windv/Release/
-dv2plex/bin/windv/WinDVCaptureBridge/Debug/
-dv2plex/bin/windv/WinDVCaptureBridge/Release/
-dv2plex/bin/windv/windv_build.log
-
-# Third-party binaries (ffmpeg, realesrgan weights, etc.)
-dv2plex/bin/ffmpeg/bin/
-dv2plex/bin/ffmpeg/lib/
-dv2plex/bin/realesrgan/weights/
-
-# Captured media / generated videos
-DV/
-dv2plex/DV_Import/
-dv2plex/PlexMovies/
-
-# Logs
-dv2plex/logs/
-
-# Misc
-*.avi
-*.mp4
-*.bak
-*.old
-# Python
-__pycache__/
-*.py[cod]
-*$py.class
-*.so
-.Python
-venv/
-env/
-ENV/
-.venv
-
-# IDE
-.vscode/
-.idea/
-*.swp
-*.swo
-*~
-
-# Logs
-*.log
-dv2plex/logs/
-
-# Konfiguration (kann angepasst werden)
-dv2plex/config/settings.json
-
-# Arbeitsordner
-dv2plex/DV_Import/
-dv2plex/PlexMovies/
-
-# Externe Tools (nicht versionieren)
-dv2plex/bin/ffmpeg.exe
-dv2plex/bin/video2x/
-
-assets/
-
-# Build
-build/
-dist/
-*.egg-info/
-*.exe
-
-# OS
-.DS_Store
-Thumbs.db
-desktop.ini
-
