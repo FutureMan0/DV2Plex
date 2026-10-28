@@ -46,6 +46,8 @@ jobs:
         run: if (-not (Get-Command iscc -ErrorAction SilentlyContinue)) { choco install innosetup -y --no-progress }
       - run: pip install -r requirements-build.txt
       - name: Build
+        env:
+          GH_TOKEN: ${{ github.token }}  # BtbN's release list (GitHub API) without the anonymous rate limit
         run: python packaging/build.py
       - name: The packaged app runs the whole chain
         shell: bash
@@ -56,6 +58,14 @@ jobs:
             *) app=dist/DV2Plex/DV2Plex ;;
           esac
           "$app" --demo-run --demo-dir "$RUNNER_TEMP/demo"
+      - name: Log of the failed demo run
+        if: failure()
+        shell: bash
+        run: |
+          tmp=$(python -c "import tempfile; print(tempfile.gettempdir())")
+          for f in "$tmp"/dv2plex-demo-*.log; do [ -f "$f" ] && { echo "== $f"; tail -n 200 "$f"; }; done
+          ls -la "$RUNNER_TEMP/demo" 2>/dev/null || true
+          find "$RUNNER_TEMP/demo" -maxdepth 4 -type f 2>/dev/null | head -50 || true
       - uses: actions/upload-artifact@v4
         with:
           name: DV2Plex-${{ runner.os }}-${{ matrix.os }}

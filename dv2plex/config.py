@@ -29,6 +29,29 @@ def is_frozen() -> bool:
     return bool(getattr(sys, "frozen", False))
 
 
+def _bundled_ffmpeg_candidates() -> List[Path]:
+    folder = PACKAGE_DIR / "bin" / "ffmpeg" / "bin"
+    return [folder / "ffmpeg.exe", folder / "ffmpeg"]
+
+
+def find_ffmpeg() -> Path:
+    """
+    ffmpeg when no path is configured: in the desktop app the bundled one (a full build with
+    drawtext), otherwise the one on PATH, then a copy in dv2plex/bin/ffmpeg/bin.
+
+    Also used by the simulated camera, which runs as its own process without the settings.
+    """
+    bundled = next((c for c in _bundled_ffmpeg_candidates() if c.is_file()), None)
+    if bundled and is_frozen():
+        return bundled
+    system = shutil.which("ffmpeg")
+    if system:
+        return Path(system)
+    if bundled:
+        return bundled
+    return Path("ffmpeg")  # left to PATH; fails later with a clear "not found"
+
+
 def uses_user_folders() -> bool:
     """
     The packaged app and copies installed with pip keep their data in the user's folders;
@@ -468,27 +491,11 @@ class Config:
             # Windows: Werte wie "\usr\bin\ffmpeg" (oder "/usr/bin/ffmpeg") sind hier meist ungültig.
             # Dann lieber auto-detect (PATH/bundled) statt einen nicht existierenden Pfad zurückzugeben.
 
-        bundled = next((c for c in self._bundled_ffmpeg_candidates() if c.is_file()), None)
-        # The desktop app ships a full ffmpeg (with drawtext); prefer it to whatever is on PATH
-        if bundled and is_frozen():
-            return bundled
+        return find_ffmpeg()
 
-        # 1) System-PATH
-        ffmpeg_system = shutil.which("ffmpeg")
-        if ffmpeg_system:
-            return Path(ffmpeg_system)
-
-        # 2) Mitgeliefertes ffmpeg (dv2plex/bin/ffmpeg/bin/)
-        if bundled:
-            return bundled
-
-        # 3) Fallback
-        return Path("ffmpeg")  # Verwende System-PATH (kann später fehlschlagen, aber sauberer Default)
-    
     @staticmethod
     def _bundled_ffmpeg_candidates() -> List[Path]:
-        folder = PACKAGE_DIR / "bin" / "ffmpeg" / "bin"
-        return [folder / "ffmpeg.exe", folder / "ffmpeg"]
+        return _bundled_ffmpeg_candidates()
 
     def get_realesrgan_path(self) -> Path:
         """Gibt den Pfad zu inference_realesrgan_video.py zurück"""

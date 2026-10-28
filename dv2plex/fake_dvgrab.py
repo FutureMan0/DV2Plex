@@ -20,13 +20,12 @@ Environment (all optional):
     DV2PLEX_DEMO_ASPECT          4:3 or 16:9 (4:3)
     DV2PLEX_DEMO_REALTIME        1 = take as long as the tape plays, 0 = as fast as possible (1)
     DV2PLEX_DEMO_START           recording time of the first scene (2003-06-14T15:30:00)
-    DV2PLEX_FFMPEG               ffmpeg to use (ffmpeg from PATH)
+    DV2PLEX_FFMPEG               ffmpeg to use (default: the one DV2Plex itself would use)
 """
 
 from __future__ import annotations
 
 import os
-import shutil
 import signal
 import subprocess
 import sys
@@ -69,7 +68,10 @@ def _env_int(name: str, default: int) -> int:
 
 
 def _ffmpeg() -> str:
-    return os.environ.get("DV2PLEX_FFMPEG") or shutil.which("ffmpeg") or "ffmpeg"
+    # In the desktop app ffmpeg is bundled and usually not on PATH
+    from dv2plex.config import find_ffmpeg
+
+    return os.environ.get("DV2PLEX_FFMPEG") or str(find_ffmpeg())
 
 
 def _record(prefix: Path, rewind: bool) -> int:
