@@ -42,9 +42,9 @@ The desktop app contains an FFmpeg build with libx264, which makes that build GP
 and the address it was downloaded from are in `dv2plex/bin/ffmpeg/` inside the package. The
 source code of FFmpeg is at <https://ffmpeg.org/download.html>, that of the builds at:
 
-- Windows: <https://www.gyan.dev/ffmpeg/builds/> (or <https://github.com/BtbN/FFmpeg-Builds>)
+- Windows and Linux: <https://github.com/BtbN/FFmpeg-Builds> (fallbacks:
+  <https://www.gyan.dev/ffmpeg/builds/> on Windows, <https://johnvansickle.com/ffmpeg/> on Linux)
 - macOS: <https://ffmpeg.martin-riedl.de/>
-- Linux: <https://johnvansickle.com/ffmpeg/>
 
 FFmpeg is a trademark of Fabrice Bellard, originator of the FFmpeg project.
 

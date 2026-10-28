@@ -39,6 +39,8 @@ Breaking for servers reached over the network: see [docs/MIGRATION.md](docs/MIGR
 - Slow work (frame extraction) blocked every other request and the live view.
 - When no window could be opened, the server stopped before the browser fallback opened.
 - The live preview showed 4:3 tapes as 5:4.
+- In the desktop app the demo camera found no ffmpeg (it looked only on PATH), and on
+  Windows its messages never reached DV2Plex; the demo recorded nothing.
 
 ### Changed
 
