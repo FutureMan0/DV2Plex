@@ -10,6 +10,11 @@ from dv2plex.config import Config, SHIPPED_LEGACY_SETTINGS_BLOB, git_blob_id
 TRACKED_SETTINGS = Path(__file__).parent / "config" / "settings.json"
 
 
+def _tracked_settings_lf() -> bytes:
+    # A Windows checkout (core.autocrlf) has CRLF; git stores the file with LF.
+    return TRACKED_SETTINGS.read_bytes().replace(b"\r\n", b"\n")
+
+
 @pytest.fixture
 def config_dir(tmp_path, monkeypatch):
     monkeypatch.setattr(config_module, "CONFIG_DIR", tmp_path)
@@ -32,7 +37,7 @@ def test_git_blob_id_matches_git(tmp_path):
 
 
 def test_shipped_blob_is_the_tracked_settings_file():
-    assert git_blob_id(TRACKED_SETTINGS.read_bytes()) == SHIPPED_LEGACY_SETTINGS_BLOB
+    assert git_blob_id(_tracked_settings_lf()) == SHIPPED_LEGACY_SETTINGS_BLOB
 
 
 def test_fresh_install_writes_defaults_to_local_file(config_dir):
@@ -68,7 +73,7 @@ def test_local_file_wins_over_legacy(config_dir):
 
 @pytest.mark.parametrize("line_ending", [b"\n", b"\r\n"])
 def test_unchanged_tracked_file_is_not_taken_over(config_dir, line_ending):
-    content = TRACKED_SETTINGS.read_bytes().replace(b"\n", line_ending)
+    content = _tracked_settings_lf().replace(b"\n", line_ending)
     (config_dir / "settings.json").write_bytes(content)
 
     config = Config()
