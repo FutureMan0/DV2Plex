@@ -69,12 +69,38 @@ def test_frozen_app_keeps_its_data_in_the_user_folders(monkeypatch, tmp_path):
 def test_frozen_app_prefers_its_own_ffmpeg(monkeypatch, tmp_path):
     bundled = tmp_path / "ffmpeg"
     bundled.write_text("")
-    monkeypatch.setattr(Config, "_bundled_ffmpeg_candidates", staticmethod(lambda: [bundled]))
+    monkeypatch.setattr(config_module, "_bundled_ffmpeg_candidates", lambda: [bundled])
     monkeypatch.setattr(config_module, "CONFIG_DIR", tmp_path / "config")
     config = Config()
 
     monkeypatch.setattr(sys, "frozen", True, raising=False)
     assert config.get_ffmpeg_path() == bundled
+
+
+def test_simulated_camera_in_the_app_uses_the_bundled_ffmpeg(monkeypatch, tmp_path):
+    # The v2.0.0 release run recorded 0 clips: the camera looked only on PATH, the app has its own
+    from dv2plex import fake_dvgrab
+
+    bundled = tmp_path / "ffmpeg"
+    bundled.write_text("")
+    monkeypatch.setattr(config_module, "_bundled_ffmpeg_candidates", lambda: [bundled])
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(config_module.shutil, "which", lambda name: None)
+    monkeypatch.delenv("DV2PLEX_FFMPEG", raising=False)
+    assert fake_dvgrab._ffmpeg() == str(bundled)
+
+    monkeypatch.setenv("DV2PLEX_FFMPEG", "/opt/ffmpeg")
+    assert fake_dvgrab._ffmpeg() == "/opt/ffmpeg"
+
+
+def test_window_app_gets_stdio_back_for_the_simulated_camera(monkeypatch):
+    # PyInstaller sets them to None in a window app; the camera needs stdin and stderr
+    from dv2plex import cli
+
+    monkeypatch.setattr(sys, "stdin", None)
+    monkeypatch.setattr(sys, "stderr", None)
+    cli._reattach_stdio()
+    assert sys.stdin is not None and sys.stderr is not None
 
 
 def test_second_start_finds_the_running_instance(tmp_path, monkeypatch):

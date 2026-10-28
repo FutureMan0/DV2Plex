@@ -114,6 +114,21 @@ def _setup_logging() -> None:
         logging.getLogger("dv2plex").info("DV2Plex %s, log file %s", __version__, log_file)
 
 
+def _reattach_stdio() -> None:
+    """
+    The Windows app is a window app (console=False): PyInstaller then sets sys.stdin and
+    sys.stderr to None, even when DV2Plex started it with pipes. As the simulated dvgrab it
+    must read keys from stdin and report on stderr, so use the pipe handles it was given.
+    """
+    for name, fd, mode in (("stdin", 0, "r"), ("stdout", 1, "w"), ("stderr", 2, "w")):
+        if getattr(sys, name) is None:
+            try:
+                setattr(sys, name, open(fd, mode, encoding="utf-8", errors="replace", closefd=False,
+                                        buffering=1 if mode == "w" else -1))
+            except OSError:
+                pass  # no handle: stays None, fake_dvgrab copes without
+
+
 def main(argv: Optional[Sequence[str]] = None) -> None:
     argv = list(sys.argv[1:] if argv is None else argv)
 
@@ -121,6 +136,7 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
     if argv[:1] == ["--fake-dvgrab"]:
         from dv2plex.fake_dvgrab import main as fake_main
 
+        _reattach_stdio()
         sys.exit(fake_main(argv[1:]))
 
     args = _build_parser().parse_args(argv)
